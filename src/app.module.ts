@@ -39,10 +39,6 @@ import { TenantConfigPin } from './iam/entities/tenant-config-pin.entity';
 import { ConfigPack } from './tenant/entities/config-pack.entity';
 import { FeatureFlag } from './tenant/entities/feature-flag.entity';
 
-// CRM entities (new)
-import { Case } from './crm/entities/case.entity';
-import { Note } from './crm/entities/note.entity';
-import { Tag } from './crm/entities/tag.entity';
 
 // Integration entity (new)
 import { IntegrationAdapter } from './integrations/entities/integration-adapter.entity';
@@ -133,9 +129,6 @@ import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } fro
             FeatureFlag,
             // CRM
             UniversalEntity,
-            Case,
-            Note,
-            Tag,
             // Integrations
             IntegrationAdapter,
             // Search & AI

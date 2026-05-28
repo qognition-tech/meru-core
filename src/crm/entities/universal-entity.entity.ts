@@ -7,9 +7,23 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+// CRM polymorphism per CLAUDE.md §2 row 3.
+// One table, many types. Type-specific fields go in verticalAttributes (jsonb).
+// Examples:
+//   type=CASE     → verticalAttributes: { caseNumber, status, priority, assignedTo, dueDate, ... }
+//   type=NOTE     → verticalAttributes: { content, parentEntityType, parentEntityId, ... }
+//   type=TAG      → verticalAttributes: { name, color, ... }
+//   type=ASSET    → verticalAttributes: { kind, identifier, ... }
+//
+// Cross-type queries are jsonb queries. If a field needs an index for perf,
+// lift it to a top-level column with a partial index (WHERE type = 'case').
 export enum EntityType {
   PERSON = 'person',
   ORGANIZATION = 'organization',
+  CASE = 'case',
+  NOTE = 'note',
+  TAG = 'tag',
+  ASSET = 'asset',
 }
 
 @Entity('universal_entities')
