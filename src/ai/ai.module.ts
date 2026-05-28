@@ -2,6 +2,8 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { ScreeningEngine } from './engines/screening.engine';
+import { DocIntelEngine } from './engines/doc-intel.engine';
 import { AiPrompt, AiEmbedding } from './entities/ai-prompt.entity';
 import { CoreModule } from '../core/core.module';
 import { CrmModule } from '../crm/crm.module';
@@ -27,7 +29,7 @@ import { AuditModule } from '../audit/audit.module';
     forwardRef(() => AuditModule),
   ],
   controllers: [AiController],
-  providers: [AiService],
-  exports: [AiService],
+  providers: [AiService, ScreeningEngine, DocIntelEngine],
+  exports: [AiService, ScreeningEngine, DocIntelEngine],
 })
 export class AiModule {}

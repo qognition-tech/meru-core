@@ -21,6 +21,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { StorageModule } from './storage/storage.module';
 import { QueueModule } from './queue/queue.module';
 import { ElasticsearchModule } from './search/elasticsearch/elasticsearch.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 import { User } from './iam/entities/user.entity';
 import { Tenant } from './iam/entities/tenant.entity';
@@ -221,6 +222,7 @@ import {
     StorageModule,
     QueueModule,
     ElasticsearchModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}
