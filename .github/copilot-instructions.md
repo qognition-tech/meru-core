@@ -15,7 +15,7 @@ Meru-Core is a multi-tenant NestJS SaaS platform with shared PostgreSQL database
 
 ## Developer Workflows
 - **Local Development**: Run `docker-compose -f docker-compose.dev.yml up` to start Postgres/Redis, then `npm run start:dev` for hot-reload
-- **Database**: Use `npm run migration:run` for TypeORM migrations; seed with `node setup-db.js` or `node check-db.js` for health
+- **Database**: Use `pnpm run migration:run` for TypeORM migrations; seed with `node scripts/setup-db.js` or `node scripts/check-db.js` for health
 - **Testing**: `npm run test:e2e` for integration tests; debug with `npm run test:debug`
 - **Build/Deploy**: `npm run build` produces dist/, containerized via `Dockerfile`; CI/CD in GitHub Actions (not shown)
 - **Linting/Formatting**: `npm run lint` (ESLint) and `npm run format` (Prettier) on `src/**/*.ts`
