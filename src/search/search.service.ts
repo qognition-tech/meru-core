@@ -3,6 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { SearchIndex, SearchableType } from './entities/search-index.entity';
 
+// SRCH module facade — currently Postgres ILIKE; planned Phase B work
+// is to delegate to ElasticsearchService (./elasticsearch/) for hybrid
+// BM25 + pgvector. All 14 modules import SearchService, not the driver.
 @Injectable()
 export class SearchService {
   constructor(

@@ -21,9 +21,9 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ElasticsearchService } from './elasticsearch.service';
-import { CurrentUser } from '../iam/decorators/current-user.decorator';
-import { TenantId } from '../tenant/decorators/tenant-id.decorator';
-import { JwtAuthGuard } from '../iam/guards/jwt-auth.guard';
+import { CurrentUser } from '../../iam/decorators/current-user.decorator';
+import { TenantId } from '../../tenant/decorators/tenant-id.decorator';
+import { JwtAuthGuard } from '../../iam/guards/jwt-auth.guard';
 import { UseGuards } from '@nestjs/common';
 import {
   SearchDocumentsDto,

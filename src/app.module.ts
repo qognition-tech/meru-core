@@ -19,7 +19,7 @@ import { AuditModule } from './audit/audit.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { StorageModule } from './storage/storage.module';
 import { QueueModule } from './queue/queue.module';
-import { ElasticsearchModule } from './elasticsearch/elasticsearch.module';
+import { ElasticsearchModule } from './search/elasticsearch/elasticsearch.module';
 
 import { User } from './iam/entities/user.entity';
 import { Tenant } from './iam/entities/tenant.entity';
@@ -91,8 +91,8 @@ import { StorageFile, FileVersion, MultipartUpload } from './storage/entities/st
 // Queue entities
 import { QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker } from './queue/entities/job.entity';
 
-// Elasticsearch entities
-import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './elasticsearch/entities/search-index.entity';
+// Elasticsearch entities (driver layer under SRCH module)
+import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './search/elasticsearch/entities/search-index.entity';
 
 @Module({
   imports: [
