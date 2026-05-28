@@ -29,12 +29,23 @@ export interface AiRequest {
   tenantId?: string;
 }
 
+export interface AiCitation {
+  title: string;
+  url: string;
+  excerpt?: string;
+}
+
+// CLAUDE.md §6.3: ALL AI responses must include inline citations.
+// If sources is empty, the CitationEnforcementInterceptor replaces the
+// response with a standard "no verified source" fallback.
 export interface AiResponse {
   result: string;
   model: string;
   provider: ModelProvider;
   tokensUsed?: number;
   cached: boolean;
+  sources: AiCitation[]; // mandatory — empty = response will be suppressed
+  citationEnforced: boolean; // true = passed citation check; false = fallback applied
 }
 
 export interface CrossModuleContext {
@@ -323,12 +334,17 @@ export class AiService {
         max_tokens: config.maxTokens ?? 500,
       });
 
+      const rawResult = response.choices[0].message.content || '';
+      const { result, sources } = this.extractCitations(rawResult);
+
       return {
-        result: response.choices[0].message.content || '',
+        result,
         model: config.model || 'gpt-4o-mini',
         provider: ModelProvider.OPENAI,
         tokensUsed: response.usage?.total_tokens,
         cached: false,
+        sources,
+        citationEnforced: false, // CitationEnforcementInterceptor sets this
       };
     } catch (error) {
       this.logger.error(`OpenAI execution failed: ${error.message}`);
@@ -722,5 +738,45 @@ export class AiService {
       acc[log.action] = (acc[log.action] || 0) + 1;
       return acc;
     }, {});
+  }
+
+  // ==================== CITATION HELPERS ====================
+
+  // System prompt prefix injected on all GovAI regulatory calls.
+  // CLAUDE.md §6.3: AI features without citation enforcement do not ship.
+  static readonly CITATION_SYSTEM_PROMPT = `You are GovAI, a regulatory assistant powered by Meru.
+STRICT RULES:
+1. Only answer regulatory questions using verified official sources.
+2. Every factual claim MUST be followed by [source: Title — URL].
+3. If you cannot find an official source, respond ONLY with: "I don't have a verified source for this."
+4. Never invent URLs or citations.
+5. Use official government, regulator, or legislation URLs only.
+
+Example:
+"The 482 visa requires a skills assessment [source: Visa 482 — DHA — https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/temporary-skill-shortage-482]."
+`;
+
+  // Extracts [source: Title — URL] markers from AI response text.
+  // Returns cleaned result string and structured sources array.
+  extractCitations(text: string): { result: string; sources: AiCitation[] } {
+    const sourcePattern = /\[source:\s*([^\]]+)\]/gi;
+    const sources: AiCitation[] = [];
+
+    let match: RegExpExecArray | null;
+    while ((match = sourcePattern.exec(text)) !== null) {
+      const raw = match[1].trim();
+      const dashIdx = raw.indexOf('—');
+      if (dashIdx !== -1) {
+        sources.push({
+          title: raw.slice(0, dashIdx).trim(),
+          url: raw.slice(dashIdx + 1).trim(),
+        });
+      } else {
+        sources.push({ title: raw, url: raw });
+      }
+    }
+
+    const result = text.replace(/\[source:[^\]]*\]/gi, '').trim();
+    return { result, sources };
   }
 }

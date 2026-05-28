@@ -6,6 +6,7 @@ import {
   UseGuards,
   Request,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,10 +18,15 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AiService } from './ai.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { CitationEnforcementInterceptor } from './interceptors/citation-enforcement.interceptor';
 import type { AiRequest } from './ai.service';
 
+// CLAUDE.md §6.3: ALL AI responses are citation-enforced.
+// CitationEnforcementInterceptor replaces any response that lacks sources[]
+// with the standard "no verified source" fallback.
 @Controller('ai')
 @ApiTags('ai')
+@UseInterceptors(CitationEnforcementInterceptor)
 export class AiController {
   constructor(private aiService: AiService) {}
 
