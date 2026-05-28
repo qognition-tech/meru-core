@@ -6,6 +6,7 @@ import { FeatureFlag } from './entities/feature-flag.entity';
 import { TenantConfigPin } from '../iam/entities/tenant-config-pin.entity';
 import { TenantSettingsService } from './tenant-settings.service';
 import { ConfigPackService } from './services/config-pack.service';
+import { ConfigPackLoaderService } from './services/config-pack-loader.service';
 import { TenantController } from './tenant.controller';
 import { ConfigPackController } from './controllers/config-pack.controller';
 import { CoreModule } from '../core/core.module';
@@ -29,7 +30,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [TenantController, ConfigPackController],
-  providers: [TenantSettingsService, ConfigPackService],
+  providers: [TenantSettingsService, ConfigPackService, ConfigPackLoaderService],
   exports: [TenantSettingsService, ConfigPackService],
 })
 export class TenantModule {}
