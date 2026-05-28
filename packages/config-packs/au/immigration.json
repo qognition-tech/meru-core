@@ -1,0 +1,286 @@
+{
+  "code": "au/immigration",
+  "name": "Australia Immigration Pack",
+  "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
+  "version": "1.0.0",
+  "vertical": "immigration",
+  "country": "AU",
+  "locales": ["en-AU"],
+
+  "regulators": [
+    {
+      "id": "au-home-affairs",
+      "name": "Department of Home Affairs",
+      "country": "AU",
+      "baseUrl": "https://immi.homeaffairs.gov.au/api",
+      "sandboxUrl": "https://sandbox.immi.homeaffairs.gov.au/api",
+      "authMethod": "oauth2",
+      "adapterId": "au-home-affairs",
+      "documentation": "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing"
+    },
+    {
+      "id": "au-vevo",
+      "name": "Visa Entitlement Verification Online (VEVO)",
+      "country": "AU",
+      "baseUrl": "https://vevo.homeaffairs.gov.au/EvInquiryWeb",
+      "authMethod": "api_key",
+      "adapterId": "au-vevo",
+      "documentation": "https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/check-conditions-online"
+    }
+  ],
+
+  "roles": [
+    {
+      "key": "firm_admin",
+      "label": "Firm Administrator",
+      "permissions": ["tenant:manage", "cases:all", "users:manage", "billing:view", "reports:all"]
+    },
+    {
+      "key": "migration_agent",
+      "label": "Migration Agent",
+      "permissions": ["cases:read", "cases:write", "cases:submit", "documents:all", "clients:read", "clients:write"]
+    },
+    {
+      "key": "case_coordinator",
+      "label": "Case Coordinator",
+      "permissions": ["cases:read", "cases:write", "documents:read", "documents:upload", "clients:read"]
+    },
+    {
+      "key": "client_portal",
+      "label": "Client (Self-Service)",
+      "permissions": ["cases:own:read", "documents:own:upload", "profile:own:edit"]
+    }
+  ],
+
+  "documentTypes": [
+    {
+      "key": "passport",
+      "label": "Passport",
+      "required": true,
+      "acceptedFormats": ["pdf", "jpg", "jpeg", "png"],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["passportNumber", "firstName", "lastName", "dateOfBirth", "nationality", "issueDate", "expiryDate", "mrz"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "skills_assessment",
+      "label": "Skills Assessment",
+      "required": false,
+      "acceptedFormats": ["pdf"],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["assessingBody", "occupation", "anzscoCode", "assessmentDate", "outcome"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "employment_contract",
+      "label": "Employment Contract / Sponsorship Letter",
+      "required": false,
+      "acceptedFormats": ["pdf", "docx"],
+      "maxSizeMb": 15,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["employerName", "employerAbn", "positionTitle", "anzscoCode", "salary", "startDate", "fullTime"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "health_assessment",
+      "label": "Health Assessment (HAP ID)",
+      "required": false,
+      "acceptedFormats": ["pdf"],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["hapId", "examinationDate", "outcome"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "police_clearance",
+      "label": "Police Clearance Certificate",
+      "required": false,
+      "acceptedFormats": ["pdf"],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["issueCountry", "issueDate", "applicantName", "outcome"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    }
+  ],
+
+  "workflows": [
+    {
+      "id": "482-tss-employer-sponsored",
+      "name": "482 TSS Visa — Employer Sponsored",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Client Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 24,
+          "formFields": [
+            { "key": "applicantFirstName", "label": "First Name", "type": "text", "required": true },
+            { "key": "applicantLastName", "label": "Last Name", "type": "text", "required": true },
+            { "key": "passportNumber", "label": "Passport Number", "type": "text", "required": true },
+            { "key": "nationality", "label": "Nationality", "type": "country", "required": true },
+            { "key": "dateOfBirth", "label": "Date of Birth", "type": "date", "required": true },
+            { "key": "currentVisaType", "label": "Current Visa Subclass", "type": "text" },
+            { "key": "targetOccupation", "label": "Nominated Occupation", "type": "text", "required": true },
+            { "key": "anzscoCode", "label": "ANZSCO Code", "type": "text" },
+            { "key": "sponsorAbn", "label": "Sponsor ABN", "type": "text", "required": true }
+          ],
+          "transitions": [
+            { "to": "eligibility_check", "label": "Proceed to Eligibility" }
+          ]
+        },
+        {
+          "id": "eligibility_check",
+          "name": "Eligibility Assessment",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 48,
+          "transitions": [
+            { "to": "document_collection", "label": "Eligible — Collect Documents" },
+            { "to": "intake", "label": "Return — More Info Needed" }
+          ]
+        },
+        {
+          "id": "document_collection",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "client_portal",
+          "slaHours": 168,
+          "requiredDocuments": ["passport", "employment_contract", "skills_assessment"],
+          "transitions": [
+            { "to": "agent_review", "label": "Documents Submitted" }
+          ]
+        },
+        {
+          "id": "agent_review",
+          "name": "Agent Review & Lodgement Prep",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            { "to": "lodgement", "label": "Approve for Lodgement" },
+            { "to": "document_collection", "label": "Request More Docs" }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Visa Application Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "apiAction": {
+            "adapterId": "au-home-affairs",
+            "method": "lodgeApplication",
+            "params": { "visaSubclass": "482", "stream": "short-term" }
+          },
+          "transitions": [
+            { "to": "dha_processing", "label": "Lodged Successfully" }
+          ]
+        },
+        {
+          "id": "dha_processing",
+          "name": "DHA Processing",
+          "type": "review",
+          "slaHours": 2160,
+          "transitions": [
+            { "to": "granted", "label": "Visa Granted" },
+            { "to": "refused", "label": "Visa Refused" }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Visa Granted",
+          "type": "notification",
+          "transitions": []
+        },
+        {
+          "id": "refused",
+          "name": "Visa Refused — Review Options",
+          "type": "review",
+          "transitions": [
+            { "to": "lodgement", "label": "Re-apply" }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "screening": {
+    "enabled": false,
+    "lists": ["ofac", "un"],
+    "threshold": 0.85,
+    "autoEscalate": true,
+    "pepCheck": false,
+    "adverseMedia": false
+  },
+
+  "compliance": {
+    "dataResidency": "AU",
+    "retentionYears": 7,
+    "encryptionRequired": true,
+    "auditRequired": true,
+    "regulatoryFrameworks": ["Migration Act 1958", "Privacy Act 1988", "GDPR-adjacent"],
+    "reportingObligations": [
+      {
+        "trigger": "visa_lodged",
+        "reportType": "sponsorship_notification",
+        "deadline": "within_5_days",
+        "regulatorId": "au-home-affairs"
+      }
+    ]
+  },
+
+  "kpis": [
+    { "key": "active_cases", "label": "Active Cases", "unit": "count" },
+    { "key": "avg_processing_days", "label": "Avg. Processing Days", "unit": "days", "target": 90, "alert": { "threshold": 120, "direction": "above" } },
+    { "key": "grant_rate", "label": "Grant Rate", "unit": "percentage", "target": 95, "alert": { "threshold": 85, "direction": "below" } },
+    { "key": "sla_compliance", "label": "SLA Compliance", "unit": "percentage", "target": 95 },
+    { "key": "document_completeness", "label": "Document Completeness", "unit": "percentage", "target": 100 }
+  ],
+
+  "uiConfig": {
+    "primaryColor": "#0052A5",
+    "supportEmail": "support@immistack.com",
+    "termsUrl": "https://immistack.com/terms",
+    "helpUrl": "https://help.immistack.com/au"
+  },
+
+  "metadata": {
+    "author": "Meru Platform Team",
+    "lastReviewedAt": "2026-05-01T00:00:00Z",
+    "regulatoryReference": "Migration Regulations 1994, Schedule 2, Subclass 482"
+  }
+}

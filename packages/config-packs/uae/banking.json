@@ -1,0 +1,288 @@
+{
+  "code": "uae/banking",
+  "name": "UAE Banking & GRC Pack",
+  "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
+  "version": "1.0.0",
+  "vertical": "banking",
+  "country": "AE",
+  "locales": ["en", "ar"],
+
+  "regulators": [
+    {
+      "id": "uae-cbuae",
+      "name": "Central Bank of the UAE (CBUAE)",
+      "country": "AE",
+      "baseUrl": "https://api.centralbank.ae/v1",
+      "authMethod": "mtls",
+      "adapterId": "uae-cbuae",
+      "documentation": "https://www.centralbank.ae/en/fmr/regulations"
+    },
+    {
+      "id": "uae-local-list",
+      "name": "UAE Local Terrorist Designations List",
+      "country": "AE",
+      "authMethod": "api_key",
+      "adapterId": "uae-local-sanctions",
+      "documentation": "https://www.uaeinteract.com/government/law-legislation/sanctions"
+    }
+  ],
+
+  "roles": [
+    {
+      "key": "compliance_officer",
+      "label": "Compliance Officer",
+      "permissions": ["screening:all", "sar:file", "sar:review", "reports:all", "alerts:manage"]
+    },
+    {
+      "key": "kyc_analyst",
+      "label": "KYC Analyst",
+      "permissions": ["screening:run", "cases:read", "cases:write", "documents:all", "alerts:read"]
+    },
+    {
+      "key": "relationship_manager",
+      "label": "Relationship Manager",
+      "permissions": ["cases:read", "clients:read", "alerts:read"]
+    },
+    {
+      "key": "mlro",
+      "label": "Money Laundering Reporting Officer",
+      "permissions": ["screening:all", "sar:all", "reports:all", "audit:read", "alerts:all"]
+    }
+  ],
+
+  "documentTypes": [
+    {
+      "key": "trade_invoice",
+      "label": "Commercial Invoice",
+      "required": true,
+      "acceptedFormats": ["pdf", "jpg", "png"],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["invoiceNumber", "seller", "buyer", "goods", "hsCode", "value", "currency", "shipmentOrigin", "shipmentDestination", "incoterms"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "bill_of_lading",
+      "label": "Bill of Lading",
+      "required": false,
+      "acceptedFormats": ["pdf"],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["blNumber", "vesselName", "portOfLoading", "portOfDischarge", "shipper", "consignee", "cargoDescription", "containerNumbers"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "corporate_id",
+      "label": "Trade License / Corporate ID",
+      "required": true,
+      "acceptedFormats": ["pdf", "jpg", "png"],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": ["companyName", "licenseNumber", "issueDate", "expiryDate", "licenseAuthority", "activities"]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    }
+  ],
+
+  "workflows": [
+    {
+      "id": "aml-customer-onboarding",
+      "name": "AML Customer Onboarding (CDD)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Customer Intake",
+          "type": "form",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 24,
+          "formFields": [
+            { "key": "entityName", "label": "Entity Name", "type": "text", "required": true },
+            { "key": "entityType", "label": "Entity Type", "type": "select", "required": true,
+              "validation": { "options": [
+                { "value": "individual", "label": "Individual" },
+                { "value": "corporate", "label": "Corporate" },
+                { "value": "financial_institution", "label": "Financial Institution" }
+              ]}
+            },
+            { "key": "jurisdiction", "label": "Jurisdiction", "type": "country", "required": true },
+            { "key": "businessActivity", "label": "Primary Business Activity", "type": "text", "required": true },
+            { "key": "expectedTransactionVolume", "label": "Expected Annual Volume (AED)", "type": "currency" },
+            { "key": "isPep", "label": "Is PEP or Related to PEP?", "type": "checkbox" }
+          ],
+          "transitions": [
+            { "to": "initial_screening", "label": "Proceed to Screening" }
+          ]
+        },
+        {
+          "id": "initial_screening",
+          "name": "Sanctions & PEP Screening",
+          "type": "api_call",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 1,
+          "apiAction": {
+            "adapterId": "uae-cbuae",
+            "method": "runScreening",
+            "params": { "lists": ["ofac", "eu", "un", "uk_hmt", "uae_local"], "pepCheck": true, "adverseMedia": true }
+          },
+          "transitions": [
+            { "to": "document_collection", "label": "Clear — Proceed", "condition": "screening.riskLevel !== 'critical'" },
+            { "to": "enhanced_due_diligence", "label": "Hit — Escalate to EDD", "condition": "screening.riskLevel === 'critical'" }
+          ]
+        },
+        {
+          "id": "document_collection",
+          "name": "Document Collection",
+          "type": "document",
+          "slaHours": 72,
+          "requiredDocuments": ["corporate_id"],
+          "transitions": [
+            { "to": "analyst_review", "label": "Documents Complete" }
+          ]
+        },
+        {
+          "id": "enhanced_due_diligence",
+          "name": "Enhanced Due Diligence",
+          "type": "review",
+          "assignedRole": "compliance_officer",
+          "slaHours": 48,
+          "transitions": [
+            { "to": "mlro_review", "label": "EDD Complete — Escalate to MLRO" },
+            { "to": "rejected", "label": "Reject Onboarding" }
+          ]
+        },
+        {
+          "id": "analyst_review",
+          "name": "KYC Analyst Review",
+          "type": "review",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 48,
+          "transitions": [
+            { "to": "approved", "label": "Approve Onboarding" },
+            { "to": "compliance_review", "label": "Refer to Compliance" }
+          ]
+        },
+        {
+          "id": "compliance_review",
+          "name": "Compliance Officer Review",
+          "type": "review",
+          "assignedRole": "compliance_officer",
+          "slaHours": 24,
+          "transitions": [
+            { "to": "approved", "label": "Approve" },
+            { "to": "mlro_review", "label": "Escalate to MLRO" },
+            { "to": "rejected", "label": "Reject" }
+          ]
+        },
+        {
+          "id": "mlro_review",
+          "name": "MLRO Decision",
+          "type": "review",
+          "assignedRole": "mlro",
+          "slaHours": 24,
+          "transitions": [
+            { "to": "approved", "label": "Approve with Enhanced Monitoring" },
+            { "to": "sar_filing", "label": "File SAR" },
+            { "to": "rejected", "label": "Reject" }
+          ]
+        },
+        {
+          "id": "sar_filing",
+          "name": "SAR Filing",
+          "type": "api_call",
+          "assignedRole": "mlro",
+          "slaHours": 24,
+          "apiAction": {
+            "adapterId": "uae-cbuae",
+            "method": "fileSar"
+          },
+          "transitions": [
+            { "to": "rejected", "label": "SAR Filed" }
+          ]
+        },
+        {
+          "id": "approved",
+          "name": "Customer Approved",
+          "type": "notification",
+          "transitions": []
+        },
+        {
+          "id": "rejected",
+          "name": "Onboarding Rejected",
+          "type": "notification",
+          "transitions": []
+        }
+      ]
+    }
+  ],
+
+  "screening": {
+    "enabled": true,
+    "lists": ["ofac", "eu", "un", "uk_hmt", "uae_local"],
+    "threshold": 0.85,
+    "autoEscalate": true,
+    "pepCheck": true,
+    "adverseMedia": true
+  },
+
+  "compliance": {
+    "dataResidency": "AE",
+    "retentionYears": 5,
+    "encryptionRequired": true,
+    "auditRequired": true,
+    "regulatoryFrameworks": ["CBUAE AML-CFT Guidelines 2019", "Federal Decree-Law No. 20 of 2018", "FATF Recommendations"],
+    "reportingObligations": [
+      {
+        "trigger": "suspicious_transaction",
+        "reportType": "SAR",
+        "deadline": "within_14_days",
+        "regulatorId": "uae-cbuae"
+      },
+      {
+        "trigger": "cash_transaction_above_threshold",
+        "reportType": "CTR",
+        "deadline": "within_2_days",
+        "regulatorId": "uae-cbuae"
+      }
+    ]
+  },
+
+  "kpis": [
+    { "key": "active_cases", "label": "Active Onboarding Cases", "unit": "count" },
+    { "key": "screening_hits", "label": "Screening Hits (30d)", "unit": "count" },
+    { "key": "sar_filed", "label": "SARs Filed (30d)", "unit": "count" },
+    { "key": "avg_kyc_days", "label": "Avg. KYC Completion Days", "unit": "days", "target": 5, "alert": { "threshold": 10, "direction": "above" } },
+    { "key": "false_positive_rate", "label": "Screening False Positive Rate", "unit": "percentage", "alert": { "threshold": 60, "direction": "above" } },
+    { "key": "sla_compliance", "label": "SLA Compliance", "unit": "percentage", "target": 95 }
+  ],
+
+  "uiConfig": {
+    "primaryColor": "#C8102E",
+    "supportEmail": "support@governancex.com",
+    "termsUrl": "https://governancex.com/terms",
+    "helpUrl": "https://help.governancex.com/uae"
+  },
+
+  "metadata": {
+    "author": "Meru Platform Team",
+    "lastReviewedAt": "2026-05-01T00:00:00Z",
+    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions — AML/CFT, 2021"
+  }
+}
