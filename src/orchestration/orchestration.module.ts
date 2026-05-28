@@ -1,6 +1,6 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { OrchestrationController } from './orchestration.controller';
-import { OrchestrationService } from '../core/orchestration.service';
+import { OrchestrationService } from './orchestration.service';
 import { CrmModule } from '../crm/crm.module';
 import { SearchModule } from '../search/search.module';
 import { AiModule } from '../ai/ai.module';
@@ -9,7 +9,7 @@ import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
-    forwardRef(() => CrmModule),
+    CrmModule,
     SearchModule,
     AiModule,
     AnalyticsModule,

@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { CrmService } from '../crm/crm.service';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
@@ -23,7 +23,6 @@ export class OrchestrationService {
   private readonly logger = new Logger(OrchestrationService.name);
 
   constructor(
-    @Inject(forwardRef(() => CrmService))
     private crmService: CrmService,
     private searchService: SearchService,
     private aiService: AiService,

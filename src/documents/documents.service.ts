@@ -20,7 +20,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
-import { OrchestrationService } from '../core/orchestration.service';
+import { OrchestrationService } from '../orchestration/orchestration.service';
 
 interface UploadResult {
   document: Document;

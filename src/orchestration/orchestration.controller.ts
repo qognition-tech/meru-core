@@ -17,7 +17,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { OrchestrationService } from '../core/orchestration.service';
+import { OrchestrationService } from './orchestration.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 
 @Controller('orchestration')

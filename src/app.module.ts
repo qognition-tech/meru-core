@@ -9,6 +9,7 @@ import { CrmModule } from './crm/crm.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
+
 import { DocumentsModule } from './documents/documents.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { FormsModule } from './forms/forms.module';
@@ -199,6 +200,7 @@ import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } fro
     CrmModule,
     SearchModule,
     AiModule,
+    OrchestrationModule,
     DocumentsModule,
     WorkflowModule,
     FormsModule,
