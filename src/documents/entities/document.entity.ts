@@ -49,12 +49,6 @@ export class Document {
   @JoinColumn({ name: 'tenantId' })
   tenant: Tenant;
 
-  @Column({ nullable: true })
-  vertical: string;
-
-  @Column({ nullable: true })
-  environment: string;
-
   @Column()
   name: string;
 
@@ -88,7 +82,7 @@ export class Document {
   @Column({ nullable: true })
   linkedEntityId: string;
 
-  @Column({ type: 'jsonb', default: {} })
+  @Column({ type: 'jsonb', default: [] })
   tags: string[];
 
   @Column({ type: 'jsonb', default: {} })
@@ -118,7 +112,7 @@ export class Document {
   @Column({ type: 'int', default: 1 })
   versionNumber: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', nullable: true })
   currentVersionId: string;
 
   @Column({ type: 'text', nullable: true })

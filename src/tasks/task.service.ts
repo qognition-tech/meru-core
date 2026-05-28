@@ -140,7 +140,7 @@ export class TaskService {
     userId: string,
   ): Promise<Task> {
     return this.updateTask(id, tenantId, {
-      status: TaskStatus.COMPLETED,
+      status: TaskStatus.DONE,
       completedAt: new Date(),
       completedBy: userId,
     });

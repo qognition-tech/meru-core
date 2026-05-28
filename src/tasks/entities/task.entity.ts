@@ -15,7 +15,7 @@ export enum TaskStatus {
   TODO = 'todo',
   IN_PROGRESS = 'in_progress',
   UNDER_REVIEW = 'under_review',
-  COMPLETED = 'completed',
+  DONE = 'done',
   CANCELLED = 'cancelled',
   BLOCKED = 'blocked',
 }
@@ -49,12 +49,6 @@ export class Task {
   @Column()
   tenantId: string;
 
-  @Column({ nullable: true })
-  vertical: string;
-
-  @Column({ nullable: true })
-  environment: string;
-
   @Column()
   title: string;
 
@@ -83,7 +77,7 @@ export class Task {
   reminderDate: Date;
 
   @Column({ nullable: true })
-  entityId: string; // Related entity (document, CRM entity, etc.)
+  entityId: string;
 
   @Column({ nullable: true })
   entityType: string;
@@ -101,11 +95,11 @@ export class Task {
     notifyOnCreate?: boolean;
     notifyOnComplete?: boolean;
     escalationEnabled?: boolean;
-    escalationAfter?: number; // hours
+    escalationAfter?: number;
     escalationAssignTo?: string;
   };
 
-  @OneToMany(() => TaskComment, comment => comment.task, { cascade: true })
+  @OneToMany(() => TaskComment, (comment) => comment.task, { cascade: true })
   comments: TaskComment[];
 
   @Column({ type: 'jsonb', default: [] })
@@ -133,7 +127,7 @@ export class Task {
   @Column({ type: 'timestamp', nullable: true })
   completedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   completedBy: string;
 
   @CreateDateColumn()

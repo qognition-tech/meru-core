@@ -7,6 +7,17 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().default(3000),
   VERTICAL: Joi.string().valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal').default('core'),
 
+  // CORS
+  CORS_ALLOWED_ORIGINS: Joi.string().default(
+    'http://localhost:3000,http://localhost:3001,http://localhost:3002',
+  ),
+
+  // Rate Limiting
+  RATE_LIMIT_TTL_MS: Joi.number().default(60000),
+  RATE_LIMIT_MAX_GLOBAL: Joi.number().default(100),
+  RATE_LIMIT_MAX_IMMIGRATION: Joi.number().default(100),
+  RATE_LIMIT_MAX_BANKING: Joi.number().default(50),
+
   // AWS Secrets Manager
   AWS_REGION: Joi.string().default('ap-south-1'),
   AWS_RDS_SECRET_NAME: Joi.string().required(),
@@ -17,6 +28,12 @@ export const validationSchema = Joi.object({
   DATABASE_USERNAME: Joi.string().optional(),
   DATABASE_PASSWORD: Joi.string().optional(),
   DATABASE_NAME: Joi.string().required(),
+
+  // Supabase
+  SUPABASE_URL: Joi.string().required(),
+  SUPABASE_SERVICE_ROLE_KEY: Joi.string().required(),
+  SUPABASE_ANON_KEY: Joi.string().optional(),
+  SUPABASE_JWT_SECRET: Joi.string().optional(),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
@@ -45,6 +62,12 @@ export const configuration = () => ({
     username: process.env.DATABASE_USERNAME || 'postgres',
     password: process.env.DATABASE_PASSWORD || '',
     name: process.env.DATABASE_NAME,
+  },
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    anonKey: process.env.SUPABASE_ANON_KEY,
+    jwtSecret: process.env.SUPABASE_JWT_SECRET,
   },
   aws: {
     region: process.env.AWS_REGION || 'ap-south-1',

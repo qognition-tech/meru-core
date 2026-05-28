@@ -10,7 +10,7 @@ import { TenantProvisioningService, type CreateTenantDto } from './tenant-provis
 import { TenantPlan } from './entities/tenant.entity';
 
 @ApiTags('tenant-provisioning')
-@Controller('v1/tenants')
+@Controller('tenants')
 export class TenantProvisioningController {
   constructor(
     private readonly tenantProvisioningService: TenantProvisioningService,

@@ -27,6 +27,25 @@ import { TenantSetting } from './tenant/entities/tenant-setting.entity';
 import { UniversalEntity } from './crm/entities/universal-entity.entity';
 import { SearchIndex } from './search/entities/search-index.entity';
 import { AiPrompt, AiEmbedding } from './ai/entities/ai-prompt.entity';
+
+// IAM entities (new)
+import { Role } from './iam/entities/role.entity';
+import { Session } from './iam/entities/session.entity';
+import { ApiKey } from './iam/entities/api-key.entity';
+import { TenantConfigPin } from './iam/entities/tenant-config-pin.entity';
+
+// Config entities (new)
+import { ConfigPack } from './config/entities/config-pack.entity';
+import { FeatureFlag } from './config/entities/feature-flag.entity';
+
+// CRM entities (new)
+import { Case } from './crm/entities/case.entity';
+import { Note } from './crm/entities/note.entity';
+import { Tag } from './crm/entities/tag.entity';
+
+// Integration entity (new)
+import { IntegrationAdapter } from './integrations/entities/integration-adapter.entity';
+
 import { Document } from './documents/entities/document.entity';
 import { DocumentVersion } from './documents/entities/document-version.entity';
 import { DocumentMetadata } from './documents/entities/document-metadata.entity';
@@ -100,13 +119,29 @@ import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } fro
           // CRITICAL: All entities from all modules must be listed here
           // so TypeORM can manage them and create tables (if synchronize: true)
           entities: [
+            // IAM
             User,
             Tenant,
+            Role,
+            Session,
+            ApiKey,
+            TenantConfigPin,
             TenantSetting,
+            // Config
+            ConfigPack,
+            FeatureFlag,
+            // CRM
             UniversalEntity,
+            Case,
+            Note,
+            Tag,
+            // Integrations
+            IntegrationAdapter,
+            // Search & AI
             SearchIndex,
             AiPrompt,
             AiEmbedding,
+            // Documents
             Document,
             DocumentVersion,
             DocumentMetadata,
