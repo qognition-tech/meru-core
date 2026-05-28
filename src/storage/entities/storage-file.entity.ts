@@ -10,7 +10,12 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
-import { StorageProvider, StorageClass, FileStatus, FileAccess } from '../interfaces/storage.interface';
+import {
+  StorageProvider,
+  StorageClass,
+  FileStatus,
+  FileAccess,
+} from '../interfaces/storage.interface';
 
 @Entity('storage_files')
 @Index(['tenantId', 'status'])

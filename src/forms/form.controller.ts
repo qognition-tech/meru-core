@@ -33,10 +33,7 @@ export class FormController {
   @Post()
   @ApiOperation({ summary: 'Create a new form schema' })
   @ApiResponse({ status: 201, description: 'Form created successfully' })
-  async createForm(
-    @Request() req,
-    @Body() dto: any,
-  ) {
+  async createForm(@Request() req, @Body() dto: any) {
     const form = await this.formService.createForm(
       req.user.tenantId,
       dto,
@@ -73,9 +70,7 @@ export class FormController {
   @ApiOperation({ summary: 'Get form by ID' })
   @ApiResponse({ status: 200, description: 'Form retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getForm(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getForm(@Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.getForm(id);
     return {
       success: true,
@@ -86,9 +81,7 @@ export class FormController {
   @Get(':id/render')
   @ApiOperation({ summary: 'Get form rendered for UI' })
   @ApiResponse({ status: 200, description: 'Form rendered' })
-  async renderForm(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async renderForm(@Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.renderForm(id);
     return {
       success: true,
@@ -99,14 +92,8 @@ export class FormController {
   @Post(':id/publish')
   @ApiOperation({ summary: 'Publish a form' })
   @ApiResponse({ status: 200, description: 'Form published' })
-  async publishForm(
-    @Request() req,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    const form = await this.formService.publishForm(
-      id,
-      req.user.tenantId,
-    );
+  async publishForm(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const form = await this.formService.publishForm(id, req.user.tenantId);
     return {
       success: true,
       data: form,

@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Get, Param, Patch, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  Patch,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -6,7 +15,10 @@ import {
   ApiBody,
   ApiParam,
 } from '@nestjs/swagger';
-import { TenantProvisioningService, type CreateTenantDto } from './tenant-provisioning.service';
+import {
+  TenantProvisioningService,
+  type CreateTenantDto,
+} from './tenant-provisioning.service';
 import { TenantPlan } from './entities/tenant.entity';
 
 @ApiTags('tenant-provisioning')
@@ -44,7 +56,8 @@ export class TenantProvisioningController {
     },
   })
   async checkSlug(@Body('slug') slug: string) {
-    const result = await this.tenantProvisioningService.checkSlugAvailability(slug);
+    const result =
+      await this.tenantProvisioningService.checkSlugAvailability(slug);
 
     return {
       success: true,
@@ -66,11 +79,11 @@ export class TenantProvisioningController {
       required: ['plan'],
     },
   })
-  async upgradePlan(
-    @Param('id') id: string,
-    @Body('plan') plan: TenantPlan,
-  ) {
-    const tenant = await this.tenantProvisioningService.upgradeTenantPlan(id, plan);
+  async upgradePlan(@Param('id') id: string, @Body('plan') plan: TenantPlan) {
+    const tenant = await this.tenantProvisioningService.upgradeTenantPlan(
+      id,
+      plan,
+    );
 
     return {
       success: true,
@@ -81,7 +94,10 @@ export class TenantProvisioningController {
 
   @Get(':id/stats')
   @ApiOperation({ summary: 'Get tenant statistics' })
-  @ApiResponse({ status: 200, description: 'Statistics retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+  })
   @ApiResponse({ status: 404, description: 'Tenant not found' })
   @ApiParam({ name: 'id', description: 'Tenant ID' })
   async getStats(@Param('id') id: string) {

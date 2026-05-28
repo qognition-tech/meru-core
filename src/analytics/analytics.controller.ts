@@ -1,5 +1,20 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
@@ -66,7 +81,10 @@ export class AnalyticsController {
   @Post('widgets')
   @ApiOperation({ summary: 'Create a dashboard widget' })
   async createWidget(@Request() req, @Body() dto: any) {
-    const widget = await this.analyticsService.createWidget(req.user.tenantId, dto);
+    const widget = await this.analyticsService.createWidget(
+      req.user.tenantId,
+      dto,
+    );
     return { success: true, data: widget };
   }
 
@@ -80,7 +98,10 @@ export class AnalyticsController {
   @Get('widgets/:id/execute')
   @ApiOperation({ summary: 'Execute widget query' })
   async executeWidget(@Request() req, @Param('id') id: string) {
-    const result = await this.analyticsService.executeWidget(req.user.tenantId, id);
+    const result = await this.analyticsService.executeWidget(
+      req.user.tenantId,
+      id,
+    );
     return result;
   }
 

@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { WorkflowInstance, InstanceStatus } from '../entities/workflow-instance.entity';
+import {
+  WorkflowInstance,
+  InstanceStatus,
+} from '../entities/workflow-instance.entity';
 import { WorkflowEngineService } from '../workflow.service';
 
 @Injectable()
@@ -18,9 +21,9 @@ export class SlaWatchdogService {
   @Cron(CronExpression.EVERY_5_MINUTES)
   async checkSLAViolations() {
     this.logger.log('Running SLA violation check...');
-    
+
     const now = new Date();
-    
+
     // Find instances with expired SLA deadlines
     const violations = await this.instanceRepo.find({
       where: {
@@ -39,9 +42,10 @@ export class SlaWatchdogService {
 
   private async processEscalation(instance: WorkflowInstance): Promise<void> {
     const escalationLevel = instance.escalationLevel + 1;
-    const escalationConfig = instance.workflow.slaConfig?.escalationLevels?.find(
-      e => e.level === escalationLevel,
-    );
+    const escalationConfig =
+      instance.workflow.slaConfig?.escalationLevels?.find(
+        (e) => e.level === escalationLevel,
+      );
 
     if (!escalationConfig) {
       this.logger.warn(

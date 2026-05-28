@@ -18,7 +18,12 @@ import { AuditModule } from '../audit/audit.module';
 // App-boot configuration (env vars, DB connection, AWS secrets) lives in src/config/.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TenantSetting, ConfigPack, FeatureFlag, TenantConfigPin]),
+    TypeOrmModule.forFeature([
+      TenantSetting,
+      ConfigPack,
+      FeatureFlag,
+      TenantConfigPin,
+    ]),
     CoreModule,
     BillingModule,
     AuditModule,

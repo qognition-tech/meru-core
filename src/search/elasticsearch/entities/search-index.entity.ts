@@ -133,11 +133,13 @@ export class ElasticsearchSearchLog {
   hasResults: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  clickedResults: {
-    documentId: string;
-    position: number;
-    timestamp: Date;
-  }[] | null;
+  clickedResults:
+    | {
+        documentId: string;
+        position: number;
+        timestamp: Date;
+      }[]
+    | null;
 
   @CreateDateColumn()
   createdAt: Date;

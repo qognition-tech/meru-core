@@ -8,13 +8,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [
-    CrmModule,
-    SearchModule,
-    AiModule,
-    AnalyticsModule,
-    AuditModule,
-  ],
+  imports: [CrmModule, SearchModule, AiModule, AnalyticsModule, AuditModule],
   controllers: [OrchestrationController],
   providers: [OrchestrationService],
   exports: [OrchestrationService],

@@ -37,16 +37,23 @@ export class OrchestrationService {
     ]);
   }
 
-  async performIntelligentSearch(tenantId: string, query: string, options: {
-    includeAIAnalysis?: boolean;
-    searchType?: 'semantic' | 'keyword' | 'hybrid';
-    limit?: number;
-  } = {}): Promise<any> {
+  async performIntelligentSearch(
+    tenantId: string,
+    query: string,
+    options: {
+      includeAIAnalysis?: boolean;
+      searchType?: 'semantic' | 'keyword' | 'hybrid';
+      limit?: number;
+    } = {},
+  ): Promise<any> {
     this.logger.log(`Performing intelligent search: ${query}`, { options });
 
     const searchLimit = options.limit || 20;
 
-    if (options.searchType === 'semantic' || (!options.searchType && process.env.ENABLE_SEMANTIC_SEARCH === 'true')) {
+    if (
+      options.searchType === 'semantic' ||
+      (!options.searchType && process.env.ENABLE_SEMANTIC_SEARCH === 'true')
+    ) {
       const semanticResults = await this.aiService.semanticSearch(
         tenantId,
         query,
@@ -78,7 +85,11 @@ export class OrchestrationService {
     };
   }
 
-  async autoCategorizeEntity(tenantId: string, entityId: string, entityType: string): Promise<{
+  async autoCategorizeEntity(
+    tenantId: string,
+    entityId: string,
+    entityType: string,
+  ): Promise<{
     primaryCategory: string;
     confidence: number;
     suggestedTags: string[];
@@ -122,7 +133,10 @@ export class OrchestrationService {
     }
   }
 
-  async extractInsights(tenantId: string, entityId: string): Promise<{
+  async extractInsights(
+    tenantId: string,
+    entityId: string,
+  ): Promise<{
     riskLevel: 'low' | 'medium' | 'high' | 'critical';
     completeness: number;
     suggestedActions: string[];
@@ -165,7 +179,10 @@ export class OrchestrationService {
     }
   }
 
-  async bulkIndexEntities(tenantId: string, entityIds: string[]): Promise<{
+  async bulkIndexEntities(
+    tenantId: string,
+    entityIds: string[],
+  ): Promise<{
     indexed: number;
     failed: number;
     errors: unknown[];
@@ -187,11 +204,27 @@ export class OrchestrationService {
       }),
     );
 
-    const indexed = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
-    const errors = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).map((r) => r.status === 'rejected' ? r.reason : (r.value as any)?.error);
+    const indexed = results.filter(
+      (r) => r.status === 'fulfilled' && r.value.success,
+    ).length;
+    const failed = results.filter(
+      (r) =>
+        r.status === 'rejected' ||
+        (r.status === 'fulfilled' && !r.value.success),
+    ).length;
+    const errors = results
+      .filter(
+        (r) =>
+          r.status === 'rejected' ||
+          (r.status === 'fulfilled' && !r.value.success),
+      )
+      .map((r) =>
+        r.status === 'rejected' ? r.reason : (r.value as any)?.error,
+      );
 
-    this.logger.log(`Bulk indexing complete: ${indexed} success, ${failed} failed`);
+    this.logger.log(
+      `Bulk indexing complete: ${indexed} success, ${failed} failed`,
+    );
 
     return { indexed, failed, errors };
   }
@@ -204,7 +237,10 @@ export class OrchestrationService {
         this.logger.debug(`Entity indexed for search: ${event.entityId}`);
       }
     } catch (error: any) {
-      this.logger.error(`Failed to index entity ${event.entityId}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to index entity ${event.entityId}: ${error.message}`,
+        error.stack,
+      );
     }
   }
 
@@ -223,15 +259,28 @@ export class OrchestrationService {
       this.logger.debug(`Entity analyzed with AI: ${event.entityId}`);
     } catch (error: any) {
       if (error.message?.includes('OPENAI_API_KEY not set')) {
-        this.logger.debug(`AI analysis skipped (no API key): ${event.entityId}`);
+        this.logger.debug(
+          `AI analysis skipped (no API key): ${event.entityId}`,
+        );
       } else {
-        this.logger.error(`AI analysis failed for entity ${event.entityId}: ${error.message}`, error.stack);
+        this.logger.error(
+          `AI analysis failed for entity ${event.entityId}: ${error.message}`,
+          error.stack,
+        );
       }
     }
   }
 
-  private filterSignificantChanges(changes: Record<string, { old: unknown; new: unknown }>): Array<string> {
-    const significantFields = ['email', 'phoneNumber', 'firstName', 'lastName', 'taxId'];
+  private filterSignificantChanges(
+    changes: Record<string, { old: unknown; new: unknown }>,
+  ): Array<string> {
+    const significantFields = [
+      'email',
+      'phoneNumber',
+      'firstName',
+      'lastName',
+      'taxId',
+    ];
     const significant: Array<string> = [];
 
     for (const [field] of Object.keys(changes)) {
@@ -243,7 +292,10 @@ export class OrchestrationService {
     return significant;
   }
 
-  private async enrichWithAIAnalysis(results: any[], query: string): Promise<any[]> {
+  private async enrichWithAIAnalysis(
+    results: any[],
+    query: string,
+  ): Promise<any[]> {
     try {
       const enriched = await Promise.all(
         results.slice(0, 5).map(async (result) => {
@@ -267,7 +319,10 @@ export class OrchestrationService {
     }
   }
 
-  async healthCheck(): Promise<{ status: string; services: Record<string, boolean> }> {
+  async healthCheck(): Promise<{
+    status: string;
+    services: Record<string, boolean>;
+  }> {
     const checks = {
       crm: true,
       search: true,

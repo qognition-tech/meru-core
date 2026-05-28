@@ -46,15 +46,28 @@ export class AddRlsAndTriggers1744010000000 implements MigrationInterface {
 
     // Apply audit triggers to core tenant-scoped tables
     const auditTables = [
-      'tenants', 'users', 'roles', 'sessions', 'api_keys',
-      'universal_entities', 'cases', 'notes',
-      'documents', 'document_versions',
-      'tasks', 'task_comments',
-      'workflows', 'workflow_instances',
-      'form_schemas', 'form_submissions',
-      'subscriptions', 'invoices',
-      'reports', 'notification_templates',
-      'config_packs', 'feature_flags',
+      'tenants',
+      'users',
+      'roles',
+      'sessions',
+      'api_keys',
+      'universal_entities',
+      'cases',
+      'notes',
+      'documents',
+      'document_versions',
+      'tasks',
+      'task_comments',
+      'workflows',
+      'workflow_instances',
+      'form_schemas',
+      'form_submissions',
+      'subscriptions',
+      'invoices',
+      'reports',
+      'notification_templates',
+      'config_packs',
+      'feature_flags',
       'integration_instances',
     ];
 
@@ -287,23 +300,56 @@ export class AddRlsAndTriggers1744010000000 implements MigrationInterface {
 
     // Enable RLS on tenant-scoped tables
     const rlsTables = [
-      'tenants', 'users', 'roles', 'sessions', 'api_keys',
-      'universal_entities', 'cases', 'notes', 'entity_tags', 'tags',
-      'documents', 'document_versions', 'document_metadata',
-      'workflows', 'workflow_states', 'workflow_transitions', 'workflow_instances',
-      'form_schemas', 'form_fields', 'form_submissions',
-      'tasks', 'task_comments', 'recurring_jobs',
-      'subscriptions', 'invoices', 'invoice_items', 'usage_records', 'credit_ledger',
-      'reports', 'report_executions', 'dashboard_widgets',
-      'notifications', 'notification_preferences', 'notification_templates',
-      'config_packs', 'config_versions', 'feature_flags', 'tenant_config_pins',
-      'integration_instances', 'storage_files', 'file_versions',
-      'queue_jobs', 'queue_job_logs',
+      'tenants',
+      'users',
+      'roles',
+      'sessions',
+      'api_keys',
+      'universal_entities',
+      'cases',
+      'notes',
+      'entity_tags',
+      'tags',
+      'documents',
+      'document_versions',
+      'document_metadata',
+      'workflows',
+      'workflow_states',
+      'workflow_transitions',
+      'workflow_instances',
+      'form_schemas',
+      'form_fields',
+      'form_submissions',
+      'tasks',
+      'task_comments',
+      'recurring_jobs',
+      'subscriptions',
+      'invoices',
+      'invoice_items',
+      'usage_records',
+      'credit_ledger',
+      'reports',
+      'report_executions',
+      'dashboard_widgets',
+      'notifications',
+      'notification_preferences',
+      'notification_templates',
+      'config_packs',
+      'config_versions',
+      'feature_flags',
+      'tenant_config_pins',
+      'integration_instances',
+      'storage_files',
+      'file_versions',
+      'queue_jobs',
+      'queue_job_logs',
       'search_keywords',
     ];
 
     for (const table of rlsTables) {
-      await queryRunner.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`);
+      await queryRunner.query(
+        `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`,
+      );
       await queryRunner.query(`
         DO $$ BEGIN
           IF NOT EXISTS (
@@ -390,57 +436,129 @@ export class AddRlsAndTriggers1744010000000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Drop RLS policies
     const rlsTables = [
-      'tenants', 'users', 'roles', 'sessions', 'api_keys',
-      'universal_entities', 'cases', 'notes', 'entity_tags', 'tags',
-      'documents', 'document_versions', 'document_metadata',
-      'workflows', 'workflow_states', 'workflow_transitions', 'workflow_instances',
-      'form_schemas', 'form_fields', 'form_submissions',
-      'tasks', 'task_comments', 'recurring_jobs',
-      'subscriptions', 'invoices', 'invoice_items', 'usage_records', 'credit_ledger',
-      'reports', 'report_executions', 'dashboard_widgets',
-      'notifications', 'notification_preferences', 'notification_templates',
-      'config_packs', 'config_versions', 'feature_flags', 'tenant_config_pins',
-      'integration_instances', 'storage_files', 'file_versions',
-      'queue_jobs', 'queue_job_logs',
+      'tenants',
+      'users',
+      'roles',
+      'sessions',
+      'api_keys',
+      'universal_entities',
+      'cases',
+      'notes',
+      'entity_tags',
+      'tags',
+      'documents',
+      'document_versions',
+      'document_metadata',
+      'workflows',
+      'workflow_states',
+      'workflow_transitions',
+      'workflow_instances',
+      'form_schemas',
+      'form_fields',
+      'form_submissions',
+      'tasks',
+      'task_comments',
+      'recurring_jobs',
+      'subscriptions',
+      'invoices',
+      'invoice_items',
+      'usage_records',
+      'credit_ledger',
+      'reports',
+      'report_executions',
+      'dashboard_widgets',
+      'notifications',
+      'notification_preferences',
+      'notification_templates',
+      'config_packs',
+      'config_versions',
+      'feature_flags',
+      'tenant_config_pins',
+      'integration_instances',
+      'storage_files',
+      'file_versions',
+      'queue_jobs',
+      'queue_job_logs',
       'search_keywords',
     ];
 
     for (const table of rlsTables) {
-      await queryRunner.query(`DROP POLICY IF EXISTS tenant_isolation_${table} ON ${table};`);
-      await queryRunner.query(`ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY;`);
+      await queryRunner.query(
+        `DROP POLICY IF EXISTS tenant_isolation_${table} ON ${table};`,
+      );
+      await queryRunner.query(
+        `ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY;`,
+      );
     }
 
     // Drop triggers
     const auditTables = [
-      'tenants', 'users', 'roles', 'sessions', 'api_keys',
-      'universal_entities', 'cases', 'notes',
-      'documents', 'document_versions',
-      'tasks', 'task_comments',
-      'workflows', 'workflow_instances',
-      'form_schemas', 'form_submissions',
-      'subscriptions', 'invoices',
-      'reports', 'notification_templates',
-      'config_packs', 'feature_flags',
+      'tenants',
+      'users',
+      'roles',
+      'sessions',
+      'api_keys',
+      'universal_entities',
+      'cases',
+      'notes',
+      'documents',
+      'document_versions',
+      'tasks',
+      'task_comments',
+      'workflows',
+      'workflow_instances',
+      'form_schemas',
+      'form_submissions',
+      'subscriptions',
+      'invoices',
+      'reports',
+      'notification_templates',
+      'config_packs',
+      'feature_flags',
       'integration_instances',
     ];
 
     for (const table of auditTables) {
-      await queryRunner.query(`DROP TRIGGER IF EXISTS trg_audit_${table} ON ${table};`);
+      await queryRunner.query(
+        `DROP TRIGGER IF EXISTS trg_audit_${table} ON ${table};`,
+      );
     }
 
-    await queryRunner.query(`DROP FUNCTION IF EXISTS audit_trigger_function() CASCADE;`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS set_meru_context(UUID, UUID, TEXT) CASCADE;`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS clear_meru_context() CASCADE;`);
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS audit_trigger_function() CASCADE;`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS set_meru_context(UUID, UUID, TEXT) CASCADE;`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS clear_meru_context() CASCADE;`,
+    );
 
     // Drop search triggers
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_universal_entities_search ON universal_entities;`);
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_documents_search ON documents;`);
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_tasks_search ON tasks;`);
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_cases_search ON cases;`);
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_universal_entities_search ON universal_entities;`,
+    );
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_documents_search ON documents;`,
+    );
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_tasks_search ON tasks;`,
+    );
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_cases_search ON cases;`,
+    );
 
-    await queryRunner.query(`DROP FUNCTION IF EXISTS universal_entities_search_update() CASCADE;`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS documents_search_update() CASCADE;`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS tasks_search_update() CASCADE;`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS cases_search_update() CASCADE;`);
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS universal_entities_search_update() CASCADE;`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS documents_search_update() CASCADE;`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS tasks_search_update() CASCADE;`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS cases_search_update() CASCADE;`,
+    );
   }
 }

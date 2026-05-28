@@ -41,7 +41,19 @@ export interface SearchQuery {
 
 export interface SearchFilter {
   field: string;
-  operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'exists' | 'range' | 'match' | 'match_phrase';
+  operator:
+    | 'eq'
+    | 'neq'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'in'
+    | 'nin'
+    | 'exists'
+    | 'range'
+    | 'match'
+    | 'match_phrase';
   value: any;
   nested?: SearchFilter[];
   boolean?: 'and' | 'or' | 'not';
@@ -55,7 +67,14 @@ export interface SearchSort {
 
 export interface SearchAggregation {
   name: string;
-  type: 'terms' | 'date_histogram' | 'histogram' | 'range' | 'stats' | 'cardinality' | 'nested';
+  type:
+    | 'terms'
+    | 'date_histogram'
+    | 'histogram'
+    | 'range'
+    | 'stats'
+    | 'cardinality'
+    | 'nested';
   field: string;
   options?: Record<string, any>;
   subAggregations?: SearchAggregation[];
@@ -89,16 +108,31 @@ export interface AggregationResult {
 }
 
 export interface IndexMapping {
-  properties: Record<string, {
-    type: 'text' | 'keyword' | 'integer' | 'long' | 'float' | 'double' | 'boolean' | 'date' | 'object' | 'nested' | 'geo_point' | 'dense_vector';
-    fields?: Record<string, any>;
-    analyzer?: string;
-    searchAnalyzer?: string;
-    format?: string;
-    dims?: number; // For dense_vector
-    similarity?: string;
-    properties?: IndexMapping['properties']; // For nested/object
-  }>;
+  properties: Record<
+    string,
+    {
+      type:
+        | 'text'
+        | 'keyword'
+        | 'integer'
+        | 'long'
+        | 'float'
+        | 'double'
+        | 'boolean'
+        | 'date'
+        | 'object'
+        | 'nested'
+        | 'geo_point'
+        | 'dense_vector';
+      fields?: Record<string, any>;
+      analyzer?: string;
+      searchAnalyzer?: string;
+      format?: string;
+      dims?: number; // For dense_vector
+      similarity?: string;
+      properties?: IndexMapping['properties']; // For nested/object
+    }
+  >;
   settings?: {
     numberOfShards?: number;
     numberOfReplicas?: number;

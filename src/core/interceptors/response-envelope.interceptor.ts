@@ -26,7 +26,13 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
     return next.handle().pipe(
       map((data) => {
         // Don't double-wrap if already an ApiResponse
-        if (data && typeof data === 'object' && 'meta' in data && 'error' in data && 'data' in data) {
+        if (
+          data &&
+          typeof data === 'object' &&
+          'meta' in data &&
+          'error' in data &&
+          'data' in data
+        ) {
           return data;
         }
 
@@ -35,7 +41,8 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
           return data;
         }
 
-        const requestId = request.headers['x-request-id'] as string || uuidv4();
+        const requestId =
+          (request.headers['x-request-id'] as string) || uuidv4();
         const meta: ApiMeta = {
           requestId,
           timestamp: new Date().toISOString(),

@@ -1,7 +1,16 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan } from 'typeorm';
-import { Notification, NotificationStatus, NotificationType, NotificationPriority, NotificationCategory, NotificationPreference, NotificationTemplate, TemplateType } from './entities/notification.entity';
+import {
+  Notification,
+  NotificationStatus,
+  NotificationType,
+  NotificationPriority,
+  NotificationCategory,
+  NotificationPreference,
+  NotificationTemplate,
+  TemplateType,
+} from './entities/notification.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -14,7 +23,11 @@ export interface SendNotificationOptions {
   priority?: NotificationPriority;
   category?: NotificationCategory;
   metadata?: Record<string, any>;
-  templateData?: { templateId?: string; variables?: Record<string, any>; locale?: string };
+  templateData?: {
+    templateId?: string;
+    variables?: Record<string, any>;
+    locale?: string;
+  };
 }
 
 @Injectable()
@@ -33,19 +46,29 @@ export class NotificationsService {
 
   // ==================== NOTIFICATION CREATION ====================
 
-  async sendNotification(options: SendNotificationOptions): Promise<Notification | null> {
+  async sendNotification(
+    options: SendNotificationOptions,
+  ): Promise<Notification | null> {
     // Check user preferences
-    const preferences = await this.getUserPreferences(options.tenantId, options.recipientId);
-    
+    const preferences = await this.getUserPreferences(
+      options.tenantId,
+      options.recipientId,
+    );
+
     if (!this.shouldSendNotification(preferences, options)) {
-      this.logger.debug(`Notification skipped due to preferences: ${options.recipientId}`);
+      this.logger.debug(
+        `Notification skipped due to preferences: ${options.recipientId}`,
+      );
       return null;
     }
 
     // Check quiet hours
     if (this.isInQuietHours(preferences)) {
       // Queue for later delivery
-      return this.scheduleNotification(options, this.getQuietHoursEnd(preferences));
+      return this.scheduleNotification(
+        options,
+        this.getQuietHoursEnd(preferences),
+      );
     }
 
     const notification = this.notificationRepo.create({
@@ -64,11 +87,13 @@ export class NotificationsService {
     });
 
     const saved = await this.notificationRepo.save(notification);
-    
+
     // Emit event for processing
     this.eventEmitter.emit('notification.created', saved);
-    
-    this.logger.log(`Notification created: ${saved.id} for user ${options.recipientId}`);
+
+    this.logger.log(
+      `Notification created: ${saved.id} for user ${options.recipientId}`,
+    );
     return saved;
   }
 
@@ -77,16 +102,19 @@ export class NotificationsService {
     notifications: SendNotificationOptions[],
   ): Promise<Notification[]> {
     const results: Notification[] = [];
-    
+
     for (const options of notifications) {
       try {
-        const notification = await this.sendNotification({ ...options, tenantId });
+        const notification = await this.sendNotification({
+          ...options,
+          tenantId,
+        });
         if (notification) results.push(notification);
       } catch (error) {
         this.logger.error(`Failed to send notification:`, error);
       }
     }
-    
+
     return results;
   }
 
@@ -107,7 +135,7 @@ export class NotificationsService {
     // Replace variables in template
     let content = template.content;
     let subject = template.subject;
-    
+
     Object.entries(variables).forEach(([key, value]) => {
       const regex = new RegExp(`{{${key}}}`, 'g');
       content = content.replace(regex, String(value));
@@ -139,7 +167,7 @@ export class NotificationsService {
     } = {},
   ): Promise<{ notifications: Notification[]; total: number }> {
     const where: any = { tenantId, recipientId: userId };
-    
+
     if (options.status) where.status = options.status;
     if (options.type) where.type = options.type;
     if (options.category) where.category = options.category;
@@ -170,13 +198,10 @@ export class NotificationsService {
   // ==================== NOTIFICATION ACTIONS ====================
 
   async markAsRead(notificationIds: string[], userId: string): Promise<void> {
-    await this.notificationRepo.update(
-      notificationIds,
-      { 
-        status: NotificationStatus.READ,
-        readAt: new Date(),
-      },
-    );
+    await this.notificationRepo.update(notificationIds, {
+      status: NotificationStatus.READ,
+      readAt: new Date(),
+    });
   }
 
   async markAllAsRead(tenantId: string, userId: string): Promise<void> {
@@ -221,11 +246,20 @@ export class NotificationsService {
           inApp: { enabled: true, soundEnabled: true, showPreview: true },
         },
         categoryPreferences: {
-          system: { enabled: true, channels: [NotificationType.IN_APP, NotificationType.EMAIL] },
-          workflow: { enabled: true, channels: [NotificationType.IN_APP, NotificationType.EMAIL] },
+          system: {
+            enabled: true,
+            channels: [NotificationType.IN_APP, NotificationType.EMAIL],
+          },
+          workflow: {
+            enabled: true,
+            channels: [NotificationType.IN_APP, NotificationType.EMAIL],
+          },
           task: { enabled: true, channels: [NotificationType.IN_APP] },
           billing: { enabled: true, channels: [NotificationType.EMAIL] },
-          security: { enabled: true, channels: [NotificationType.EMAIL, NotificationType.IN_APP] },
+          security: {
+            enabled: true,
+            channels: [NotificationType.EMAIL, NotificationType.IN_APP],
+          },
         },
       });
       await this.preferenceRepo.save(preferences);
@@ -257,10 +291,13 @@ export class NotificationsService {
     return this.templateRepo.save(template);
   }
 
-  async getTemplates(tenantId: string, type?: string): Promise<NotificationTemplate[]> {
+  async getTemplates(
+    tenantId: string,
+    type?: string,
+  ): Promise<NotificationTemplate[]> {
     const where: any = { tenantId };
     if (type) where.type = type;
-    
+
     return this.templateRepo.find({ where });
   }
 
@@ -269,7 +306,7 @@ export class NotificationsService {
   @Cron(CronExpression.EVERY_MINUTE)
   async processScheduledNotifications(): Promise<void> {
     const now = new Date();
-    
+
     const scheduled = await this.notificationRepo.find({
       where: {
         status: NotificationStatus.PENDING,
@@ -289,7 +326,7 @@ export class NotificationsService {
 
     for (const user of users) {
       if (!user.digestSettings?.enabled) continue;
-      
+
       const unread = await this.getNotifications(user.tenantId, user.userId, {
         isRead: false,
       });
@@ -349,14 +386,16 @@ export class NotificationsService {
     if (!preferences.quietHours?.endTime) {
       return now;
     }
-    const [hours, minutes] = preferences.quietHours.endTime.split(':').map(Number);
+    const [hours, minutes] = preferences.quietHours.endTime
+      .split(':')
+      .map(Number);
     const endTime = new Date(now);
     endTime.setHours(hours, minutes, 0, 0);
-    
+
     if (endTime < now) {
       endTime.setDate(endTime.getDate() + 1);
     }
-    
+
     return endTime;
   }
 

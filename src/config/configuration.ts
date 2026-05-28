@@ -5,7 +5,9 @@ export const validationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   PORT: Joi.number().default(3000),
-  VERTICAL: Joi.string().valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal').default('core'),
+  VERTICAL: Joi.string()
+    .valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal')
+    .default('core'),
 
   // CORS
   CORS_ALLOWED_ORIGINS: Joi.string().default(
@@ -49,7 +51,9 @@ export const validationSchema = Joi.object({
   AWS_S3_BUCKET: Joi.string().default('meru-documents'),
 
   // Documents
-  DOCUMENT_ENCRYPTION_KEY: Joi.string().default('default-encryption-key-32-chars!'),
+  DOCUMENT_ENCRYPTION_KEY: Joi.string().default(
+    'default-encryption-key-32-chars!',
+  ),
   MAX_FILE_SIZE: Joi.number().default(52428800),
 });
 
@@ -86,7 +90,8 @@ export const configuration = () => ({
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
   },
   documents: {
-    encryptionKey: process.env.DOCUMENT_ENCRYPTION_KEY || 'default-encryption-key-32-chars!',
+    encryptionKey:
+      process.env.DOCUMENT_ENCRYPTION_KEY || 'default-encryption-key-32-chars!',
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '52428800', 10),
   },
 });

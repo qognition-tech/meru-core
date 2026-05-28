@@ -93,7 +93,10 @@ export class DocumentsController {
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create a new version of a document' })
-  @ApiResponse({ status: 201, description: 'Document version created successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'Document version created successfully',
+  })
   @ApiResponse({ status: 404, description: 'Document not found' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
   async createNewVersion(
@@ -130,10 +133,7 @@ export class DocumentsController {
   @ApiQuery({ name: 'query', required: false, description: 'Search query' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
-  async findAll(
-    @Query() searchDto: SearchDocumentsDto,
-    @Request() req,
-  ) {
+  async findAll(@Query() searchDto: SearchDocumentsDto, @Request() req) {
     const result = await this.documentsService.findAll(
       req.user.tenantId,
       searchDto,
@@ -177,10 +177,7 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Get a document by ID' })
   @ApiResponse({ status: 200, description: 'Document retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Document not found' })
-  async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Request() req,
-  ) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
     const document = await this.documentsService.findOne(
       id,
       req.user.tenantId,
@@ -195,11 +192,11 @@ export class DocumentsController {
 
   @Get(':id/versions')
   @ApiOperation({ summary: 'Get all versions of a document' })
-  @ApiResponse({ status: 200, description: 'Document versions retrieved successfully' })
-  async getVersions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Request() req,
-  ) {
+  @ApiResponse({
+    status: 200,
+    description: 'Document versions retrieved successfully',
+  })
+  async getVersions(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
     const versions = await this.documentsService.getVersions(
       id,
       req.user.tenantId,
@@ -214,7 +211,10 @@ export class DocumentsController {
 
   @Get(':id/versions/:versionId')
   @ApiOperation({ summary: 'Get a specific version of a document' })
-  @ApiResponse({ status: 200, description: 'Document version retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Document version retrieved successfully',
+  })
   async getVersion(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('versionId', ParseUUIDPipe) versionId: string,
@@ -235,7 +235,10 @@ export class DocumentsController {
 
   @Get(':id/download')
   @ApiOperation({ summary: 'Get a download URL for a document' })
-  @ApiResponse({ status: 200, description: 'Download URL generated successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Download URL generated successfully',
+  })
   async download(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req,
@@ -282,15 +285,8 @@ export class DocumentsController {
   @ApiResponse({ status: 200, description: 'Document deleted successfully' })
   @ApiResponse({ status: 404, description: 'Document not found' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
-  async remove(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Request() req,
-  ) {
-    await this.documentsService.remove(
-      id,
-      req.user.tenantId,
-      req.user.id,
-    );
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+    await this.documentsService.remove(id, req.user.tenantId, req.user.id);
 
     return {
       success: true,
@@ -300,11 +296,11 @@ export class DocumentsController {
 
   @Post(':id/analyze')
   @ApiOperation({ summary: 'Trigger AI analysis for a document' })
-  @ApiResponse({ status: 200, description: 'AI analysis triggered successfully' })
-  async analyze(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Request() req,
-  ) {
+  @ApiResponse({
+    status: 200,
+    description: 'AI analysis triggered successfully',
+  })
+  async analyze(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
     await this.documentsService.triggerAIAnalysis(
       id,
       req.user.tenantId,

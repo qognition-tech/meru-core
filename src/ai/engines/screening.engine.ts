@@ -18,7 +18,13 @@ export interface ScreeningRequest {
   identities?: Array<{
     field: string;
     value: string;
-    type: 'name' | 'alias' | 'document' | 'address' | 'date_of_birth' | 'nationality';
+    type:
+      | 'name'
+      | 'alias'
+      | 'document'
+      | 'address'
+      | 'date_of_birth'
+      | 'nationality';
   }>;
 }
 
@@ -80,9 +86,7 @@ export class ScreeningEngine {
   private readonly logger = new Logger(ScreeningEngine.name);
 
   // Known risk indicators
-  private readonly HIGH_RISK_COUNTRIES = [
-    'IR', 'KP', 'SY', 'CU', 'VE', 'MM',
-  ];
+  private readonly HIGH_RISK_COUNTRIES = ['IR', 'KP', 'SY', 'CU', 'VE', 'MM'];
 
   constructor(
     private readonly aiService: AiService,
@@ -122,20 +126,26 @@ export class ScreeningEngine {
         try {
           const parsed = JSON.parse(response.result);
           if (parsed.hits && parsed.hits.length > 0) {
-            hitResults.push(...parsed.hits.map((h: any) => ({
-              type: screeningType,
-              source: h.source || 'AI_Screening',
-              matchName: h.matchName,
-              matchScore: h.matchScore || 0.5,
-              details: h.details || '',
-              severity: h.severity || 'warning',
-            })));
+            hitResults.push(
+              ...parsed.hits.map((h: any) => ({
+                type: screeningType,
+                source: h.source || 'AI_Screening',
+                matchName: h.matchName,
+                matchScore: h.matchScore || 0.5,
+                details: h.details || '',
+                severity: h.severity || 'warning',
+              })),
+            );
           }
         } catch {
-          this.logger.warn(`Failed to parse screening response for ${screeningType}`);
+          this.logger.warn(
+            `Failed to parse screening response for ${screeningType}`,
+          );
         }
       } catch (error: any) {
-        this.logger.error(`Screening ${screeningType} failed: ${error.message}`);
+        this.logger.error(
+          `Screening ${screeningType} failed: ${error.message}`,
+        );
       }
     }
 
@@ -146,7 +156,10 @@ export class ScreeningEngine {
     result.completedAt = new Date();
 
     // Generate summary
-    result.summary = await this.generateScreeningSummary(result, request.tenantId);
+    result.summary = await this.generateScreeningSummary(
+      result,
+      request.tenantId,
+    );
 
     // Escalate if critical
     if (result.riskLevel === 'critical') {
@@ -159,8 +172,17 @@ export class ScreeningEngine {
 
   async performBatchScreening(
     tenantId: string,
-    entities: Array<{ entityId: string; entityName: string; entityType: 'individual' | 'organization' }>,
-    screeningTypes: ScreeningType[] = ['sanctions', 'pep', 'adverse_media', 'watchlist'],
+    entities: Array<{
+      entityId: string;
+      entityName: string;
+      entityType: 'individual' | 'organization';
+    }>,
+    screeningTypes: ScreeningType[] = [
+      'sanctions',
+      'pep',
+      'adverse_media',
+      'watchlist',
+    ],
   ): Promise<ScreeningResult[]> {
     const results: ScreeningResult[] = [];
 
@@ -178,9 +200,7 @@ export class ScreeningEngine {
     return results;
   }
 
-  async enhancedDueDiligence(
-    request: EnhancedDueDiligenceRequest,
-  ): Promise<{
+  async enhancedDueDiligence(request: EnhancedDueDiligenceRequest): Promise<{
     eddId: string;
     findings: Array<{
       area: string;
@@ -316,7 +336,10 @@ export class ScreeningEngine {
 
   // ==================== PRIVATE HELPERS ====================
 
-  private calculateRiskScore(hits: ScreeningHit[], request: ScreeningRequest): number {
+  private calculateRiskScore(
+    hits: ScreeningHit[],
+    request: ScreeningRequest,
+  ): number {
     let score = 0;
 
     // Base score from hits
@@ -329,7 +352,9 @@ export class ScreeningEngine {
 
     // Penalty for high risk countries
     if (request.identities) {
-      const nationality = request.identities.find(i => i.type === 'nationality');
+      const nationality = request.identities.find(
+        (i) => i.type === 'nationality',
+      );
       if (nationality && this.HIGH_RISK_COUNTRIES.includes(nationality.value)) {
         score += 15;
       }
@@ -357,14 +382,19 @@ export class ScreeningEngine {
       const response = await this.aiService.execute({
         category: 'compliance_analysis' as PromptCategory,
         key: 'screening_summary',
-        input: JSON.stringify({ hits: result.hits, riskScore: result.riskScore }),
+        input: JSON.stringify({
+          hits: result.hits,
+          riskScore: result.riskScore,
+        }),
         tenantId,
       });
 
       return response.result;
     } catch {
-      const severity = result.hits.filter(h => h.severity === 'alert').length;
-      const warnings = result.hits.filter(h => h.severity === 'warning').length;
+      const severity = result.hits.filter((h) => h.severity === 'alert').length;
+      const warnings = result.hits.filter(
+        (h) => h.severity === 'warning',
+      ).length;
       return `${result.hits.length} hits found: ${severity} alerts, ${warnings} warnings. Risk Score: ${result.riskScore}/100.`;
     }
   }

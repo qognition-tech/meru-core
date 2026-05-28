@@ -34,17 +34,11 @@ export class TaskController {
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
   @ApiResponse({ status: 201, description: 'Task created successfully' })
-  async createTask(
-    @Request() req,
-    @Body() dto: any,
-  ) {
-    const task = await this.taskService.createTask(
-      req.user.tenantId,
-      {
-        ...dto,
-        assignedBy: req.user.id,
-      },
-    );
+  async createTask(@Request() req, @Body() dto: any) {
+    const task = await this.taskService.createTask(req.user.tenantId, {
+      ...dto,
+      assignedBy: req.user.id,
+    });
     return {
       success: true,
       data: task,
@@ -65,15 +59,12 @@ export class TaskController {
     @Query('priority') priority?: string,
     @Query('type') type?: string,
   ) {
-    const tasks = await this.taskService.listTasks(
-      req.user.tenantId,
-      {
-        status: status as any,
-        assignedTo,
-        priority: priority as any,
-        type: type as any,
-      },
-    );
+    const tasks = await this.taskService.listTasks(req.user.tenantId, {
+      status: status as any,
+      assignedTo,
+      priority: priority as any,
+      type: type as any,
+    });
     return {
       success: true,
       data: tasks,
@@ -105,9 +96,7 @@ export class TaskController {
   @ApiOperation({ summary: 'Get task by ID' })
   @ApiResponse({ status: 200, description: 'Task retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getTask(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getTask(@Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.getTask(id);
     return {
       success: true,
@@ -123,11 +112,7 @@ export class TaskController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: any,
   ) {
-    const task = await this.taskService.updateTask(
-      id,
-      req.user.tenantId,
-      dto,
-    );
+    const task = await this.taskService.updateTask(id, req.user.tenantId, dto);
     return {
       success: true,
       data: task,
@@ -137,10 +122,7 @@ export class TaskController {
   @Post(':id/start')
   @ApiOperation({ summary: 'Start task' })
   @ApiResponse({ status: 200, description: 'Task started' })
-  async startTask(
-    @Request() req,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async startTask(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.startTask(
       id,
       req.user.tenantId,
@@ -155,10 +137,7 @@ export class TaskController {
   @Post(':id/complete')
   @ApiOperation({ summary: 'Complete task' })
   @ApiResponse({ status: 200, description: 'Task completed' })
-  async completeTask(
-    @Request() req,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async completeTask(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.completeTask(
       id,
       req.user.tenantId,
@@ -216,10 +195,7 @@ export class TaskController {
   @Post('recurring-jobs')
   @ApiOperation({ summary: 'Create a recurring job' })
   @ApiResponse({ status: 201, description: 'Recurring job created' })
-  async createRecurringJob(
-    @Request() req,
-    @Body() dto: any,
-  ) {
+  async createRecurringJob(@Request() req, @Body() dto: any) {
     const job = await this.taskService.createRecurringJob(
       req.user.tenantId,
       dto,
@@ -234,10 +210,7 @@ export class TaskController {
   @ApiOperation({ summary: 'List recurring jobs' })
   @ApiQuery({ name: 'status', required: false })
   @ApiResponse({ status: 200, description: 'Jobs retrieved' })
-  async listRecurringJobs(
-    @Request() req,
-    @Query('status') status?: string,
-  ) {
+  async listRecurringJobs(@Request() req, @Query('status') status?: string) {
     const jobs = await this.taskService.listRecurringJobs(
       req.user.tenantId,
       status as any,
@@ -255,10 +228,7 @@ export class TaskController {
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const job = await this.taskService.pauseRecurringJob(
-      id,
-      req.user.tenantId,
-    );
+    const job = await this.taskService.pauseRecurringJob(id, req.user.tenantId);
     return {
       success: true,
       data: job,

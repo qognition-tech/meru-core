@@ -6,9 +6,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
-import { Report, ReportType, DataSource as ReportDataSource } from './entities/report.entity';
+import {
+  Report,
+  ReportType,
+  DataSource as ReportDataSource,
+} from './entities/report.entity';
 import { ReportExecution } from './entities/report-execution.entity';
-import { DashboardWidget, WidgetType } from './entities/dashboard-widget.entity';
+import {
+  DashboardWidget,
+  WidgetType,
+} from './entities/dashboard-widget.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
@@ -145,7 +152,10 @@ export class AnalyticsService {
     }
   }
 
-  private async executeQuery(report: Report, parameters?: Record<string, any>): Promise<any> {
+  private async executeQuery(
+    report: Report,
+    parameters?: Record<string, any>,
+  ): Promise<any> {
     const config = report.configuration;
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -184,9 +194,13 @@ export class AnalyticsService {
     }
   }
 
-  private buildCRMQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildCRMQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT ';
-    
+
     if (config.columns) {
       query += config.columns.map((c: any) => c.field).join(', ');
     } else {
@@ -218,7 +232,11 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildWorkflowQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildWorkflowQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT * FROM workflow_instances WHERE tenant_id = $1';
     params.push(parameters?.tenantId);
 
@@ -230,7 +248,11 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildDocumentsQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildDocumentsQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT * FROM documents WHERE tenant_id = $1';
     params.push(parameters?.tenantId);
 
@@ -242,7 +264,11 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildTasksQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildTasksQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT * FROM tasks WHERE tenant_id = $1';
     params.push(parameters?.tenantId);
 
@@ -254,13 +280,21 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildFormsQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM form_submissions WHERE tenant_id = $1';
+  private buildFormsQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    const query = 'SELECT * FROM form_submissions WHERE tenant_id = $1';
     params.push(parameters?.tenantId);
     return query;
   }
 
-  private buildBillingQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildBillingQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT * FROM invoices WHERE tenant_id = $1';
     params.push(parameters?.tenantId);
 
@@ -339,7 +373,10 @@ export class AnalyticsService {
     };
   }
 
-  private async executeWidgetQuery(widget: DashboardWidget, tenantId: string): Promise<any> {
+  private async executeWidgetQuery(
+    widget: DashboardWidget,
+    tenantId: string,
+  ): Promise<any> {
     const config = widget.configuration;
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -384,16 +421,20 @@ export class AnalyticsService {
         status: 'active',
       },
     });
-    
-    const reports = allReports.filter(report => report.schedule?.enabled === true);
+
+    const reports = allReports.filter(
+      (report) => report.schedule?.enabled === true,
+    );
 
     for (const report of reports) {
       const schedule = report.schedule;
       if (!schedule?.enabled) continue;
 
       // Check if it's time to run
-      const [scheduleHour, scheduleMinute] = schedule.time.split(':').map(Number);
-      
+      const [scheduleHour, scheduleMinute] = schedule.time
+        .split(':')
+        .map(Number);
+
       if (currentHour !== scheduleHour || currentMinute !== scheduleMinute) {
         continue;
       }
@@ -415,7 +456,7 @@ export class AnalyticsService {
       if (shouldRun) {
         try {
           this.logger.log(`Executing scheduled report: ${report.id}`);
-          
+
           const result = await this.executeReport(report.tenantId, 'system', {
             reportId: report.id,
             format: schedule.format,
@@ -424,7 +465,10 @@ export class AnalyticsService {
           // TODO: Send email to recipients
           this.logger.log(`Report ${report.id} executed successfully`);
         } catch (error) {
-          this.logger.error(`Failed to execute scheduled report ${report.id}:`, error);
+          this.logger.error(
+            `Failed to execute scheduled report ${report.id}:`,
+            error,
+          );
         }
       }
     }

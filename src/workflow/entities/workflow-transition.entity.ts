@@ -26,21 +26,23 @@ export class WorkflowTransition {
   @Column()
   workflowId: string;
 
-  @ManyToOne(() => Workflow, workflow => workflow.transitions, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Workflow, (workflow) => workflow.transitions, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'workflowId' })
   workflow: Workflow;
 
   @Column()
   fromStateId: string;
 
-  @ManyToOne(() => WorkflowState, state => state.outgoingTransitions)
+  @ManyToOne(() => WorkflowState, (state) => state.outgoingTransitions)
   @JoinColumn({ name: 'fromStateId' })
   fromState: WorkflowState;
 
   @Column()
   toStateId: string;
 
-  @ManyToOne(() => WorkflowState, state => state.incomingTransitions)
+  @ManyToOne(() => WorkflowState, (state) => state.incomingTransitions)
   @JoinColumn({ name: 'toStateId' })
   toState: WorkflowState;
 
@@ -50,7 +52,11 @@ export class WorkflowTransition {
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column({ type: 'enum', enum: TransitionType, default: TransitionType.MANUAL })
+  @Column({
+    type: 'enum',
+    enum: TransitionType,
+    default: TransitionType.MANUAL,
+  })
   type: TransitionType;
 
   @Column({ type: 'jsonb', default: {} })

@@ -48,7 +48,11 @@ export class RecurringJob {
     config: Record<string, any>;
   };
 
-  @Column({ type: 'enum', enum: RecurringJobStatus, default: RecurringJobStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: RecurringJobStatus,
+    default: RecurringJobStatus.ACTIVE,
+  })
   status: RecurringJobStatus;
 
   @Column({ type: 'timestamp', nullable: true })

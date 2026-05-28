@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { Tenant, TenantStatus, TenantPlan } from './entities/tenant.entity';
@@ -124,10 +129,7 @@ export class TenantProvisioningService {
       await queryRunner.manager.save(defaultSettings);
 
       // 5. Set up tenant RLS context (for any operations)
-      await queryRunner.query(
-        `SELECT app.set_tenant_context($1)`,
-        [tenant.id],
-      );
+      await queryRunner.query(`SELECT app.set_tenant_context($1)`, [tenant.id]);
 
       await queryRunner.commitTransaction();
 
@@ -192,7 +194,10 @@ export class TenantProvisioningService {
     return this.tenantRepo.save(tenant);
   }
 
-  async deleteTenant(tenantId: string, permanent: boolean = false): Promise<void> {
+  async deleteTenant(
+    tenantId: string,
+    permanent: boolean = false,
+  ): Promise<void> {
     this.logger.log(`Deleting tenant ${tenantId} (permanent: ${permanent})`);
 
     if (permanent) {
@@ -375,7 +380,9 @@ export class TenantProvisioningService {
 
   private async sendWelcomeEmail(user: User, tenant: Tenant): Promise<void> {
     // TODO: Integrate with email service (SendGrid, SES, etc.)
-    this.logger.log(`Welcome email sent to ${user.email} for tenant ${tenant.slug}`);
+    this.logger.log(
+      `Welcome email sent to ${user.email} for tenant ${tenant.slug}`,
+    );
 
     // For now, just log
     // await this.emailService.sendWelcomeEmail(user, tenant);

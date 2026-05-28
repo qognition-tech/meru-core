@@ -28,7 +28,9 @@ export class CrmService {
     tenantId: string,
     dto: CreateEntityInput,
   ): Promise<UniversalEntity> {
-    this.logger.log(`Creating entity for tenant: ${tenantId}`, { entityType: dto.type });
+    this.logger.log(`Creating entity for tenant: ${tenantId}`, {
+      entityType: dto.type,
+    });
 
     try {
       const settings = await this.tenantSettingsService.getSettings(tenantId);
@@ -46,7 +48,9 @@ export class CrmService {
           where: { tenantId, email: dto.email },
         });
         if (existing) {
-          throw new BadRequestException('Entity with this email already exists.');
+          throw new BadRequestException(
+            'Entity with this email already exists.',
+          );
         }
       }
 
@@ -74,8 +78,13 @@ export class CrmService {
         throw error;
       }
 
-      this.logger.error(`Failed to create entity: ${error.message}`, error.stack);
-      throw new BadRequestException(`Failed to create entity: ${error.message}`);
+      this.logger.error(
+        `Failed to create entity: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException(
+        `Failed to create entity: ${error.message}`,
+      );
     }
   }
 
@@ -84,7 +93,9 @@ export class CrmService {
     childId: string,
     relationType: string,
   ): Promise<UniversalEntity> {
-    this.logger.log(`Adding relationship: ${parentId} -> ${childId} (${relationType})`);
+    this.logger.log(
+      `Adding relationship: ${parentId} -> ${childId} (${relationType})`,
+    );
 
     const parent = await this.entityRepo.findOne({ where: { id: parentId } });
     const child = await this.entityRepo.findOne({ where: { id: childId } });
@@ -185,14 +196,10 @@ export class CrmService {
     entityId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'crm_entity',
-        entityId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'crm_entity',
+      entityId,
+    });
   }
 
   async getEntityDocumentStats(

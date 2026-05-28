@@ -1,11 +1,12 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan } from 'typeorm';
-import { AuditLog, AuditAction, AuditSeverity, ComplianceStandard } from './entities/audit-log.entity';
+import {
+  AuditLog,
+  AuditAction,
+  AuditSeverity,
+  ComplianceStandard,
+} from './entities/audit-log.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 
@@ -198,7 +199,9 @@ export class AuditService {
 
   // ==================== QUERY & SEARCH ====================
 
-  async queryLogs(query: AuditQueryDto): Promise<{ logs: AuditLog[]; total: number }> {
+  async queryLogs(
+    query: AuditQueryDto,
+  ): Promise<{ logs: AuditLog[]; total: number }> {
     const where: any = { tenantId: query.tenantId };
 
     if (query.startDate && query.endDate) {
@@ -295,7 +298,7 @@ export class AuditService {
     invalidLogIds: string[];
   }> {
     const logs = await this.auditRepo.find({ where: { tenantId } });
-    
+
     let valid = 0;
     let invalid = 0;
     const invalidLogIds: string[] = [];
@@ -412,7 +415,8 @@ export class AuditService {
 
     // Data access statistics
     const dataAccess = logs.filter(
-      log => log.action === AuditAction.READ || log.action === AuditAction.DOWNLOAD,
+      (log) =>
+        log.action === AuditAction.READ || log.action === AuditAction.DOWNLOAD,
     );
 
     return {
@@ -423,8 +427,8 @@ export class AuditService {
       bySeverity,
       dataAccess: {
         count: dataAccess.length,
-        uniqueUsers: [...new Set(dataAccess.map(l => l.userId))].length,
-        uniqueEntities: [...new Set(dataAccess.map(l => l.entityId))].length,
+        uniqueUsers: [...new Set(dataAccess.map((l) => l.userId))].length,
+        uniqueEntities: [...new Set(dataAccess.map((l) => l.entityId))].length,
       },
       integrityStatus: await this.verifyTenantLogs(tenantId),
     };
@@ -465,8 +469,16 @@ export class AuditService {
   private convertToCSV(logs: AuditLog[]): string {
     if (logs.length === 0) return '';
 
-    const headers = ['timestamp', 'userId', 'action', 'entityType', 'entityId', 'severity', 'description'];
-    const rows = logs.map(log => [
+    const headers = [
+      'timestamp',
+      'userId',
+      'action',
+      'entityType',
+      'entityId',
+      'severity',
+      'description',
+    ];
+    const rows = logs.map((log) => [
       log.timestamp.toISOString(),
       log.userId,
       log.action,
@@ -476,11 +488,13 @@ export class AuditService {
       log.description || '',
     ]);
 
-    return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 
   private convertToXML(logs: AuditLog[]): string {
-    const entries = logs.map(log => `
+    const entries = logs
+      .map(
+        (log) => `
     <entry>
       <timestamp>${log.timestamp.toISOString()}</timestamp>
       <userId>${log.userId}</userId>
@@ -489,7 +503,9 @@ export class AuditService {
       <entityId>${log.entityId}</entityId>
       <severity>${log.severity}</severity>
     </entry>
-    `).join('');
+    `,
+      )
+      .join('');
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <auditLog>

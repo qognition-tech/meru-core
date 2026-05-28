@@ -28,7 +28,10 @@ export class DocumentAuthGuard implements CanActivate {
     }
 
     // Verify workspace/vertical match
-    const requiredVertical = this.reflector.get<string>('vertical', context.getHandler());
+    const requiredVertical = this.reflector.get<string>(
+      'vertical',
+      context.getHandler(),
+    );
     if (requiredVertical && user.vertical !== requiredVertical) {
       throw new ForbiddenException('Access denied for this vertical');
     }
@@ -38,11 +41,19 @@ export class DocumentAuthGuard implements CanActivate {
     if (documentId) {
       // Document-specific permission check would go here
       // This could check if user owns the document or has explicit permissions
-      const requiredPermission = this.reflector.get<string>('documentPermission', context.getHandler()) || 'read';
-      
+      const requiredPermission =
+        this.reflector.get<string>(
+          'documentPermission',
+          context.getHandler(),
+        ) || 'read';
+
       // For now, allow if user is in the same tenant
       // In production, implement proper document-level permission checks
-      const canAccess = await this.checkDocumentAccess(documentId, user, requiredPermission);
+      const canAccess = await this.checkDocumentAccess(
+        documentId,
+        user,
+        requiredPermission,
+      );
       if (!canAccess) {
         throw new ForbiddenException('Access denied to this document');
       }

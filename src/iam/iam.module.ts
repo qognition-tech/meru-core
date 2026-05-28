@@ -23,7 +23,15 @@ import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Tenant, Role, Session, ApiKey, TenantConfigPin, TenantSetting]),
+    TypeOrmModule.forFeature([
+      User,
+      Tenant,
+      Role,
+      Session,
+      ApiKey,
+      TenantConfigPin,
+      TenantSetting,
+    ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

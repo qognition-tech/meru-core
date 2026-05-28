@@ -46,7 +46,8 @@ export class NotificationsController {
   @Post()
   @ApiOperation({
     summary: 'Send a notification',
-    description: 'Send a single notification to a user. The notification will be delivered based on user preferences and channel availability.',
+    description:
+      'Send a single notification to a user. The notification will be delivered based on user preferences and channel availability.',
   })
   @ApiResponse({
     status: 201,
@@ -79,7 +80,8 @@ export class NotificationsController {
   @Post('bulk')
   @ApiOperation({
     summary: 'Send bulk notifications',
-    description: 'Send multiple notifications in a single request. Useful for broadcast messages or batch updates.',
+    description:
+      'Send multiple notifications in a single request. Useful for broadcast messages or batch updates.',
   })
   @ApiResponse({
     status: 201,
@@ -98,10 +100,13 @@ export class NotificationsController {
       },
     },
   })
-  async sendBulkNotifications(@Request() req, @Body() dto: SendBulkNotificationsDto) {
+  async sendBulkNotifications(
+    @Request() req,
+    @Body() dto: SendBulkNotificationsDto,
+  ) {
     const notifications = await this.notificationsService.sendBulkNotifications(
       req.user.tenantId,
-      dto.notifications.map(n => ({ ...n, tenantId: req.user.tenantId })),
+      dto.notifications.map((n) => ({ ...n, tenantId: req.user.tenantId })),
     );
     return {
       success: true,
@@ -115,7 +120,8 @@ export class NotificationsController {
   @Post('template/:templateKey')
   @ApiOperation({
     summary: 'Send notification from template',
-    description: 'Send a notification using a pre-defined template with variable substitution.',
+    description:
+      'Send a notification using a pre-defined template with variable substitution.',
   })
   @ApiParam({
     name: 'templateKey',
@@ -154,12 +160,30 @@ export class NotificationsController {
   @Get()
   @ApiOperation({
     summary: 'Get user notifications',
-    description: 'Retrieve notifications for the authenticated user with filtering and pagination options.',
+    description:
+      'Retrieve notifications for the authenticated user with filtering and pagination options.',
   })
-  @ApiQuery({ name: 'type', enum: ['email', 'sms', 'push', 'in_app', 'slack'], required: false })
-  @ApiQuery({ name: 'status', enum: ['pending', 'sent', 'delivered', 'read', 'failed'], required: false })
-  @ApiQuery({ name: 'category', enum: ['system', 'workflow', 'task', 'billing', 'security'], required: false })
-  @ApiQuery({ name: 'isRead', type: 'boolean', required: false, description: 'Filter by read status' })
+  @ApiQuery({
+    name: 'type',
+    enum: ['email', 'sms', 'push', 'in_app', 'slack'],
+    required: false,
+  })
+  @ApiQuery({
+    name: 'status',
+    enum: ['pending', 'sent', 'delivered', 'read', 'failed'],
+    required: false,
+  })
+  @ApiQuery({
+    name: 'category',
+    enum: ['system', 'workflow', 'task', 'billing', 'security'],
+    required: false,
+  })
+  @ApiQuery({
+    name: 'isRead',
+    type: 'boolean',
+    required: false,
+    description: 'Filter by read status',
+  })
   @ApiQuery({ name: 'page', type: 'number', required: false, default: 1 })
   @ApiQuery({ name: 'limit', type: 'number', required: false, default: 20 })
   @ApiResponse({
@@ -189,18 +213,19 @@ export class NotificationsController {
     },
   })
   async getNotifications(@Request() req, @Query() query: NotificationQueryDto) {
-    const { notifications, total } = await this.notificationsService.getNotifications(
-      req.user.tenantId,
-      req.user.id,
-      {
-        type: query.type as any,
-        status: query.status as any,
-        category: query.category as any,
-        isRead: query.isRead,
-        page: query.page,
-        limit: query.limit,
-      },
-    );
+    const { notifications, total } =
+      await this.notificationsService.getNotifications(
+        req.user.tenantId,
+        req.user.id,
+        {
+          type: query.type as any,
+          status: query.status as any,
+          category: query.category as any,
+          isRead: query.isRead,
+          page: query.page,
+          limit: query.limit,
+        },
+      );
 
     const unreadCount = await this.notificationsService.getUnreadCount(
       req.user.tenantId,
@@ -222,7 +247,8 @@ export class NotificationsController {
   @Get('unread-count')
   @ApiOperation({
     summary: 'Get unread notification count',
-    description: 'Get the total number of unread notifications for the current user.',
+    description:
+      'Get the total number of unread notifications for the current user.',
   })
   @ApiResponse({
     status: 200,
@@ -252,7 +278,10 @@ export class NotificationsController {
   })
   @ApiResponse({ status: 200, description: 'Notifications marked as read' })
   async markAsRead(@Request() req, @Body() dto: MarkAsReadDto) {
-    await this.notificationsService.markAsRead(dto.notificationIds, req.user.id);
+    await this.notificationsService.markAsRead(
+      dto.notificationIds,
+      req.user.id,
+    );
     return { success: true, message: 'Notifications marked as read' };
   }
 
@@ -264,7 +293,10 @@ export class NotificationsController {
   })
   @ApiResponse({ status: 200, description: 'All notifications marked as read' })
   async markAllAsRead(@Request() req) {
-    await this.notificationsService.markAllAsRead(req.user.tenantId, req.user.id);
+    await this.notificationsService.markAllAsRead(
+      req.user.tenantId,
+      req.user.id,
+    );
     return { success: true, message: 'All notifications marked as read' };
   }
 
@@ -277,7 +309,10 @@ export class NotificationsController {
   @ApiParam({ name: 'id', description: 'Notification ID' })
   @ApiResponse({ status: 200, description: 'Notification deleted' })
   @ApiResponse({ status: 404, description: 'Notification not found' })
-  async deleteNotification(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+  async deleteNotification(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     await this.notificationsService.deleteNotification(id, req.user.id);
     return { success: true, message: 'Notification deleted' };
   }
@@ -287,7 +322,8 @@ export class NotificationsController {
   @Get('preferences')
   @ApiOperation({
     summary: 'Get notification preferences',
-    description: 'Get the current notification preferences for the authenticated user.',
+    description:
+      'Get the current notification preferences for the authenticated user.',
   })
   @ApiResponse({
     status: 200,
@@ -297,7 +333,11 @@ export class NotificationsController {
         success: true,
         data: {
           channels: {
-            email: { enabled: true, address: 'user@example.com', verified: true },
+            email: {
+              enabled: true,
+              address: 'user@example.com',
+              verified: true,
+            },
             push: { enabled: true, deviceTokens: ['token1'] },
           },
           categoryPreferences: {
@@ -321,10 +361,14 @@ export class NotificationsController {
   @Put('preferences')
   @ApiOperation({
     summary: 'Update notification preferences',
-    description: 'Update notification preferences including channels, categories, quiet hours, and digest settings.',
+    description:
+      'Update notification preferences including channels, categories, quiet hours, and digest settings.',
   })
   @ApiResponse({ status: 200, description: 'Preferences updated successfully' })
-  async updatePreferences(@Request() req, @Body() dto: UpdateNotificationPreferencesDto) {
+  async updatePreferences(
+    @Request() req,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ) {
     const preferences = await this.notificationsService.updatePreferences(
       req.user.tenantId,
       req.user.id,
@@ -338,7 +382,8 @@ export class NotificationsController {
   @Post('templates')
   @ApiOperation({
     summary: 'Create notification template',
-    description: 'Create a new notification template for reusable notifications.',
+    description:
+      'Create a new notification template for reusable notifications.',
   })
   @ApiResponse({
     status: 201,
@@ -358,19 +403,26 @@ export class NotificationsController {
     },
   })
   async createTemplate(@Request() req, @Body() dto: CreateTemplateDto) {
-    const template = await this.notificationsService.createTemplate(req.user.tenantId, dto);
+    const template = await this.notificationsService.createTemplate(
+      req.user.tenantId,
+      dto,
+    );
     return { success: true, data: template };
   }
 
   @Get('templates')
   @ApiOperation({
     summary: 'Get notification templates',
-    description: 'Get all notification templates for the tenant, optionally filtered by type.',
+    description:
+      'Get all notification templates for the tenant, optionally filtered by type.',
   })
   @ApiQuery({ name: 'type', enum: ['email', 'sms', 'push'], required: false })
   @ApiResponse({ status: 200, description: 'Templates retrieved successfully' })
   async getTemplates(@Request() req, @Query('type') type?: string) {
-    const templates = await this.notificationsService.getTemplates(req.user.tenantId, type);
+    const templates = await this.notificationsService.getTemplates(
+      req.user.tenantId,
+      type,
+    );
     return { success: true, data: templates };
   }
 }

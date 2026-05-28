@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { FormSchema, FormStatus, FormLayout } from './entities/form-schema.entity';
+import {
+  FormSchema,
+  FormStatus,
+  FormLayout,
+} from './entities/form-schema.entity';
 import { FormField, FieldType } from './entities/form-field.entity';
 import {
   FormSubmission,
@@ -207,7 +211,9 @@ export class FormBuilderService {
       }
 
       await queryRunner.commitTransaction();
-      this.logger.log(`Form version ${savedSchema.version} created: ${savedSchema.id}`);
+      this.logger.log(
+        `Form version ${savedSchema.version} created: ${savedSchema.id}`,
+      );
 
       return this.getForm(savedSchema.id);
     } catch (error) {
@@ -238,17 +244,20 @@ export class FormBuilderService {
       entityId,
       data,
       validationErrors,
-      status: validationErrors.length > 0 
-        ? SubmissionStatus.DRAFT 
-        : SubmissionStatus.SUBMITTED,
+      status:
+        validationErrors.length > 0
+          ? SubmissionStatus.DRAFT
+          : SubmissionStatus.SUBMITTED,
       submittedBy: userId,
       submittedAt: validationErrors.length > 0 ? null : new Date(),
-      history: [{
-        timestamp: new Date(),
-        action: 'created',
-        userId,
-        changes: data,
-      }],
+      history: [
+        {
+          timestamp: new Date(),
+          action: 'created',
+          userId,
+          changes: data,
+        },
+      ],
     });
 
     const saved = await this.submissionRepo.save(submission);
@@ -301,7 +310,10 @@ export class FormBuilderService {
     }
 
     // Validate data
-    const validationErrors = this.validateData(data, submission.formSchema.fields);
+    const validationErrors = this.validateData(
+      data,
+      submission.formSchema.fields,
+    );
 
     // Merge data
     const newData = { ...submission.data, ...data };
@@ -364,9 +376,10 @@ export class FormBuilderService {
       throw new BadRequestException('Access denied');
     }
 
-    submission.status = status === 'approved'
-      ? SubmissionStatus.APPROVED
-      : SubmissionStatus.REJECTED;
+    submission.status =
+      status === 'approved'
+        ? SubmissionStatus.APPROVED
+        : SubmissionStatus.REJECTED;
     submission.reviewedBy = userId;
     submission.reviewedAt = new Date();
     submission.reviewNotes = notes || null;
@@ -378,12 +391,12 @@ export class FormBuilderService {
     });
 
     await this.submissionRepo.save(submission);
-    
+
     // Index submission after approval
     if (status === 'approved') {
       await this.indexSubmission(submission);
     }
-    
+
     return this.getSubmission(id);
   }
 
@@ -409,7 +422,10 @@ export class FormBuilderService {
       await this.searchService.indexEntityData(searchableData);
       this.logger.debug(`Form submission indexed: ${submission.id}`);
     } catch (error) {
-      this.logger.error(`Failed to index form submission: ${submission.id}`, error);
+      this.logger.error(
+        `Failed to index form submission: ${submission.id}`,
+        error,
+      );
     }
   }
 
@@ -427,12 +443,12 @@ export class FormBuilderService {
   ): Promise<any> {
     try {
       const form = await this.getForm(formSchemaId);
-      
-      const fieldNames = form.fields.map(f => f.key).join(', ');
-      
+
+      const fieldNames = form.fields.map((f) => f.key).join(', ');
+
       const extraction = await this.aiService.extractFromDocument(
         documentContent,
-        form.fields.map(f => f.key),
+        form.fields.map((f) => f.key),
       );
 
       return {
@@ -441,7 +457,9 @@ export class FormBuilderService {
         confidence: 0.85, // Simplified confidence score
       };
     } catch (error) {
-      this.logger.error(`Failed to extract form data with AI: ${error.message}`);
+      this.logger.error(
+        `Failed to extract form data with AI: ${error.message}`,
+      );
       return {
         success: false,
         extractedData: null,
@@ -456,8 +474,8 @@ export class FormBuilderService {
   ): Promise<any> {
     try {
       const form = await this.getForm(formSchemaId);
-      
-      const validationRules = form.fields.map(f => ({
+
+      const validationRules = form.fields.map((f) => ({
         key: f.key,
         label: f.label,
         type: f.type,
@@ -496,7 +514,10 @@ export class FormBuilderService {
       const validation = field.validation;
 
       // Required check
-      if (validation?.required && (value === undefined || value === null || value === '')) {
+      if (
+        validation?.required &&
+        (value === undefined || value === null || value === '')
+      ) {
         errors.push({
           field: field.key,
           message: `${field.label} is required`,
@@ -549,7 +570,8 @@ export class FormBuilderService {
         if (!regex.test(value)) {
           errors.push({
             field: field.key,
-            message: validation.patternMessage || `${field.label} format is invalid`,
+            message:
+              validation.patternMessage || `${field.label} format is invalid`,
             type: 'pattern',
           });
         }
@@ -573,7 +595,7 @@ export class FormBuilderService {
       config: form.config,
       fields: form.fields
         .sort((a, b) => a.order - b.order)
-        .map(field => ({
+        .map((field) => ({
           id: field.id,
           key: field.key,
           label: field.label,
@@ -594,7 +616,10 @@ export class FormBuilderService {
     tenantId: string,
     submissionId: string,
   ): Promise<Document[]> {
-    return this.documentHubService.getFormSubmissionDocuments(tenantId, submissionId);
+    return this.documentHubService.getFormSubmissionDocuments(
+      tenantId,
+      submissionId,
+    );
   }
 
   async attachDocumentToSubmission(
@@ -647,8 +672,8 @@ export class FormBuilderService {
     return {
       submissionId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
+      successful: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
       results,
     };
   }
@@ -663,9 +688,15 @@ export class FormBuilderService {
     const results = await Promise.all(
       documents.map(async (doc) => {
         try {
-          return await this.documentHubService.extractDocumentData(doc.id, extractionSchema);
+          return await this.documentHubService.extractDocumentData(
+            doc.id,
+            extractionSchema,
+          );
         } catch (error) {
-          this.logger.error(`Failed to extract data from document ${doc.id}:`, error);
+          this.logger.error(
+            `Failed to extract data from document ${doc.id}:`,
+            error,
+          );
           return { documentId: doc.id, success: false, error: error.message };
         }
       }),
@@ -673,13 +704,13 @@ export class FormBuilderService {
 
     // Merge extracted data
     const extractedData = results
-      .filter(r => r.success)
+      .filter((r) => r.success)
       .reduce((acc, r) => ({ ...acc, ...r.extractedData }), {});
 
     return {
       submissionId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
+      successful: results.filter((r) => r.success).length,
       extractedData,
     };
   }
@@ -689,13 +720,9 @@ export class FormBuilderService {
     submissionId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'form_submission',
-        entityId: submissionId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'form_submission',
+      entityId: submissionId,
+    });
   }
 }

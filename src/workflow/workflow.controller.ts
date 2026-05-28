@@ -36,10 +36,7 @@ export class WorkflowController {
   @ApiOperation({ summary: 'Create a new workflow definition' })
   @ApiResponse({ status: 201, description: 'Workflow created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  async createWorkflow(
-    @Request() req,
-    @Body() dto: CreateWorkflowDto,
-  ) {
+  async createWorkflow(@Request() req, @Body() dto: CreateWorkflowDto) {
     const workflow = await this.workflowService.createWorkflow(
       req.user.tenantId,
       dto,
@@ -73,9 +70,7 @@ export class WorkflowController {
   @ApiOperation({ summary: 'Get workflow by ID' })
   @ApiResponse({ status: 200, description: 'Workflow retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getWorkflow(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getWorkflow(@Param('id', ParseUUIDPipe) id: string) {
     const workflow = await this.workflowService.getWorkflow(id);
     return {
       success: true,
@@ -88,10 +83,7 @@ export class WorkflowController {
   @Post('instances')
   @ApiOperation({ summary: 'Start a new workflow instance' })
   @ApiResponse({ status: 201, description: 'Instance started' })
-  async startWorkflow(
-    @Request() req,
-    @Body() dto: StartWorkflowDto,
-  ) {
+  async startWorkflow(@Request() req, @Body() dto: StartWorkflowDto) {
     const instance = await this.workflowService.startWorkflow(
       dto.workflowId,
       dto.entityId,
@@ -131,9 +123,7 @@ export class WorkflowController {
   @ApiOperation({ summary: 'Get workflow instance by ID' })
   @ApiResponse({ status: 200, description: 'Instance retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getInstance(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getInstance(@Param('id', ParseUUIDPipe) id: string) {
     const instance = await this.workflowService.getInstance(id);
     return {
       success: true,
@@ -144,9 +134,7 @@ export class WorkflowController {
   @Get('instances/:id/transitions')
   @ApiOperation({ summary: 'Get available transitions for instance' })
   @ApiResponse({ status: 200, description: 'Transitions retrieved' })
-  async getAvailableTransitions(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getAvailableTransitions(@Param('id', ParseUUIDPipe) id: string) {
     const transitions = await this.workflowService.getAvailableTransitions(id);
     return {
       success: true,

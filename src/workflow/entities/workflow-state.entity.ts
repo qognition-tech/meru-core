@@ -25,7 +25,9 @@ export class WorkflowState {
   @Column()
   workflowId: string;
 
-  @ManyToOne(() => Workflow, workflow => workflow.states, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Workflow, (workflow) => workflow.states, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'workflowId' })
   workflow: Workflow;
 
@@ -54,9 +56,9 @@ export class WorkflowState {
     }>;
   };
 
-  @OneToMany(() => WorkflowTransition, transition => transition.fromState)
+  @OneToMany(() => WorkflowTransition, (transition) => transition.fromState)
   outgoingTransitions: WorkflowTransition[];
 
-  @OneToMany(() => WorkflowTransition, transition => transition.toState)
+  @OneToMany(() => WorkflowTransition, (transition) => transition.toState)
   incomingTransitions: WorkflowTransition[];
 }

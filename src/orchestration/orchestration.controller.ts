@@ -51,7 +51,8 @@ export class OrchestrationController {
       query,
       {
         includeAIAnalysis: includeAI === 'true',
-        searchType: searchType as 'semantic' | 'keyword' | 'hybrid' || undefined,
+        searchType:
+          (searchType as 'semantic' | 'keyword' | 'hybrid') || undefined,
         limit: limit ? parseInt(limit, 10) : 20,
       },
     );
@@ -62,10 +63,7 @@ export class OrchestrationController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get AI-generated insights for an entity' })
   @ApiResponse({ status: 200, description: 'Entity insights' })
-  async getEntityInsights(
-    @Request() req,
-    @Param('id') id: string,
-  ) {
+  async getEntityInsights(@Request() req, @Param('id') id: string) {
     return this.orchestrationService.extractInsights(req.user.tenantId, id);
   }
 }

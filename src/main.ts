@@ -59,7 +59,10 @@ async function bootstrap() {
   //   - Immigration tenants: higher limit (firm staff processing many cases)
   //   - Banking/GRC tenants: stricter limit (compliance-sensitive, lower concurrency)
   const globalMax = parseInt(process.env.RATE_LIMIT_MAX_GLOBAL || '100', 10);
-  const immigrationMax = parseInt(process.env.RATE_LIMIT_MAX_IMMIGRATION || '100', 10);
+  const immigrationMax = parseInt(
+    process.env.RATE_LIMIT_MAX_IMMIGRATION || '100',
+    10,
+  );
   const bankingMax = parseInt(process.env.RATE_LIMIT_MAX_BANKING || '50', 10);
   const ttlMs = parseInt(process.env.RATE_LIMIT_TTL_MS || '60000', 10);
 
@@ -77,7 +80,7 @@ async function bootstrap() {
     }
 
     // Attach rate limit context for the actual rate limiter
-    (req as any).rateLimitMax = max;
+    req.rateLimitMax = max;
     next();
   });
 
@@ -102,7 +105,7 @@ async function bootstrap() {
       },
       keyGenerator: (req) => {
         // Rate limit key: IP + tenant for multi-tenant fairness
-        const tenantId = req.headers['x-tenant-id'] as string || 'anonymous';
+        const tenantId = (req.headers['x-tenant-id'] as string) || 'anonymous';
         const ip = req.ip || req.socket.remoteAddress || 'unknown';
         return `${ip}::${tenantId}`;
       },

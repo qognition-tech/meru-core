@@ -1,4 +1,9 @@
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NestMiddleware,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -23,7 +28,10 @@ export class TenantContextMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantContextMiddleware.name);
 
   // Domain mapping
-  private readonly domainMapping: Record<string, { vertical: VerticalType; baseUrl: string }> = {
+  private readonly domainMapping: Record<
+    string,
+    { vertical: VerticalType; baseUrl: string }
+  > = {
     'api.immistack.com': {
       vertical: VerticalType.IMMIGRATION,
       baseUrl: 'immistack.com',
@@ -39,10 +47,13 @@ export class TenantContextMiddleware implements NestMiddleware {
   };
 
   // Environment prefix mapping
-  private readonly envPrefixes: Record<string, 'development' | 'staging' | 'production'> = {
+  private readonly envPrefixes: Record<
+    string,
+    'development' | 'staging' | 'production'
+  > = {
     'dev-api': 'development',
     'staging-api': 'staging',
-    'api': 'production',
+    api: 'production',
   };
 
   constructor(
@@ -102,7 +113,8 @@ export class TenantContextMiddleware implements NestMiddleware {
     // Example: localhost:3000?vertical=immigration&env=staging
     if (host.includes('localhost')) {
       const queryEnv = process.env.TEST_ENV || 'development';
-      const queryVertical = process.env.TEST_VERTICAL || VerticalType.IMMIGRATION;
+      const queryVertical =
+        process.env.TEST_VERTICAL || VerticalType.IMMIGRATION;
 
       if (Object.values(VerticalType).includes(queryVertical as any)) {
         return {
@@ -145,7 +157,11 @@ export class TenantContextMiddleware implements NestMiddleware {
     }
 
     // Handle api.meru.com (main platform)
-    if (host === 'api.meru.com' || host === 'staging-api.meru.com' || host === 'dev-api.meru.com') {
+    if (
+      host === 'api.meru.com' ||
+      host === 'staging-api.meru.com' ||
+      host === 'dev-api.meru.com'
+    ) {
       const parts = host.split('.');
       const envPrefix = parts[0];
       const environment = this.envPrefixes[envPrefix];
@@ -160,17 +176,20 @@ export class TenantContextMiddleware implements NestMiddleware {
     return null;
   }
 
-  private async setRLSContext(vertical: VerticalType, environment: string): Promise<void> {
+  private async setRLSContext(
+    vertical: VerticalType,
+    environment: string,
+  ): Promise<void> {
     const queryRunner = this.dataSource.createQueryRunner();
 
     try {
       await queryRunner.connect();
 
       // Set PostgreSQL RLS context for vertical AND environment
-      await queryRunner.query(
-        `SELECT app.set_context($1, $2)`,
-        [vertical, environment],
-      );
+      await queryRunner.query(`SELECT app.set_context($1, $2)`, [
+        vertical,
+        environment,
+      ]);
 
       this.logger.debug(`RLS context set: ${vertical} (${environment})`);
     } catch (error) {
@@ -195,6 +214,6 @@ export class TenantContextMiddleware implements NestMiddleware {
       '/public',
     ];
 
-    return publicPaths.some(publicPath => path.startsWith(publicPath));
+    return publicPaths.some((publicPath) => path.startsWith(publicPath));
   }
 }

@@ -1,4 +1,10 @@
-import { Processor, Process, OnQueueActive, OnQueueCompleted, OnQueueFailed } from '@nestjs/bull';
+import {
+  Processor,
+  Process,
+  OnQueueActive,
+  OnQueueCompleted,
+  OnQueueFailed,
+} from '@nestjs/bull';
 import { Logger, Injectable, OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bull';
 import { QueueService } from './queue.service';
@@ -25,7 +31,7 @@ export class JobProcessor implements OnModuleInit {
       try {
         // Get next available job (all types)
         const job = await this.queueService.getNextJob(Object.values(JobType));
-        
+
         if (job) {
           await this.processJobInternal(job);
         } else {
@@ -41,7 +47,7 @@ export class JobProcessor implements OnModuleInit {
 
   private async processJobInternal(job: QueueJob): Promise<void> {
     const startTime = Date.now();
-    
+
     try {
       this.logger.log(`Processing job: ${job.id} (${job.type})`);
 
@@ -74,18 +80,20 @@ export class JobProcessor implements OnModuleInit {
       });
 
       await this.queueService.completeJob(job.id, handlerResult);
-      
-      this.logger.log(`Job completed: ${job.id} in ${Date.now() - startTime}ms`);
+
+      this.logger.log(
+        `Job completed: ${job.id} in ${Date.now() - startTime}ms`,
+      );
     } catch (error) {
       const shouldRetry = job.attempts < job.maxAttempts;
       await this.queueService.failJob(job.id, error.message, shouldRetry);
-      
+
       this.logger.error(`Job failed: ${job.id} - ${error.message}`);
     }
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // Bull queue decorators for external Bull queue support (optional)
@@ -115,14 +123,20 @@ export class DocumentJobHandler {
 
   onModuleInit() {
     // Register handlers
-    this.eventEmitter.on('queue.job.document:process', this.handleDocumentProcess.bind(this));
-    this.eventEmitter.on('queue.job.document:ocr', this.handleDocumentOcr.bind(this));
+    this.eventEmitter.on(
+      'queue.job.document:process',
+      this.handleDocumentProcess.bind(this),
+    );
+    this.eventEmitter.on(
+      'queue.job.document:ocr',
+      this.handleDocumentOcr.bind(this),
+    );
   }
 
   private async handleDocumentProcess({ job, resolve, reject }: any) {
     try {
       this.logger.log(`Processing document: ${job.data.payload.documentId}`);
-      
+
       // Implementation would call documents service
       resolve({
         success: true,
@@ -136,7 +150,7 @@ export class DocumentJobHandler {
   private async handleDocumentOcr({ job, resolve, reject }: any) {
     try {
       this.logger.log(`OCR for document: ${job.data.payload.documentId}`);
-      
+
       resolve({
         success: true,
         data: { text: 'OCR result' },
@@ -154,13 +168,16 @@ export class EmailJobHandler {
   constructor(private eventEmitter: EventEmitter2) {}
 
   onModuleInit() {
-    this.eventEmitter.on('queue.job.email:send', this.handleEmailSend.bind(this));
+    this.eventEmitter.on(
+      'queue.job.email:send',
+      this.handleEmailSend.bind(this),
+    );
   }
 
   private async handleEmailSend({ job, resolve, reject }: any) {
     try {
       this.logger.log(`Sending email to: ${job.data.payload.to}`);
-      
+
       // Implementation would call email service
       resolve({
         success: true,
@@ -179,14 +196,22 @@ export class AIJobHandler {
   constructor(private eventEmitter: EventEmitter2) {}
 
   onModuleInit() {
-    this.eventEmitter.on('queue.job.ai:analysis', this.handleAIAnalysis.bind(this));
-    this.eventEmitter.on('queue.job.ai:embedding', this.handleAIEmbedding.bind(this));
+    this.eventEmitter.on(
+      'queue.job.ai:analysis',
+      this.handleAIAnalysis.bind(this),
+    );
+    this.eventEmitter.on(
+      'queue.job.ai:embedding',
+      this.handleAIEmbedding.bind(this),
+    );
   }
 
   private async handleAIAnalysis({ job, resolve, reject }: any) {
     try {
-      this.logger.log(`AI analysis for: ${job.data.payload.entityType} ${job.data.payload.entityId}`);
-      
+      this.logger.log(
+        `AI analysis for: ${job.data.payload.entityType} ${job.data.payload.entityId}`,
+      );
+
       resolve({
         success: true,
         data: { analysis: 'AI analysis result' },
@@ -198,8 +223,10 @@ export class AIJobHandler {
 
   private async handleAIEmbedding({ job, resolve, reject }: any) {
     try {
-      this.logger.log(`Generating embeddings for: ${job.data.payload.entityId}`);
-      
+      this.logger.log(
+        `Generating embeddings for: ${job.data.payload.entityId}`,
+      );
+
       resolve({
         success: true,
         data: { embedding: [] },

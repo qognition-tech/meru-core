@@ -1,4 +1,10 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -29,14 +35,21 @@ export class IamService {
 
   // ─── Authentication ──────────────────────────────────────────────
 
-  async validateUser(email: string, password: string): Promise<UserPayload | null> {
+  async validateUser(
+    email: string,
+    password: string,
+  ): Promise<UserPayload | null> {
     const user = await this.userRepo.findOne({
       where: { email },
       relations: ['tenant'],
       select: ['id', 'email', 'password', 'tenantId', 'status', 'mfaEnabled'],
     });
 
-    if (!user || user.status === UserStatus.LOCKED || user.status === UserStatus.INACTIVE) {
+    if (
+      !user ||
+      user.status === UserStatus.LOCKED ||
+      user.status === UserStatus.INACTIVE
+    ) {
       return null;
     }
 
@@ -44,8 +57,10 @@ export class IamService {
     if (!valid) return null;
 
     // Load roles for this tenant
-    const roles = await this.roleRepo.find({ where: { tenantId: user.tenantId } });
-    const userRoles = roles.filter(r => r.isSystem).map(r => r.name);
+    const roles = await this.roleRepo.find({
+      where: { tenantId: user.tenantId },
+    });
+    const userRoles = roles.filter((r) => r.isSystem).map((r) => r.name);
 
     return {
       id: user.id,
@@ -86,7 +101,10 @@ export class IamService {
   }
 
   async refreshTokens(refreshToken: string) {
-    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const refreshTokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
 
     const session = await this.sessionRepo.findOne({
       where: { refreshTokenHash, revokedAt: null as any },
@@ -102,12 +120,14 @@ export class IamService {
     await this.sessionRepo.save(session);
 
     const user = session.user;
-    const roles = await this.roleRepo.find({ where: { tenantId: user.tenantId } });
+    const roles = await this.roleRepo.find({
+      where: { tenantId: user.tenantId },
+    });
     const payload: UserPayload = {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter(r => r.isSystem).map(r => r.name),
+      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
     };
 
     const tokens = await this.generateTokens(payload);
@@ -143,7 +163,11 @@ export class IamService {
     user.mfaSecret = secret;
     await this.userRepo.save(user);
 
-    const otpauthUrl = generateURI({ label: user.email, issuer: 'Meru Platform', secret });
+    const otpauthUrl = generateURI({
+      label: user.email,
+      issuer: 'Meru Platform',
+      secret,
+    });
     const qrCode = await QRCode.toDataURL(otpauthUrl);
 
     return { secret, qrCode, otpauthUrl };
@@ -155,7 +179,8 @@ export class IamService {
       select: ['id', 'mfaSecret', 'mfaEnabled'],
     });
 
-    if (!user || !user.mfaSecret) throw new NotFoundException('MFA not initialized');
+    if (!user || !user.mfaSecret)
+      throw new NotFoundException('MFA not initialized');
 
     const isValid = totpVerify({ token, secret: user.mfaSecret });
     if (!isValid) throw new BadRequestException('Invalid verification code');
@@ -178,12 +203,14 @@ export class IamService {
     const isValid = totpVerify({ token, secret: user.mfaSecret });
     if (!isValid) throw new UnauthorizedException('Invalid MFA token');
 
-    const roles = await this.roleRepo.find({ where: { tenantId: user.tenantId } });
+    const roles = await this.roleRepo.find({
+      where: { tenantId: user.tenantId },
+    });
     const payload: UserPayload = {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter(r => r.isSystem).map(r => r.name),
+      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
     };
 
     const tokens = await this.generateTokens(payload);
@@ -207,10 +234,14 @@ export class IamService {
   // ─── Registration ─────────────────────────────────────────────────
 
   async register(dto: CreateUserInput) {
-    const tenant = await this.tenantRepo.findOne({ where: { slug: dto.tenantSlug } });
+    const tenant = await this.tenantRepo.findOne({
+      where: { slug: dto.tenantSlug },
+    });
     if (!tenant) throw new NotFoundException('Invalid tenant slug');
 
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    const existing = await this.userRepo.findOne({
+      where: { email: dto.email },
+    });
     if (existing) throw new ConflictException('Email already registered');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -233,7 +264,12 @@ export class IamService {
     return this.roleRepo.find({ where: { tenantId } });
   }
 
-  async createRole(tenantId: string, name: string, permissions: string[], description?: string) {
+  async createRole(
+    tenantId: string,
+    name: string,
+    permissions: string[],
+    description?: string,
+  ) {
     const existing = await this.roleRepo.findOne({ where: { tenantId, name } });
     if (existing) throw new ConflictException('Role already exists');
 
@@ -258,13 +294,20 @@ export class IamService {
   async deleteRole(roleId: string) {
     const role = await this.roleRepo.findOne({ where: { id: roleId } });
     if (!role) throw new NotFoundException('Role not found');
-    if (role.isSystem) throw new BadRequestException('Cannot delete system roles');
+    if (role.isSystem)
+      throw new BadRequestException('Cannot delete system roles');
     return this.roleRepo.remove(role);
   }
 
   // ─── API Key Management ──────────────────────────────────────────
 
-  async createApiKey(userId: string, tenantId: string, name: string, scopes: string[], expiresAt?: Date) {
+  async createApiKey(
+    userId: string,
+    tenantId: string,
+    name: string,
+    scopes: string[],
+    expiresAt?: Date,
+  ) {
     const rawKey = this.API_KEY_PREFIX + crypto.randomBytes(32).toString('hex');
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
     const prefix = rawKey.slice(0, 12);
@@ -293,7 +336,15 @@ export class IamService {
   async listApiKeys(tenantId: string) {
     return this.apiKeyRepo.find({
       where: { tenantId, revokedAt: null as any },
-      select: ['id', 'name', 'scopes', 'lastUsedAt', 'createdAt', 'expiresAt', 'prefix'],
+      select: [
+        'id',
+        'name',
+        'scopes',
+        'lastUsedAt',
+        'createdAt',
+        'expiresAt',
+        'prefix',
+      ],
     });
   }
 
@@ -308,7 +359,10 @@ export class IamService {
     if (parts.length < 3) return null;
 
     const keyMaterial = parts.slice(2).join('_');
-    const keyHash = crypto.createHash('sha256').update(keyMaterial).digest('hex');
+    const keyHash = crypto
+      .createHash('sha256')
+      .update(keyMaterial)
+      .digest('hex');
 
     const apiKey = await this.apiKeyRepo.findOne({
       where: { keyHash, revokedAt: null as any },
@@ -324,13 +378,15 @@ export class IamService {
     const user = apiKey.creator;
     if (!user) return null;
 
-    const roles = await this.roleRepo.find({ where: { tenantId: user.tenantId } });
+    const roles = await this.roleRepo.find({
+      where: { tenantId: user.tenantId },
+    });
 
     return {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter(r => r.isSystem).map(r => r.name),
+      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
       apiKeyId: apiKey.id,
     };
   }
@@ -348,12 +404,29 @@ export class IamService {
     return profile;
   }
 
-  async updateProfile(userId: string, updates: Partial<Pick<User, 'firstName' | 'lastName' | 'avatarUrl' | 'phone' | 'timezone' | 'preferences'>>) {
+  async updateProfile(
+    userId: string,
+    updates: Partial<
+      Pick<
+        User,
+        | 'firstName'
+        | 'lastName'
+        | 'avatarUrl'
+        | 'phone'
+        | 'timezone'
+        | 'preferences'
+      >
+    >,
+  ) {
     await this.userRepo.update(userId, updates as any);
     return this.getProfile(userId);
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
       select: ['id', 'password'],
@@ -385,7 +458,16 @@ export class IamService {
   async listUsers(tenantId: string) {
     return this.userRepo.find({
       where: { tenantId },
-      select: ['id', 'email', 'firstName', 'lastName', 'status', 'lastLoginAt', 'createdAt', 'avatarUrl'],
+      select: [
+        'id',
+        'email',
+        'firstName',
+        'lastName',
+        'status',
+        'lastLoginAt',
+        'createdAt',
+        'avatarUrl',
+      ],
     });
   }
 
@@ -430,8 +512,14 @@ export class IamService {
   }
 
   private async createSession(user: UserPayload, refreshToken: string) {
-    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
+    const refreshTokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
 
     const session = this.sessionRepo.create({
       userId: user.id,
@@ -440,7 +528,9 @@ export class IamService {
       refreshTokenHash,
       ipAddress: '',
       userAgent: '',
-      expiresAt: new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(
+        Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+      ),
     });
 
     return this.sessionRepo.save(session);

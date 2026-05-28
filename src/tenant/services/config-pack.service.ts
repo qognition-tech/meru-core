@@ -198,10 +198,7 @@ export class ConfigPackService {
     return saved;
   }
 
-  async unpinFromTenant(
-    tenantId: string,
-    configPackId: string,
-  ): Promise<void> {
+  async unpinFromTenant(tenantId: string, configPackId: string): Promise<void> {
     const pin = await this.pinRepo.findOne({
       where: { tenantId, configPackId },
     });

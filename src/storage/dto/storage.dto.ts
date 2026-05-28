@@ -159,14 +159,20 @@ export class CopyFileDto {
 }
 
 export class PresignedUrlDto {
-  @ApiPropertyOptional({ description: 'URL expiration in seconds', default: 3600 })
+  @ApiPropertyOptional({
+    description: 'URL expiration in seconds',
+    default: 3600,
+  })
   @IsOptional()
   @IsNumber()
   @Min(60)
   @Max(604800)
   expiresInSeconds?: number = 3600;
 
-  @ApiPropertyOptional({ description: 'Response disposition', enum: ['inline', 'attachment'] })
+  @ApiPropertyOptional({
+    description: 'Response disposition',
+    enum: ['inline', 'attachment'],
+  })
   @IsOptional()
   @IsString()
   responseDisposition?: 'inline' | 'attachment';

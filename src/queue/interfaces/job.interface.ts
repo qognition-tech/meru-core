@@ -22,33 +22,33 @@ export enum JobType {
   AI_EMBEDDING = 'ai:embedding',
   AI_SUMMARIZE = 'ai:summarize',
   AI_CLASSIFY = 'ai:classify',
-  
+
   // Document Jobs
   DOCUMENT_PROCESS = 'document:process',
   DOCUMENT_CONVERT = 'document:convert',
   DOCUMENT_OCR = 'document:ocr',
   DOCUMENT_VIRUS_SCAN = 'document:virus_scan',
-  
+
   // Notification Jobs
   EMAIL_SEND = 'email:send',
   SMS_SEND = 'sms:send',
   PUSH_SEND = 'push:send',
   WEBHOOK_CALL = 'webhook:call',
-  
+
   // Data Jobs
   DATA_EXPORT = 'data:export',
   DATA_IMPORT = 'data:import',
   DATA_SYNC = 'data:sync',
   DATA_CLEANUP = 'data:cleanup',
-  
+
   // Report Jobs
   REPORT_GENERATE = 'report:generate',
   REPORT_DISTRIBUTE = 'report:distribute',
-  
+
   // Billing Jobs
   BILLING_INVOICE = 'billing:invoice',
   BILLING_REMINDER = 'billing:reminder',
-  
+
   // Maintenance Jobs
   BACKUP_CREATE = 'backup:create',
   CACHE_CLEAR = 'cache:clear',
@@ -124,12 +124,15 @@ export interface QueueMetrics {
   failed: number;
   delayed: number;
   paused: number;
-  byType: Record<string, {
-    active: number;
-    completed: number;
-    failed: number;
-    avgDuration: number;
-  }>;
+  byType: Record<
+    string,
+    {
+      active: number;
+      completed: number;
+      failed: number;
+      avgDuration: number;
+    }
+  >;
 }
 
 export interface WorkerConfig {

@@ -38,7 +38,10 @@ export class ConfigPackController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() updates: Record<string, unknown>) {
+  async update(
+    @Param('id') id: string,
+    @Body() updates: Record<string, unknown>,
+  ) {
     return this.configPackService.update(id, updates);
   }
 

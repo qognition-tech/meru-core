@@ -159,10 +159,7 @@ export class DocIntelEngine {
     }
   }
 
-  async summarize(
-    content: string,
-    maxLength?: number,
-  ): Promise<string> {
+  async summarize(content: string, maxLength?: number): Promise<string> {
     const response = await this.aiService.execute({
       category: 'document_analysis' as PromptCategory,
       key: 'document_summarization',
@@ -222,7 +219,10 @@ export class DocIntelEngine {
     try {
       return JSON.parse(response.result);
     } catch {
-      return { translated: response.result, detectedLanguage: sourceLanguage || 'unknown' };
+      return {
+        translated: response.result,
+        detectedLanguage: sourceLanguage || 'unknown',
+      };
     }
   }
 

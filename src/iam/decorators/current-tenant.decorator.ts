@@ -5,5 +5,5 @@ export const CurrentTenant = createParamDecorator(
     const request = ctx.switchToHttp().getRequest();
     const tenant = request.tenant;
     return data ? tenant?.[data] : tenant;
-  }
+  },
 );

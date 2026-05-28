@@ -1,9 +1,19 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Brackets } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { StorageFile, FileVersion, MultipartUpload } from './entities/storage-file.entity';
+import {
+  StorageFile,
+  FileVersion,
+  MultipartUpload,
+} from './entities/storage-file.entity';
 import {
   StorageProvider,
   StorageClass,
@@ -37,7 +47,10 @@ export class StorageService {
     private eventEmitter: EventEmitter2,
   ) {
     this.s3Provider = new S3StorageProvider(configService);
-    this.defaultProvider = this.configService.get<StorageProvider>('storage.defaultProvider', StorageProvider.S3);
+    this.defaultProvider = this.configService.get<StorageProvider>(
+      'storage.defaultProvider',
+      StorageProvider.S3,
+    );
   }
 
   // ==================== UPLOAD OPERATIONS ====================
@@ -53,7 +66,12 @@ export class StorageService {
       const versionNumber = 1;
 
       // Generate storage key
-      const key = this.generateKey(options.tenantId, fileId, versionNumber, options.fileName);
+      const key = this.generateKey(
+        options.tenantId,
+        fileId,
+        versionNumber,
+        options.fileName,
+      );
 
       // Calculate checksum
       const checksum = this.calculateChecksum(options.buffer);
@@ -87,7 +105,7 @@ export class StorageService {
         currentVersionId: versionId,
         createdById: options.userId,
         folder: options.folder || null,
-        expiresAt: options.expiresInDays 
+        expiresAt: options.expiresInDays
           ? new Date(Date.now() + options.expiresInDays * 24 * 60 * 60 * 1000)
           : null,
         accessCount: 0,
@@ -137,7 +155,9 @@ export class StorageService {
     tenantId: string,
     userId: string,
   ): Promise<FileVersion> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -156,7 +176,12 @@ export class StorageService {
       const versionId = uuidv4();
 
       // Generate key for new version
-      const key = this.generateKey(tenantId, fileId, versionNumber, file.originalName);
+      const key = this.generateKey(
+        tenantId,
+        fileId,
+        versionNumber,
+        file.originalName,
+      );
       const checksum = this.calculateChecksum(buffer);
 
       // Upload to storage
@@ -212,12 +237,19 @@ export class StorageService {
 
   // ==================== DOWNLOAD OPERATIONS ====================
 
-  async download(fileId: string, versionId: string | undefined, tenantId: string, userId: string): Promise<{
+  async download(
+    fileId: string,
+    versionId: string | undefined,
+    tenantId: string,
+    userId: string,
+  ): Promise<{
     buffer: Buffer;
     fileName: string;
     mimeType: string;
   }> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -226,12 +258,16 @@ export class StorageService {
 
     let version: FileVersion | null = null;
     if (versionId) {
-      version = await this.versionRepo.findOne({ where: { id: versionId, fileId } });
+      version = await this.versionRepo.findOne({
+        where: { id: versionId, fileId },
+      });
       if (!version) {
         throw new NotFoundException('Version not found');
       }
     } else {
-      version = await this.versionRepo.findOne({ where: { id: file.currentVersionId } });
+      version = await this.versionRepo.findOne({
+        where: { id: file.currentVersionId },
+      });
     }
 
     if (!version) {
@@ -258,7 +294,9 @@ export class StorageService {
     fileId: string,
     options: PresignedUrlOptions & { tenantId: string; userId?: string },
   ): Promise<string> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId: options.tenantId } });
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId: options.tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -269,9 +307,13 @@ export class StorageService {
 
     let version: FileVersion | null = null;
     if (options.versionId) {
-      version = await this.versionRepo.findOne({ where: { id: options.versionId, fileId } });
+      version = await this.versionRepo.findOne({
+        where: { id: options.versionId, fileId },
+      });
     } else {
-      version = await this.versionRepo.findOne({ where: { id: file.currentVersionId } });
+      version = await this.versionRepo.findOne({
+        where: { id: file.currentVersionId },
+      });
     }
 
     if (!version) {
@@ -292,12 +334,19 @@ export class StorageService {
     userId: string,
     partSize: number = 100 * 1024 * 1024, // 100MB default
     metadata?: Record<string, any>,
-  ): Promise<{ uploadId: string; fileId: string; uploadUrls: { partNumber: number; url: string }[] }> {
+  ): Promise<{
+    uploadId: string;
+    fileId: string;
+    uploadUrls: { partNumber: number; url: string }[];
+  }> {
     const fileId = uuidv4();
     const key = this.generateKey(tenantId, fileId, 1, fileName);
-    
+
     const provider = this.getProviderInstance(tenantId);
-    const uploadId = await provider.initiateMultipartUpload(key, { contentType: mimeType, metadata });
+    const uploadId = await provider.initiateMultipartUpload(key, {
+      contentType: mimeType,
+      metadata,
+    });
 
     const totalParts = Math.ceil(totalSize / partSize);
     const uploadUrls: { partNumber: number; url: string }[] = [];
@@ -311,7 +360,7 @@ export class StorageService {
     const multipartUpload = this.multipartRepo.create({
       uploadId,
       fileId,
-      parts: uploadUrls.map(u => ({
+      parts: uploadUrls.map((u) => ({
         partNumber: u.partNumber,
         size: partSize,
         status: 'pending' as const,
@@ -357,18 +406,22 @@ export class StorageService {
     tenantId: string,
     userId: string,
   ): Promise<StorageFile> {
-    const multipartUpload = await this.multipartRepo.findOne({ where: { uploadId } });
+    const multipartUpload = await this.multipartRepo.findOne({
+      where: { uploadId },
+    });
     if (!multipartUpload) {
       throw new NotFoundException('Multipart upload not found');
     }
 
-    const file = await this.fileRepo.findOne({ where: { id: multipartUpload.fileId, tenantId } });
+    const file = await this.fileRepo.findOne({
+      where: { id: multipartUpload.fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
 
     const provider = this.getProviderInstance(tenantId);
-    
+
     const parts = partETags.map((etag, index) => ({
       partNumber: index + 1,
       etag,
@@ -405,8 +458,15 @@ export class StorageService {
 
   // ==================== FILE MANAGEMENT ====================
 
-  async moveFile(fileId: string, destinationFolder: string, tenantId: string, userId: string): Promise<StorageFile> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+  async moveFile(
+    fileId: string,
+    destinationFolder: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<StorageFile> {
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -426,7 +486,9 @@ export class StorageService {
     tenantId: string,
     userId: string,
   ): Promise<StorageFile> {
-    const sourceFile = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+    const sourceFile = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!sourceFile) {
       throw new NotFoundException('File not found');
     }
@@ -495,8 +557,15 @@ export class StorageService {
     }
   }
 
-  async deleteFile(fileId: string, tenantId: string, userId: string, permanent: boolean = false): Promise<void> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+  async deleteFile(
+    fileId: string,
+    tenantId: string,
+    userId: string,
+    permanent: boolean = false,
+  ): Promise<void> {
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -527,12 +596,16 @@ export class StorageService {
     }
   }
 
-  async restoreFile(fileId: string, tenantId: string, userId: string): Promise<StorageFile> {
+  async restoreFile(
+    fileId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
       withDeleted: true,
     });
-    
+
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -541,29 +614,38 @@ export class StorageService {
 
     file.status = FileStatus.ACTIVE;
     file.deletedAt = null;
-    
+
     return this.fileRepo.save(file);
   }
 
   // ==================== SEARCH & QUERY ====================
 
-  async searchFiles(filters: FileSearchFilters): Promise<{ files: StorageFile[]; total: number }> {
+  async searchFiles(
+    filters: FileSearchFilters,
+  ): Promise<{ files: StorageFile[]; total: number }> {
     const queryBuilder = this.fileRepo.createQueryBuilder('file');
 
-    queryBuilder.where('file.tenantId = :tenantId', { tenantId: filters.tenantId });
-    queryBuilder.andWhere('file.status != :deletedStatus', { deletedStatus: FileStatus.DELETED });
+    queryBuilder.where('file.tenantId = :tenantId', {
+      tenantId: filters.tenantId,
+    });
+    queryBuilder.andWhere('file.status != :deletedStatus', {
+      deletedStatus: FileStatus.DELETED,
+    });
 
     if (filters.query) {
       queryBuilder.andWhere(
-        new Brackets(qb => {
-          qb.where('file.originalName ILIKE :query', { query: `%${filters.query}%` })
-            .orWhere('file.metadata::text ILIKE :query');
+        new Brackets((qb) => {
+          qb.where('file.originalName ILIKE :query', {
+            query: `%${filters.query}%`,
+          }).orWhere('file.metadata::text ILIKE :query');
         }),
       );
     }
 
     if (filters.mimeTypes?.length) {
-      queryBuilder.andWhere('file.mimeType IN (:...mimeTypes)', { mimeTypes: filters.mimeTypes });
+      queryBuilder.andWhere('file.mimeType IN (:...mimeTypes)', {
+        mimeTypes: filters.mimeTypes,
+      });
     }
 
     if (filters.tags?.length) {
@@ -571,31 +653,45 @@ export class StorageService {
     }
 
     if (filters.folder) {
-      queryBuilder.andWhere('file.folder = :folder', { folder: filters.folder });
+      queryBuilder.andWhere('file.folder = :folder', {
+        folder: filters.folder,
+      });
     }
 
     if (filters.status) {
-      queryBuilder.andWhere('file.status = :status', { status: filters.status });
+      queryBuilder.andWhere('file.status = :status', {
+        status: filters.status,
+      });
     }
 
     if (filters.storageClass) {
-      queryBuilder.andWhere('file.storageClass = :storageClass', { storageClass: filters.storageClass });
+      queryBuilder.andWhere('file.storageClass = :storageClass', {
+        storageClass: filters.storageClass,
+      });
     }
 
     if (filters.createdAfter) {
-      queryBuilder.andWhere('file.createdAt >= :createdAfter', { createdAfter: filters.createdAfter });
+      queryBuilder.andWhere('file.createdAt >= :createdAfter', {
+        createdAfter: filters.createdAfter,
+      });
     }
 
     if (filters.createdBefore) {
-      queryBuilder.andWhere('file.createdAt <= :createdBefore', { createdBefore: filters.createdBefore });
+      queryBuilder.andWhere('file.createdAt <= :createdBefore', {
+        createdBefore: filters.createdBefore,
+      });
     }
 
     if (filters.sizeMin !== undefined) {
-      queryBuilder.andWhere('file.size >= :sizeMin', { sizeMin: filters.sizeMin });
+      queryBuilder.andWhere('file.size >= :sizeMin', {
+        sizeMin: filters.sizeMin,
+      });
     }
 
     if (filters.sizeMax !== undefined) {
-      queryBuilder.andWhere('file.size <= :sizeMax', { sizeMax: filters.sizeMax });
+      queryBuilder.andWhere('file.size <= :sizeMax', {
+        sizeMax: filters.sizeMax,
+      });
     }
 
     const sortBy = filters.sortBy || 'createdAt';
@@ -611,7 +707,11 @@ export class StorageService {
     return { files, total };
   }
 
-  async getFile(fileId: string, tenantId: string, userId: string): Promise<StorageFile> {
+  async getFile(
+    fileId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
       relations: ['versions'],
@@ -626,8 +726,14 @@ export class StorageService {
     return file;
   }
 
-  async getVersions(fileId: string, tenantId: string, userId: string): Promise<FileVersion[]> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+  async getVersions(
+    fileId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<FileVersion[]> {
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -648,7 +754,9 @@ export class StorageService {
     tenantId: string,
     userId: string,
   ): Promise<StorageFile> {
-    const file = await this.fileRepo.findOne({ where: { id: fileId, tenantId } });
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
     if (!file) {
       throw new NotFoundException('File not found');
     }
@@ -666,14 +774,17 @@ export class StorageService {
 
   async getMetrics(tenantId: string): Promise<StorageMetrics> {
     const totalFiles = await this.fileRepo.count({ where: { tenantId } });
-    
+
     const totalSizeResult = await this.fileRepo
       .createQueryBuilder('file')
       .select('SUM(file.size)', 'total')
       .where('file.tenantId = :tenantId', { tenantId })
       .getRawOne();
 
-    const storageByClass: Record<StorageClass, { count: number; size: number }> = {
+    const storageByClass: Record<
+      StorageClass,
+      { count: number; size: number }
+    > = {
       [StorageClass.STANDARD]: { count: 0, size: 0 },
       [StorageClass.INFREQUENT]: { count: 0, size: 0 },
       [StorageClass.ARCHIVE]: { count: 0, size: 0 },
@@ -714,7 +825,7 @@ export class StorageService {
       totalFiles,
       totalSize: parseInt(totalSizeResult?.total || 0),
       storageByClass,
-      accessPatterns: accessPatterns.map(a => ({
+      accessPatterns: accessPatterns.map((a) => ({
         date: a.date,
         downloads: parseInt(a.downloads) || 0,
         uploads: 0, // Would need separate tracking
@@ -724,7 +835,12 @@ export class StorageService {
 
   // ==================== PRIVATE HELPERS ====================
 
-  private generateKey(tenantId: string, fileId: string, version: number, fileName: string): string {
+  private generateKey(
+    tenantId: string,
+    fileId: string,
+    version: number,
+    fileName: string,
+  ): string {
     const ext = path.extname(fileName);
     return `tenants/${tenantId}/files/${fileId}/v${version}${ext}`;
   }
@@ -755,6 +871,8 @@ export class StorageService {
 
     // TODO: Implement more sophisticated RBAC
     // For now, deny access if not owner
-    throw new ForbiddenException(`Access denied: insufficient permissions to ${action} file`);
+    throw new ForbiddenException(
+      `Access denied: insufficient permissions to ${action} file`,
+    );
   }
 }

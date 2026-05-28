@@ -37,7 +37,7 @@ export class CreditLedger {
   @Column()
   subscriptionId: string;
 
-  @ManyToOne(() => Subscription, subscription => subscription.creditLedger)
+  @ManyToOne(() => Subscription, (subscription) => subscription.creditLedger)
   @JoinColumn({ name: 'subscriptionId' })
   subscription: Subscription;
 

@@ -40,7 +40,7 @@ export class UsageRecord {
   @Column()
   subscriptionId: string;
 
-  @ManyToOne(() => Subscription, subscription => subscription.usageRecords)
+  @ManyToOne(() => Subscription, (subscription) => subscription.usageRecords)
   @JoinColumn({ name: 'subscriptionId' })
   subscription: Subscription;
 

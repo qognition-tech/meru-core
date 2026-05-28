@@ -3,7 +3,11 @@ import { AiService } from '../ai.service';
 import { PromptCategory } from '../entities/ai-prompt.entity';
 import { CrmService } from '../../crm/crm.service';
 import { NotificationsService } from '../../notifications/notifications.service';
-import { NotificationType, NotificationPriority, NotificationCategory } from '../../notifications/entities/notification.entity';
+import {
+  NotificationType,
+  NotificationPriority,
+  NotificationCategory,
+} from '../../notifications/entities/notification.entity';
 
 /**
  * CommsEngine — AI-powered communications engine.
@@ -226,7 +230,11 @@ export class CommsEngine {
       variables: Record<string, string>;
     }>,
   ): Promise<Array<{ recipientId: string; subject: string; body: string }>> {
-    const results: Array<{ recipientId: string; subject: string; body: string }> = [];
+    const results: Array<{
+      recipientId: string;
+      subject: string;
+      body: string;
+    }> = [];
 
     for (const recipient of recipients) {
       const request: CommunicationRequest = {

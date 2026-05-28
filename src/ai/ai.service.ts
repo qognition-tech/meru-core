@@ -86,7 +86,9 @@ export class AiService {
       this.logger.warn('OPENAI_API_KEY not set. AI features will be disabled.');
     }
 
-    this.logger.log(`AI Service initialized with concurrency limit: ${this.MAX_CONCURRENT}`);
+    this.logger.log(
+      `AI Service initialized with concurrency limit: ${this.MAX_CONCURRENT}`,
+    );
   }
 
   async execute(request: AiRequest): Promise<AiResponse> {
@@ -162,7 +164,9 @@ export class AiService {
     metadata: Record<string, any> = {},
   ) {
     if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
+      throw new Error(
+        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      );
     }
 
     try {
@@ -199,7 +203,9 @@ export class AiService {
     limit: number = 5,
   ): Promise<any[]> {
     if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
+      throw new Error(
+        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      );
     }
 
     try {
@@ -302,11 +308,13 @@ export class AiService {
     prompt: AiPrompt,
   ): Promise<AiResponse> {
     if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
+      throw new Error(
+        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      );
     }
 
     const config = prompt.modelConfig || {};
-    
+
     try {
       const response = await this.openaiClient.chat.completions.create({
         model: config.model || 'gpt-4o-mini',
@@ -383,23 +391,32 @@ export class AiService {
       }
 
       // Workflow Context - Get active workflows
-      context.workflow = await this.workflowService.listInstances(tenantId, InstanceStatus.ACTIVE);
+      context.workflow = await this.workflowService.listInstances(
+        tenantId,
+        InstanceStatus.ACTIVE,
+      );
 
       // Tasks Context - Get pending tasks
-      context.tasks = await this.taskService.listTasks(tenantId, { status: 'todo' as any });
+      context.tasks = await this.taskService.listTasks(tenantId, {
+        status: 'todo' as any,
+      });
 
       // Documents Context - Get recent documents
-      context.documents = await this.documentsService.findAll(tenantId, { page: 1, limit: 10 });
+      context.documents = await this.documentsService.findAll(tenantId, {
+        page: 1,
+        limit: 10,
+      });
 
       // Billing Context - Get subscription and usage
-      const subscriptions = await this.billingService['subscriptionRepo']?.find({
-        where: { tenantId, status: SubscriptionStatus.ACTIVE },
-      });
+      const subscriptions = await this.billingService['subscriptionRepo']?.find(
+        {
+          where: { tenantId, status: SubscriptionStatus.ACTIVE },
+        },
+      );
       context.billing = { subscriptions: subscriptions || [] };
 
       // Analytics Context - Get recent reports
       context.analytics = await this.analyticsService.getReports(tenantId);
-
     } catch (error) {
       this.logger.warn('Error gathering cross-module context:', error.message);
     }
@@ -442,7 +459,10 @@ export class AiService {
     entityData: any,
   ): Promise<AiResponse> {
     // Get existing workflows
-    const workflows = await this.workflowService.listWorkflows(tenantId, entityType);
+    const workflows = await this.workflowService.listWorkflows(
+      tenantId,
+      entityType,
+    );
 
     return this.execute({
       category: 'workflow_decision' as PromptCategory,
@@ -450,7 +470,7 @@ export class AiService {
       input: JSON.stringify({
         entityType,
         entityData,
-        availableWorkflows: workflows.map(w => ({
+        availableWorkflows: workflows.map((w) => ({
           id: w.id,
           name: w.name,
           description: w.description,
@@ -463,17 +483,16 @@ export class AiService {
   /**
    * AI Task Prioritization
    */
-  async prioritizeTasks(
-    tenantId: string,
-    userId: string,
-  ): Promise<AiResponse> {
-    const tasks = await this.taskService.listTasks(tenantId, { assignedTo: userId });
+  async prioritizeTasks(tenantId: string, userId: string): Promise<AiResponse> {
+    const tasks = await this.taskService.listTasks(tenantId, {
+      assignedTo: userId,
+    });
 
     return this.execute({
       category: 'workflow_decision' as PromptCategory,
       key: 'task_prioritization',
       input: JSON.stringify({
-        tasks: tasks.map(t => ({
+        tasks: tasks.map((t) => ({
           id: t.id,
           title: t.title,
           priority: t.priority,
@@ -493,7 +512,11 @@ export class AiService {
     tenantId: string,
     documentId: string,
   ): Promise<AiResponse> {
-    const document = await this.documentsService.findOne(documentId, tenantId, 'system');
+    const document = await this.documentsService.findOne(
+      documentId,
+      tenantId,
+      'system',
+    );
 
     return this.execute({
       category: 'document_analysis' as PromptCategory,
@@ -514,7 +537,10 @@ export class AiService {
     tenantId: string,
     subscriptionId: string,
   ): Promise<AiResponse> {
-    const subscription = await this.billingService.getSubscription(subscriptionId, tenantId);
+    const subscription = await this.billingService.getSubscription(
+      subscriptionId,
+      tenantId,
+    );
     const usage = subscription.usage;
 
     return this.execute({
@@ -578,7 +604,7 @@ export class AiService {
       input: JSON.stringify({
         metric,
         timeframe,
-        historicalReports: reports.map(r => ({
+        historicalReports: reports.map((r) => ({
           name: r.name,
           dataSource: r.dataSource,
         })),
@@ -604,7 +630,13 @@ export class AiService {
       forms?: any[];
     };
   }> {
-    const searchModules = modules || ['crm', 'workflow', 'tasks', 'documents', 'forms'];
+    const searchModules = modules || [
+      'crm',
+      'workflow',
+      'tasks',
+      'documents',
+      'forms',
+    ];
     const results: any = {};
 
     // Search each module
@@ -612,8 +644,8 @@ export class AiService {
       try {
         // Get CRM entities (simplified)
         const entities = await this.crmService.getEntitiesByTenant(tenantId);
-        results.crm = entities.filter(e => 
-          JSON.stringify(e).toLowerCase().includes(query.toLowerCase())
+        results.crm = entities.filter((e) =>
+          JSON.stringify(e).toLowerCase().includes(query.toLowerCase()),
         );
       } catch (e) {}
     }
@@ -621,8 +653,8 @@ export class AiService {
     if (searchModules.includes('workflow')) {
       try {
         const instances = await this.workflowService.listInstances(tenantId);
-        results.workflow = instances.filter(i => 
-          JSON.stringify(i).toLowerCase().includes(query.toLowerCase())
+        results.workflow = instances.filter((i) =>
+          JSON.stringify(i).toLowerCase().includes(query.toLowerCase()),
         );
       } catch (e) {}
     }
@@ -630,15 +662,19 @@ export class AiService {
     if (searchModules.includes('tasks')) {
       try {
         const tasks = await this.taskService.listTasks(tenantId);
-        results.tasks = tasks.filter(t => 
-          JSON.stringify(t).toLowerCase().includes(query.toLowerCase())
+        results.tasks = tasks.filter((t) =>
+          JSON.stringify(t).toLowerCase().includes(query.toLowerCase()),
         );
       } catch (e) {}
     }
 
     if (searchModules.includes('documents')) {
       try {
-        const docs = await this.documentsService.findAll(tenantId, { query, page: 1, limit: 20 });
+        const docs = await this.documentsService.findAll(tenantId, {
+          query,
+          page: 1,
+          limit: 20,
+        });
         results.documents = docs.documents;
       } catch (e) {}
     }
@@ -646,8 +682,8 @@ export class AiService {
     if (searchModules.includes('forms')) {
       try {
         const submissions = await this.formService.listSubmissions(tenantId);
-        results.forms = submissions.filter(s => 
-          JSON.stringify(s).toLowerCase().includes(query.toLowerCase())
+        results.forms = submissions.filter((s) =>
+          JSON.stringify(s).toLowerCase().includes(query.toLowerCase()),
         );
       } catch (e) {}
     }

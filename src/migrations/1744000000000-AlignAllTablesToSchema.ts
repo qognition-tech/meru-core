@@ -1,4 +1,10 @@
-import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableIndex } from 'typeorm';
+import {
+  MigrationInterface,
+  QueryRunner,
+  Table,
+  TableForeignKey,
+  TableIndex,
+} from 'typeorm';
 
 export class AlignAllTablesToSchema1744000000000 implements MigrationInterface {
   name = 'AlignAllTablesToSchema1744000000000';
@@ -749,14 +755,38 @@ export class AlignAllTablesToSchema1744000000000 implements MigrationInterface {
     // =========================================================================
 
     const rlsTables = [
-      'roles', 'sessions', 'api_keys', 'feature_flags', 'tenant_config_pins',
-      'cases', 'notes', 'tags', 'entity_tags', 'entity_relationships',
-      'documents', 'document_versions',
-      'workflow_states', 'workflow_transitions', 'workflow_instances', 'workflow_history',
-      'sla_rules', 'form_schemas', 'form_fields', 'form_submissions',
-      'task_dependencies', 'communications', 'message_templates', 'notifications',
-      'payments', 'ai_requests', 'ai_responses', 'embeddings',
-      'search_indexes', 'analytics_events', 'dashboards', 'api_call_logs',
+      'roles',
+      'sessions',
+      'api_keys',
+      'feature_flags',
+      'tenant_config_pins',
+      'cases',
+      'notes',
+      'tags',
+      'entity_tags',
+      'entity_relationships',
+      'documents',
+      'document_versions',
+      'workflow_states',
+      'workflow_transitions',
+      'workflow_instances',
+      'workflow_history',
+      'sla_rules',
+      'form_schemas',
+      'form_fields',
+      'form_submissions',
+      'task_dependencies',
+      'communications',
+      'message_templates',
+      'notifications',
+      'payments',
+      'ai_requests',
+      'ai_responses',
+      'embeddings',
+      'search_indexes',
+      'analytics_events',
+      'dashboards',
+      'api_call_logs',
     ];
 
     for (const table of rlsTables) {
@@ -821,10 +851,20 @@ export class AlignAllTablesToSchema1744000000000 implements MigrationInterface {
     `);
 
     const autoUpdateTables = [
-      'roles', 'feature_flags', 'config_packs', 'tenant_config_pins',
-      'cases', 'notes', 'documents', 'sla_rules',
-      'form_schemas', 'form_submissions', 'message_templates',
-      'workflow_instances', 'dashboards', 'integration_adapters',
+      'roles',
+      'feature_flags',
+      'config_packs',
+      'tenant_config_pins',
+      'cases',
+      'notes',
+      'documents',
+      'sla_rules',
+      'form_schemas',
+      'form_submissions',
+      'message_templates',
+      'workflow_instances',
+      'dashboards',
+      'integration_adapters',
     ];
 
     for (const table of autoUpdateTables) {
@@ -842,36 +882,72 @@ export class AlignAllTablesToSchema1744000000000 implements MigrationInterface {
     // Drop in reverse order: triggers, policies, tables
 
     const autoUpdateTables = [
-      'roles', 'feature_flags', 'config_packs', 'tenant_config_pins',
-      'cases', 'notes', 'documents', 'sla_rules',
-      'form_schemas', 'form_submissions', 'message_templates',
-      'workflow_instances', 'dashboards', 'integration_adapters',
+      'roles',
+      'feature_flags',
+      'config_packs',
+      'tenant_config_pins',
+      'cases',
+      'notes',
+      'documents',
+      'sla_rules',
+      'form_schemas',
+      'form_submissions',
+      'message_templates',
+      'workflow_instances',
+      'dashboards',
+      'integration_adapters',
     ];
 
     for (const table of autoUpdateTables) {
-      await queryRunner.query(`DROP TRIGGER IF EXISTS trg_${table}_updated_at ON ${table}`);
+      await queryRunner.query(
+        `DROP TRIGGER IF EXISTS trg_${table}_updated_at ON ${table}`,
+      );
     }
 
     await queryRunner.query(`DROP FUNCTION IF EXISTS set_updated_at CASCADE`);
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_search_tsv ON search_indexes`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS update_search_tsv CASCADE`);
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_search_tsv ON search_indexes`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS update_search_tsv CASCADE`,
+    );
     await queryRunner.query(`DROP EXTENSION IF EXISTS vector CASCADE`);
 
     const tablesToDrop = [
-      'api_call_logs', 'integration_adapters',
-      'dashboards', 'analytics_events',
-      'search_indexes', 'embeddings',
-      'ai_responses', 'ai_requests',
+      'api_call_logs',
+      'integration_adapters',
+      'dashboards',
+      'analytics_events',
+      'search_indexes',
+      'embeddings',
+      'ai_responses',
+      'ai_requests',
       'payments',
-      'notifications', 'message_templates', 'communications',
+      'notifications',
+      'message_templates',
+      'communications',
       'task_dependencies',
-      'form_submissions', 'form_fields', 'form_schemas',
-      'sla_rules', 'workflow_history', 'workflow_instances',
-      'workflow_transitions', 'workflow_states',
-      'document_versions', 'documents',
-      'entity_relationships', 'entity_tags', 'tags', 'notes', 'cases',
-      'tenant_config_pins', 'config_packs',
-      'feature_flags', 'api_keys', 'sessions', 'roles',
+      'form_submissions',
+      'form_fields',
+      'form_schemas',
+      'sla_rules',
+      'workflow_history',
+      'workflow_instances',
+      'workflow_transitions',
+      'workflow_states',
+      'document_versions',
+      'documents',
+      'entity_relationships',
+      'entity_tags',
+      'tags',
+      'notes',
+      'cases',
+      'tenant_config_pins',
+      'config_packs',
+      'feature_flags',
+      'api_keys',
+      'sessions',
+      'roles',
     ];
 
     for (const table of tablesToDrop) {

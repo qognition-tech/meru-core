@@ -68,13 +68,25 @@ export class Notification {
   @Column({ type: 'enum', enum: NotificationType })
   type: NotificationType;
 
-  @Column({ type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.PENDING,
+  })
   status: NotificationStatus;
 
-  @Column({ type: 'enum', enum: NotificationPriority, default: NotificationPriority.NORMAL })
+  @Column({
+    type: 'enum',
+    enum: NotificationPriority,
+    default: NotificationPriority.NORMAL,
+  })
   priority: NotificationPriority;
 
-  @Column({ type: 'enum', enum: NotificationCategory, default: NotificationCategory.SYSTEM })
+  @Column({
+    type: 'enum',
+    enum: NotificationCategory,
+    default: NotificationCategory.SYSTEM,
+  })
   category: NotificationCategory;
 
   @Column()
@@ -168,10 +180,13 @@ export class NotificationPreference {
   };
 
   @Column({ type: 'jsonb', default: {} })
-  categoryPreferences: Record<string, {
-    enabled: boolean;
-    channels: NotificationType[];
-  }>;
+  categoryPreferences: Record<
+    string,
+    {
+      enabled: boolean;
+      channels: NotificationType[];
+    }
+  >;
 
   @Column({ type: 'jsonb', default: {}, nullable: true })
   quietHours?: {

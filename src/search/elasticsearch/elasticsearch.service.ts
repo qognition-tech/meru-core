@@ -1,9 +1,18 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Client } from '@elastic/elasticsearch';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './entities/search-index.entity';
+import {
+  ElasticsearchIndex,
+  ElasticsearchDocument,
+  ElasticsearchSearchLog,
+} from './entities/search-index.entity';
 import {
   SearchQuery,
   SearchResult,
@@ -34,7 +43,10 @@ export class ElasticsearchService implements OnModuleInit {
     @InjectRepository(ElasticsearchSearchLog)
     public searchLogRepo: Repository<ElasticsearchSearchLog>,
   ) {
-    this.indexPrefix = this.configService.get('ELASTICSEARCH_INDEX_PREFIX', 'meru');
+    this.indexPrefix = this.configService.get(
+      'ELASTICSEARCH_INDEX_PREFIX',
+      'meru',
+    );
   }
 
   async onModuleInit() {
@@ -70,14 +82,14 @@ export class ElasticsearchService implements OnModuleInit {
       properties: {
         id: { type: 'keyword' },
         tenantId: { type: 'keyword' },
-        title: { 
+        title: {
           type: 'text',
           analyzer: 'standard',
           fields: {
             keyword: { type: 'keyword' },
           },
         },
-        content: { 
+        content: {
           type: 'text',
           analyzer: 'standard',
         },
@@ -91,7 +103,7 @@ export class ElasticsearchService implements OnModuleInit {
 
     try {
       const exists = await this.client.indices.exists({ index: indexName });
-      
+
       if (!exists) {
         await this.client.indices.create({
           index: indexName,
@@ -132,7 +144,11 @@ export class ElasticsearchService implements OnModuleInit {
     }
   }
 
-  async updateMapping(tenantId: string, indexName: string, mapping: IndexMapping): Promise<void> {
+  async updateMapping(
+    tenantId: string,
+    indexName: string,
+    mapping: IndexMapping,
+  ): Promise<void> {
     const fullIndexName = this.getIndexName(tenantId, indexName);
 
     await this.client.indices.putMapping({
@@ -141,7 +157,9 @@ export class ElasticsearchService implements OnModuleInit {
     });
 
     // Update in database
-    const index = await this.indexRepo.findOne({ where: { tenantId, name: indexName } });
+    const index = await this.indexRepo.findOne({
+      where: { tenantId, name: indexName },
+    });
     if (index) {
       index.mapping = JSON.stringify(mapping);
       await this.indexRepo.save(index);
@@ -175,8 +193,12 @@ export class ElasticsearchService implements OnModuleInit {
 
         stats.push({
           index: index.name,
-          docCount: indexStats.indices?.[this.getIndexName(tenantId, index.name)]?.total?.docs?.count || 0,
-          sizeInBytes: indexStats.indices?.[this.getIndexName(tenantId, index.name)]?.total?.store?.size_in_bytes || 0,
+          docCount:
+            indexStats.indices?.[this.getIndexName(tenantId, index.name)]?.total
+              ?.docs?.count || 0,
+          sizeInBytes:
+            indexStats.indices?.[this.getIndexName(tenantId, index.name)]?.total
+              ?.store?.size_in_bytes || 0,
           health: health.status as 'green' | 'yellow' | 'red',
           status: 'open',
           shards: {
@@ -186,7 +208,9 @@ export class ElasticsearchService implements OnModuleInit {
           },
         });
       } catch (error) {
-        this.logger.error(`Failed to get stats for index ${index.name}: ${error.message}`);
+        this.logger.error(
+          `Failed to get stats for index ${index.name}: ${error.message}`,
+        );
       }
     }
 
@@ -224,7 +248,9 @@ export class ElasticsearchService implements OnModuleInit {
     });
 
     // Track in database
-    const index = await this.indexRepo.findOne({ where: { tenantId, name: indexName } });
+    const index = await this.indexRepo.findOne({
+      where: { tenantId, name: indexName },
+    });
     if (index) {
       index.documentCount += 1;
       index.lastIndexedAt = new Date();
@@ -256,23 +282,44 @@ export class ElasticsearchService implements OnModuleInit {
   ): Promise<BulkIndexResult> {
     const fullIndexName = this.getIndexName(tenantId, indexName);
 
-    const body = operations.flatMap(op => [
-      { [op.operation]: { _index: fullIndexName, _id: op.id } },
-      op.operation === 'delete' ? undefined : op.document,
-    ]).filter(Boolean);
+    const body = operations
+      .flatMap((op) => [
+        { [op.operation]: { _index: fullIndexName, _id: op.id } },
+        op.operation === 'delete' ? undefined : op.document,
+      ])
+      .filter(Boolean);
 
     const result = await this.client.bulk({ refresh: true, body });
 
-    const items = result.items?.map((item: any) => ({
-      operation: Object.keys(item)[0],
-      index: fullIndexName,
-      id: item.index?._id || item.create?._id || item.update?._id || item.delete?._id,
-      result: item.index?.result || item.create?.result || item.update?.result || item.delete?.result,
-      status: item.index?.status || item.create?.status || item.update?.status || item.delete?.status,
-      error: item.index?.error || item.create?.error || item.update?.error || item.delete?.error,
-    })) || [];
+    const items =
+      result.items?.map((item: any) => ({
+        operation: Object.keys(item)[0],
+        index: fullIndexName,
+        id:
+          item.index?._id ||
+          item.create?._id ||
+          item.update?._id ||
+          item.delete?._id,
+        result:
+          item.index?.result ||
+          item.create?.result ||
+          item.update?.result ||
+          item.delete?.result,
+        status:
+          item.index?.status ||
+          item.create?.status ||
+          item.update?.status ||
+          item.delete?.status,
+        error:
+          item.index?.error ||
+          item.create?.error ||
+          item.update?.error ||
+          item.delete?.error,
+      })) || [];
 
-    const successful = items.filter((i: any) => i.status >= 200 && i.status < 300).length;
+    const successful = items.filter(
+      (i: any) => i.status >= 200 && i.status < 300,
+    ).length;
     const failed = items.filter((i: any) => i.status >= 400).length;
 
     return {
@@ -285,7 +332,11 @@ export class ElasticsearchService implements OnModuleInit {
     };
   }
 
-  async deleteDocument(tenantId: string, indexName: string, documentId: string): Promise<void> {
+  async deleteDocument(
+    tenantId: string,
+    indexName: string,
+    documentId: string,
+  ): Promise<void> {
     const fullIndexName = this.getIndexName(tenantId, indexName);
 
     await this.client.delete({
@@ -297,7 +348,11 @@ export class ElasticsearchService implements OnModuleInit {
     await this.documentRepo.delete({ tenantId, documentId });
   }
 
-  async getDocument(tenantId: string, indexName: string, documentId: string): Promise<SearchDocument> {
+  async getDocument(
+    tenantId: string,
+    indexName: string,
+    documentId: string,
+  ): Promise<SearchDocument> {
     const fullIndexName = this.getIndexName(tenantId, indexName);
 
     const result = await this.client.get<SearchDocument>({
@@ -316,8 +371,12 @@ export class ElasticsearchService implements OnModuleInit {
     userId?: string,
   ): Promise<SearchResult> {
     const startTime = Date.now();
-    const indices = query.filters?.find(f => f.field === 'index')?.value || ['*'];
-    const indexNames = indices.map((i: string) => this.getIndexName(tenantId, i));
+    const indices = query.filters?.find((f) => f.field === 'index')?.value || [
+      '*',
+    ];
+    const indexNames = indices.map((i: string) =>
+      this.getIndexName(tenantId, i),
+    );
 
     const searchBody: any = {
       query: this.buildQuery(query),
@@ -326,7 +385,9 @@ export class ElasticsearchService implements OnModuleInit {
     };
 
     if (query.sort) {
-      searchBody.sort = query.sort.map(s => ({ [s.field]: { order: s.order, mode: s.mode } }));
+      searchBody.sort = query.sort.map((s) => ({
+        [s.field]: { order: s.order, mode: s.mode },
+      }));
     }
 
     if (query.highlights) {
@@ -366,9 +427,16 @@ export class ElasticsearchService implements OnModuleInit {
     const took = Date.now() - startTime;
 
     // Log search
-    await this.logSearch(tenantId, query.query, indices, (result.hits.total as any)?.value || 0, took, userId);
+    await this.logSearch(
+      tenantId,
+      query.query,
+      indices,
+      (result.hits.total as any)?.value || 0,
+      took,
+      userId,
+    );
 
-    const documents = result.hits.hits.map(hit => ({
+    const documents = result.hits.hits.map((hit) => ({
       ...hit._source!,
       id: hit._id || '',
       score: hit._score,
@@ -378,7 +446,9 @@ export class ElasticsearchService implements OnModuleInit {
       total: (result.hits.total as any)?.value || 0,
       took,
       documents,
-      highlights: result.hits.hits.map(h => h.highlight as Record<string, string[]>),
+      highlights: result.hits.hits.map(
+        (h) => h.highlight as Record<string, string[]>,
+      ),
       aggregations: result.aggregations as Record<string, AggregationResult>,
     };
   }
@@ -400,10 +470,7 @@ export class ElasticsearchService implements OnModuleInit {
     });
   }
 
-  async suggest(
-    tenantId: string,
-    options: SuggestOptions,
-  ): Promise<string[]> {
+  async suggest(tenantId: string, options: SuggestOptions): Promise<string[]> {
     const result = await this.client.search({
       index: `${this.indexPrefix}-${tenantId}-*`,
       suggest: {
@@ -419,7 +486,7 @@ export class ElasticsearchService implements OnModuleInit {
     });
 
     const suggestions = (result.suggest?.completion || []) as any[];
-    return suggestions.flatMap(s => s.options.map((o: any) => o.text));
+    return suggestions.flatMap((s) => s.options.map((o: any) => o.text));
   }
 
   async facetedSearch(
@@ -427,7 +494,7 @@ export class ElasticsearchService implements OnModuleInit {
     query: string,
     facetFields: string[],
   ): Promise<SearchResult> {
-    const aggregations: SearchAggregation[] = facetFields.map(field => ({
+    const aggregations: SearchAggregation[] = facetFields.map((field) => ({
       name: `${field}_facets`,
       type: 'terms',
       field,
@@ -442,45 +509,55 @@ export class ElasticsearchService implements OnModuleInit {
 
   // ==================== ANALYTICS ====================
 
-  async getAnalytics(tenantId: string, days: number = 30): Promise<SearchAnalytics> {
+  async getAnalytics(
+    tenantId: string,
+    days: number = 30,
+  ): Promise<SearchAnalytics> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const [totalQueries, avgResponseTime, popularQueries, zeroResults] = await Promise.all([
-      this.searchLogRepo.count({ where: { tenantId, createdAt: since } }),
-      this.searchLogRepo
-        .createQueryBuilder('log')
-        .where('log.tenantId = :tenantId', { tenantId })
-        .andWhere('log.createdAt >= :since', { since })
-        .select('AVG(log.responseTimeMs)', 'avg')
-        .getRawOne(),
-      this.searchLogRepo
-        .createQueryBuilder('log')
-        .where('log.tenantId = :tenantId', { tenantId })
-        .andWhere('log.createdAt >= :since', { since })
-        .select('log.query', 'query')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('log.query')
-        .orderBy('count', 'DESC')
-        .limit(10)
-        .getRawMany(),
-      this.searchLogRepo
-        .createQueryBuilder('log')
-        .where('log.tenantId = :tenantId', { tenantId })
-        .andWhere('log.createdAt >= :since', { since })
-        .andWhere('log.hasResults = false')
-        .select('log.query', 'query')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('log.query')
-        .orderBy('count', 'DESC')
-        .limit(10)
-        .getRawMany(),
-    ]);
+    const [totalQueries, avgResponseTime, popularQueries, zeroResults] =
+      await Promise.all([
+        this.searchLogRepo.count({ where: { tenantId, createdAt: since } }),
+        this.searchLogRepo
+          .createQueryBuilder('log')
+          .where('log.tenantId = :tenantId', { tenantId })
+          .andWhere('log.createdAt >= :since', { since })
+          .select('AVG(log.responseTimeMs)', 'avg')
+          .getRawOne(),
+        this.searchLogRepo
+          .createQueryBuilder('log')
+          .where('log.tenantId = :tenantId', { tenantId })
+          .andWhere('log.createdAt >= :since', { since })
+          .select('log.query', 'query')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('log.query')
+          .orderBy('count', 'DESC')
+          .limit(10)
+          .getRawMany(),
+        this.searchLogRepo
+          .createQueryBuilder('log')
+          .where('log.tenantId = :tenantId', { tenantId })
+          .andWhere('log.createdAt >= :since', { since })
+          .andWhere('log.hasResults = false')
+          .select('log.query', 'query')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('log.query')
+          .orderBy('count', 'DESC')
+          .limit(10)
+          .getRawMany(),
+      ]);
 
     return {
       totalQueries,
       avgResponseTime: parseFloat(avgResponseTime?.avg) || 0,
-      popularQueries: popularQueries.map(q => ({ query: q.query, count: parseInt(q.count) })),
-      zeroResultsQueries: zeroResults.map(q => ({ query: q.query, count: parseInt(q.count) })),
+      popularQueries: popularQueries.map((q) => ({
+        query: q.query,
+        count: parseInt(q.count),
+      })),
+      zeroResultsQueries: zeroResults.map((q) => ({
+        query: q.query,
+        count: parseInt(q.count),
+      })),
       queryLatencyDistribution: {}, // Could be implemented with histogram aggregation
     };
   }
@@ -518,7 +595,12 @@ export class ElasticsearchService implements OnModuleInit {
       bool: {
         must,
         filter: [
-          { term: { tenantId: query.filters?.find(f => f.field === 'tenantId')?.value } },
+          {
+            term: {
+              tenantId: query.filters?.find((f) => f.field === 'tenantId')
+                ?.value,
+            },
+          },
         ],
       },
     };
@@ -543,7 +625,9 @@ export class ElasticsearchService implements OnModuleInit {
     }
   }
 
-  private buildAggregations(aggregations: SearchAggregation[]): Record<string, any> {
+  private buildAggregations(
+    aggregations: SearchAggregation[],
+  ): Record<string, any> {
     const result: Record<string, any> = {};
 
     for (const agg of aggregations) {

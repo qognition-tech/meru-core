@@ -39,7 +39,6 @@ import { TenantConfigPin } from './iam/entities/tenant-config-pin.entity';
 import { ConfigPack } from './tenant/entities/config-pack.entity';
 import { FeatureFlag } from './tenant/entities/feature-flag.entity';
 
-
 // Integration entity (new)
 import { IntegrationAdapter } from './integrations/entities/integration-adapter.entity';
 
@@ -80,16 +79,33 @@ import { DashboardWidget } from './analytics/entities/dashboard-widget.entity';
 import { AuditLog } from './audit/entities/audit-log.entity';
 
 // Notifications entities
-import { Notification, NotificationPreference, NotificationTemplate } from './notifications/entities/notification.entity';
+import {
+  Notification,
+  NotificationPreference,
+  NotificationTemplate,
+} from './notifications/entities/notification.entity';
 
 // Storage entities
-import { StorageFile, FileVersion, MultipartUpload } from './storage/entities/storage-file.entity';
+import {
+  StorageFile,
+  FileVersion,
+  MultipartUpload,
+} from './storage/entities/storage-file.entity';
 
 // Queue entities
-import { QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker } from './queue/entities/job.entity';
+import {
+  QueueJob,
+  QueueJobLog,
+  QueueScheduledJob,
+  QueueWorker,
+} from './queue/entities/job.entity';
 
 // Elasticsearch entities (driver layer under SRCH module)
-import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './search/elasticsearch/entities/search-index.entity';
+import {
+  ElasticsearchIndex,
+  ElasticsearchDocument,
+  ElasticsearchSearchLog,
+} from './search/elasticsearch/entities/search-index.entity';
 
 @Module({
   imports: [

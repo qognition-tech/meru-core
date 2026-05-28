@@ -1,32 +1,45 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsObject, IsDate, IsArray, IsEmail, IsPhoneNumber } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsObject,
+  IsDate,
+  IsArray,
+  IsEmail,
+  IsPhoneNumber,
+} from 'class-validator';
 import { Type } from 'class-transformer';
-import { NotificationType, NotificationPriority, NotificationCategory } from '../entities/notification.entity';
+import {
+  NotificationType,
+  NotificationPriority,
+  NotificationCategory,
+} from '../entities/notification.entity';
 
 export class CreateNotificationDto {
-  @ApiProperty({ 
-    enum: NotificationType, 
+  @ApiProperty({
+    enum: NotificationType,
     description: 'Type of notification channel',
-    example: NotificationType.EMAIL 
+    example: NotificationType.EMAIL,
   })
   @IsEnum(NotificationType)
   type: NotificationType;
 
-  @ApiProperty({ 
-    enum: NotificationPriority, 
+  @ApiProperty({
+    enum: NotificationPriority,
     description: 'Priority level of the notification',
     default: NotificationPriority.NORMAL,
-    example: NotificationPriority.HIGH 
+    example: NotificationPriority.HIGH,
   })
   @IsEnum(NotificationPriority)
   @IsOptional()
   priority?: NotificationPriority;
 
-  @ApiProperty({ 
-    enum: NotificationCategory, 
+  @ApiProperty({
+    enum: NotificationCategory,
     description: 'Category of the notification',
     default: NotificationCategory.SYSTEM,
-    example: NotificationCategory.WORKFLOW 
+    example: NotificationCategory.WORKFLOW,
   })
   @IsEnum(NotificationCategory)
   @IsOptional()
@@ -36,21 +49,33 @@ export class CreateNotificationDto {
   @IsString()
   recipientId: string;
 
-  @ApiPropertyOptional({ description: 'Email address of the recipient', example: 'user@example.com' })
+  @ApiPropertyOptional({
+    description: 'Email address of the recipient',
+    example: 'user@example.com',
+  })
   @IsEmail()
   @IsOptional()
   recipientEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Phone number of the recipient', example: '+1234567890' })
+  @ApiPropertyOptional({
+    description: 'Phone number of the recipient',
+    example: '+1234567890',
+  })
   @IsPhoneNumber()
   @IsOptional()
   recipientPhone?: string;
 
-  @ApiProperty({ description: 'Subject of the notification', example: 'New Task Assigned' })
+  @ApiProperty({
+    description: 'Subject of the notification',
+    example: 'New Task Assigned',
+  })
   @IsString()
   subject: string;
 
-  @ApiProperty({ description: 'Content/body of the notification', example: 'You have been assigned a new task: Review Q4 Report' })
+  @ApiProperty({
+    description: 'Content/body of the notification',
+    example: 'You have been assigned a new task: Review Q4 Report',
+  })
   @IsString()
   content: string;
 
@@ -59,9 +84,12 @@ export class CreateNotificationDto {
   @IsOptional()
   htmlContent?: string;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Template data for variable substitution',
-    example: { templateId: 'welcome-email', variables: { name: 'John', company: 'Acme' } }
+    example: {
+      templateId: 'welcome-email',
+      variables: { name: 'John', company: 'Acme' },
+    },
   })
   @IsObject()
   @IsOptional()
@@ -71,14 +99,14 @@ export class CreateNotificationDto {
     locale?: string;
   };
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Additional metadata for the notification',
-    example: { 
-      actionUrl: '/tasks/123', 
+    example: {
+      actionUrl: '/tasks/123',
       actionLabel: 'View Task',
       icon: 'task-icon',
-      tags: ['urgent', 'workflow'] 
-    }
+      tags: ['urgent', 'workflow'],
+    },
   })
   @IsObject()
   @IsOptional()
@@ -91,18 +119,18 @@ export class CreateNotificationDto {
     customData?: Record<string, any>;
   };
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Schedule the notification for a future time',
-    example: '2024-12-31T23:59:59Z'
+    example: '2024-12-31T23:59:59Z',
   })
   @IsDate()
   @Type(() => Date)
   @IsOptional()
   scheduledAt?: Date;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Expiration time for the notification',
-    example: '2025-01-31T23:59:59Z'
+    example: '2025-01-31T23:59:59Z',
   })
   @IsDate()
   @Type(() => Date)
@@ -111,9 +139,9 @@ export class CreateNotificationDto {
 }
 
 export class SendBulkNotificationsDto {
-  @ApiProperty({ 
+  @ApiProperty({
     type: [CreateNotificationDto],
-    description: 'Array of notifications to send'
+    description: 'Array of notifications to send',
   })
   @IsArray()
   notifications: CreateNotificationDto[];
@@ -125,17 +153,26 @@ export class NotificationQueryDto {
   @IsOptional()
   recipientId?: string;
 
-  @ApiPropertyOptional({ enum: NotificationType, description: 'Filter by notification type' })
+  @ApiPropertyOptional({
+    enum: NotificationType,
+    description: 'Filter by notification type',
+  })
   @IsEnum(NotificationType)
   @IsOptional()
   type?: NotificationType;
 
-  @ApiPropertyOptional({ enum: NotificationStatus, description: 'Filter by status' })
+  @ApiPropertyOptional({
+    enum: NotificationStatus,
+    description: 'Filter by status',
+  })
   @IsEnum(NotificationStatus)
   @IsOptional()
   status?: NotificationStatus;
 
-  @ApiPropertyOptional({ enum: NotificationCategory, description: 'Filter by category' })
+  @ApiPropertyOptional({
+    enum: NotificationCategory,
+    description: 'Filter by category',
+  })
   @IsEnum(NotificationCategory)
   @IsOptional()
   category?: NotificationCategory;
@@ -154,14 +191,18 @@ export class NotificationQueryDto {
 }
 
 export class UpdateNotificationPreferencesDto {
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Channel preferences',
     example: {
       email: { enabled: true, address: 'user@example.com', verified: true },
       sms: { enabled: false, phoneNumber: '+1234567890', verified: false },
       push: { enabled: true, deviceTokens: ['token1', 'token2'] },
-      slack: { enabled: true, webhookUrl: 'https://hooks.slack.com/...', channel: '#notifications' }
-    }
+      slack: {
+        enabled: true,
+        webhookUrl: 'https://hooks.slack.com/...',
+        channel: '#notifications',
+      },
+    },
   })
   @IsObject()
   @IsOptional()
@@ -200,7 +241,10 @@ export class CreateTemplateDto {
   @IsString()
   subject: string;
 
-  @ApiProperty({ description: 'Template content with variables', example: 'Hello {{name}}, welcome to {{company}}!' })
+  @ApiProperty({
+    description: 'Template content with variables',
+    example: 'Hello {{name}}, welcome to {{company}}!',
+  })
   @IsString()
   content: string;
 

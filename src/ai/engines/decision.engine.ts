@@ -89,9 +89,7 @@ export interface FraudAssessment {
 export class DecisionEngine {
   private readonly logger = new Logger(DecisionEngine.name);
 
-  constructor(
-    private readonly aiService: AiService,
-  ) {}
+  constructor(private readonly aiService: AiService) {}
 
   async decide(request: DecisionRequest): Promise<DecisionResult> {
     const response = await this.aiService.execute({
@@ -294,10 +292,7 @@ export class DecisionEngine {
       results.push(result);
 
       // If auto-approve or auto-deny with high confidence, trigger workflow action
-      if (
-        result.recommendation === 'approve' &&
-        result.confidence >= 0.95
-      ) {
+      if (result.recommendation === 'approve' && result.confidence >= 0.95) {
         await this.handleAutoDecision(tenantId, request, result);
       }
     }
@@ -323,7 +318,9 @@ export class DecisionEngine {
         );
       }
     } catch (error: any) {
-      this.logger.error(`Auto-decision workflow update failed: ${error.message}`);
+      this.logger.error(
+        `Auto-decision workflow update failed: ${error.message}`,
+      );
     }
   }
 }

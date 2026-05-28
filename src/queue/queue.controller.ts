@@ -33,8 +33,17 @@ import {
   RetryJobDto,
   JobProgressDto,
 } from './dto/job.dto';
-import { QueueJob, QueueJobLog, QueueScheduledJob } from './entities/job.entity';
-import { QueueMetrics, JobStatus, JobType, JobPriority } from './interfaces/job.interface';
+import {
+  QueueJob,
+  QueueJobLog,
+  QueueScheduledJob,
+} from './entities/job.entity';
+import {
+  QueueMetrics,
+  JobStatus,
+  JobType,
+  JobPriority,
+} from './interfaces/job.interface';
 
 @ApiTags('Queue')
 @ApiBearerAuth()
@@ -46,8 +55,15 @@ export class QueueController {
   // ==================== JOB MANAGEMENT ====================
 
   @Post('jobs')
-  @ApiOperation({ summary: 'Create job', description: 'Create a new background job' })
-  @ApiResponse({ status: 201, description: 'Job created successfully', type: QueueJob })
+  @ApiOperation({
+    summary: 'Create job',
+    description: 'Create a new background job',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Job created successfully',
+    type: QueueJob,
+  })
   async createJob(
     @Body() dto: CreateJobDto,
     @TenantId() tenantId: string,
@@ -71,8 +87,15 @@ export class QueueController {
   }
 
   @Post('jobs/bulk')
-  @ApiOperation({ summary: 'Create bulk jobs', description: 'Create multiple jobs at once' })
-  @ApiResponse({ status: 201, description: 'Jobs created successfully', type: [QueueJob] })
+  @ApiOperation({
+    summary: 'Create bulk jobs',
+    description: 'Create multiple jobs at once',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Jobs created successfully',
+    type: [QueueJob],
+  })
   async createBulkJobs(
     @Body() dto: BulkJobDto,
     @TenantId() tenantId: string,
@@ -80,7 +103,7 @@ export class QueueController {
   ): Promise<QueueJob[]> {
     return this.queueService.createBulkJobs(
       tenantId,
-      dto.jobs.map(j => ({
+      dto.jobs.map((j) => ({
         type: j.type,
         data: {
           payload: j.payload,
@@ -98,7 +121,10 @@ export class QueueController {
   }
 
   @Get('jobs')
-  @ApiOperation({ summary: 'List jobs', description: 'List jobs with optional filtering' })
+  @ApiOperation({
+    summary: 'List jobs',
+    description: 'List jobs with optional filtering',
+  })
   @ApiResponse({ status: 200, description: 'Jobs retrieved successfully' })
   async listJobs(
     @TenantId() tenantId: string,
@@ -117,8 +143,15 @@ export class QueueController {
   }
 
   @Get('jobs/:id')
-  @ApiOperation({ summary: 'Get job details', description: 'Get detailed information about a job' })
-  @ApiResponse({ status: 200, description: 'Job retrieved successfully', type: QueueJob })
+  @ApiOperation({
+    summary: 'Get job details',
+    description: 'Get detailed information about a job',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job retrieved successfully',
+    type: QueueJob,
+  })
   @ApiResponse({ status: 404, description: 'Job not found' })
   async getJob(
     @Param('id', ParseUUIDPipe) jobId: string,
@@ -128,8 +161,15 @@ export class QueueController {
   }
 
   @Get('jobs/:id/logs')
-  @ApiOperation({ summary: 'Get job logs', description: 'Get execution logs for a job' })
-  @ApiResponse({ status: 200, description: 'Logs retrieved successfully', type: [QueueJobLog] })
+  @ApiOperation({
+    summary: 'Get job logs',
+    description: 'Get execution logs for a job',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logs retrieved successfully',
+    type: [QueueJobLog],
+  })
   async getJobLogs(
     @Param('id', ParseUUIDPipe) jobId: string,
     @TenantId() tenantId: string,
@@ -140,8 +180,15 @@ export class QueueController {
   }
 
   @Post('jobs/:id/retry')
-  @ApiOperation({ summary: 'Retry job', description: 'Retry a failed or cancelled job' })
-  @ApiResponse({ status: 200, description: 'Job queued for retry', type: QueueJob })
+  @ApiOperation({
+    summary: 'Retry job',
+    description: 'Retry a failed or cancelled job',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job queued for retry',
+    type: QueueJob,
+  })
   async retryJob(
     @Param('id', ParseUUIDPipe) jobId: string,
     @Body() dto: RetryJobDto,
@@ -152,7 +199,10 @@ export class QueueController {
 
   @Delete('jobs/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Cancel job', description: 'Cancel a pending or processing job' })
+  @ApiOperation({
+    summary: 'Cancel job',
+    description: 'Cancel a pending or processing job',
+  })
   @ApiResponse({ status: 204, description: 'Job cancelled successfully' })
   async cancelJob(
     @Param('id', ParseUUIDPipe) jobId: string,
@@ -163,7 +213,10 @@ export class QueueController {
 
   @Delete('jobs/:id/permanent')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Remove job', description: 'Permanently remove a job and its logs' })
+  @ApiOperation({
+    summary: 'Remove job',
+    description: 'Permanently remove a job and its logs',
+  })
   @ApiResponse({ status: 204, description: 'Job removed successfully' })
   async removeJob(
     @Param('id', ParseUUIDPipe) jobId: string,
@@ -176,15 +229,22 @@ export class QueueController {
   // ==================== SCHEDULED JOBS ====================
 
   @Post('scheduled')
-  @ApiOperation({ summary: 'Schedule recurring job', description: 'Create a cron-based recurring job' })
-  @ApiResponse({ status: 201, description: 'Scheduled job created', type: QueueScheduledJob })
+  @ApiOperation({
+    summary: 'Schedule recurring job',
+    description: 'Create a cron-based recurring job',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Scheduled job created',
+    type: QueueScheduledJob,
+  })
   async scheduleJob(
     @Body() dto: ScheduleJobDto,
     @TenantId() tenantId: string,
   ): Promise<QueueScheduledJob> {
     return this.queueService.scheduleJob(
       tenantId,
-      dto.payload.name as string || 'Scheduled Job',
+      (dto.payload.name as string) || 'Scheduled Job',
       dto.type,
       {
         payload: dto.payload,
@@ -198,8 +258,15 @@ export class QueueController {
   }
 
   @Get('scheduled')
-  @ApiOperation({ summary: 'List scheduled jobs', description: 'List all recurring scheduled jobs' })
-  @ApiResponse({ status: 200, description: 'Scheduled jobs retrieved', type: [QueueScheduledJob] })
+  @ApiOperation({
+    summary: 'List scheduled jobs',
+    description: 'List all recurring scheduled jobs',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Scheduled jobs retrieved',
+    type: [QueueScheduledJob],
+  })
   async listScheduledJobs(
     @TenantId() tenantId: string,
   ): Promise<QueueScheduledJob[]> {
@@ -211,7 +278,10 @@ export class QueueController {
 
   @Delete('scheduled/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Cancel scheduled job', description: 'Cancel a recurring scheduled job' })
+  @ApiOperation({
+    summary: 'Cancel scheduled job',
+    description: 'Cancel a recurring scheduled job',
+  })
   @ApiResponse({ status: 204, description: 'Scheduled job cancelled' })
   async cancelScheduledJob(
     @Param('id', ParseUUIDPipe) id: string,
@@ -223,18 +293,22 @@ export class QueueController {
   // ==================== METRICS ====================
 
   @Get('metrics')
-  @ApiOperation({ summary: 'Get queue metrics', description: 'Get queue statistics and metrics' })
+  @ApiOperation({
+    summary: 'Get queue metrics',
+    description: 'Get queue statistics and metrics',
+  })
   @ApiResponse({ status: 200, description: 'Metrics retrieved successfully' })
-  async getMetrics(
-    @TenantId() tenantId: string,
-  ): Promise<QueueMetrics> {
+  async getMetrics(@TenantId() tenantId: string): Promise<QueueMetrics> {
     return this.queueService.getMetrics(tenantId);
   }
 
   // ==================== JOB TYPES ====================
 
   @Get('types')
-  @ApiOperation({ summary: 'Get job types', description: 'List all available job types' })
+  @ApiOperation({
+    summary: 'Get job types',
+    description: 'List all available job types',
+  })
   @ApiResponse({ status: 200, description: 'Job types retrieved' })
   getJobTypes(): { type: string; description: string }[] {
     return [

@@ -67,13 +67,25 @@ export class Document {
   @Column({ type: 'text', nullable: true })
   mimeType: string;
 
-  @Column({ type: 'enum', enum: DocumentStatus, default: DocumentStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: DocumentStatus,
+    default: DocumentStatus.ACTIVE,
+  })
   status: DocumentStatus;
 
-  @Column({ type: 'enum', enum: DocumentEncryption, default: DocumentEncryption.NONE })
+  @Column({
+    type: 'enum',
+    enum: DocumentEncryption,
+    default: DocumentEncryption.NONE,
+  })
   encryption: DocumentEncryption;
 
-  @Column({ type: 'enum', enum: DocumentEncryption, default: DocumentEncryption.NONE })
+  @Column({
+    type: 'enum',
+    enum: DocumentEncryption,
+    default: DocumentEncryption.NONE,
+  })
   requiredEncryption: DocumentEncryption;
 
   @Column({ nullable: true })
@@ -125,7 +137,9 @@ export class Document {
   @Column({ name: 'uploadedById' })
   uploadedById: string;
 
-  @OneToMany(() => DocumentVersion, (version) => version.document, { cascade: true })
+  @OneToMany(() => DocumentVersion, (version) => version.document, {
+    cascade: true,
+  })
   versions: DocumentVersion[];
 
   @CreateDateColumn()

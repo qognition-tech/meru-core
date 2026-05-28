@@ -11,10 +11,14 @@ export class SupabaseConfigService implements OnModuleInit {
 
   onModuleInit() {
     const url = this.configService.get<string>('supabase.url');
-    const serviceRoleKey = this.configService.get<string>('supabase.serviceRoleKey');
+    const serviceRoleKey = this.configService.get<string>(
+      'supabase.serviceRoleKey',
+    );
 
     if (!url || !serviceRoleKey) {
-      this.logger.warn('Supabase URL or Service Role Key not configured. Supabase client will not be initialized.');
+      this.logger.warn(
+        'Supabase URL or Service Role Key not configured. Supabase client will not be initialized.',
+      );
       return;
     }
 
@@ -33,7 +37,9 @@ export class SupabaseConfigService implements OnModuleInit {
 
   get client(): SupabaseClient {
     if (!this._client) {
-      throw new Error('Supabase client not initialized. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.');
+      throw new Error(
+        'Supabase client not initialized. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.',
+      );
     }
     return this._client;
   }
@@ -42,7 +48,10 @@ export class SupabaseConfigService implements OnModuleInit {
     return this.client;
   }
 
-  async callRpc<T = unknown>(fn: string, params?: Record<string, unknown>): Promise<T> {
+  async callRpc<T = unknown>(
+    fn: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
     const { data, error } = await this.client.rpc(fn, params);
     if (error) {
       throw error;

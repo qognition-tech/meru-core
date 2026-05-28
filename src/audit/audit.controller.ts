@@ -1,5 +1,21 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  Res,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
@@ -23,10 +39,7 @@ export class AuditController {
   @ApiQuery({ name: 'severity', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'offset', required: false })
-  async queryLogs(
-    @Request() req,
-    @Query() query: any,
-  ) {
+  async queryLogs(@Request() req, @Query() query: any) {
     const result = await this.auditService.queryLogs({
       tenantId: req.user.tenantId,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
@@ -87,7 +100,12 @@ export class AuditController {
   @ApiOperation({ summary: 'Export audit logs' })
   async exportLogs(
     @Request() req,
-    @Body() body: { startDate: string; endDate: string; format: 'json' | 'csv' | 'xml' },
+    @Body()
+    body: {
+      startDate: string;
+      endDate: string;
+      format: 'json' | 'csv' | 'xml';
+    },
     @Res() res: Response,
   ) {
     const { data, filename } = await this.auditService.exportLogs(
@@ -97,7 +115,10 @@ export class AuditController {
       body.format,
     );
 
-    res.setHeader('Content-Type', body.format === 'json' ? 'application/json' : 'text/plain');
+    res.setHeader(
+      'Content-Type',
+      body.format === 'json' ? 'application/json' : 'text/plain',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(data);
   }

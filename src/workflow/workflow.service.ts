@@ -12,7 +12,10 @@ import {
   WorkflowTrigger,
 } from './entities/workflow.entity';
 import { WorkflowState, StateType } from './entities/workflow-state.entity';
-import { WorkflowTransition, TransitionType } from './entities/workflow-transition.entity';
+import {
+  WorkflowTransition,
+  TransitionType,
+} from './entities/workflow-transition.entity';
 import {
   WorkflowInstance,
   InstanceStatus,
@@ -194,9 +197,7 @@ export class WorkflowEngineService {
       throw new BadRequestException('Workflow is not active');
     }
 
-    const startState = workflow.states.find(
-      s => s.type === StateType.START,
-    );
+    const startState = workflow.states.find((s) => s.type === StateType.START);
 
     if (!startState) {
       throw new BadRequestException('No start state defined');
@@ -206,9 +207,7 @@ export class WorkflowEngineService {
     let slaDeadline: Date | null = null;
     if (workflow.slaConfig?.enabled && startState.config?.slaHours) {
       slaDeadline = new Date();
-      slaDeadline.setHours(
-        slaDeadline.getHours() + startState.config.slaHours,
-      );
+      slaDeadline.setHours(slaDeadline.getHours() + startState.config.slaHours);
     }
 
     const instance = this.instanceRepo.create({
@@ -263,9 +262,11 @@ export class WorkflowEngineService {
 
   // ==================== STATE TRANSITIONS ====================
 
-  async getAvailableTransitions(instanceId: string): Promise<WorkflowTransition[]> {
+  async getAvailableTransitions(
+    instanceId: string,
+  ): Promise<WorkflowTransition[]> {
     const instance = await this.getInstance(instanceId);
-    
+
     const transitions = await this.transitionRepo.find({
       where: {
         workflowId: instance.workflowId,
@@ -275,7 +276,9 @@ export class WorkflowEngineService {
       relations: ['fromState', 'toState'],
     });
 
-    return transitions.filter(t => this.evaluateConditions(t.conditions, instance.context));
+    return transitions.filter((t) =>
+      this.evaluateConditions(t.conditions, instance.context),
+    );
   }
 
   async transition(request: TransitionRequest): Promise<WorkflowInstance> {
@@ -298,8 +301,12 @@ export class WorkflowEngineService {
       });
     } else {
       // Auto-transition: find first matching automatic transition
-      const transitions = await this.getAvailableTransitions(request.instanceId);
-      const autoTransition = transitions.find(t => t.type === TransitionType.AUTOMATIC);
+      const transitions = await this.getAvailableTransitions(
+        request.instanceId,
+      );
+      const autoTransition = transitions.find(
+        (t) => t.type === TransitionType.AUTOMATIC,
+      );
       transition = autoTransition || null;
     }
 
@@ -394,7 +401,7 @@ export class WorkflowEngineService {
     for (const instance of violations) {
       const escalationLevel = instance.escalationLevel + 1;
       const escalation = instance.workflow.slaConfig?.escalationLevels?.find(
-        e => e.level === escalationLevel,
+        (e) => e.level === escalationLevel,
       );
 
       if (escalation) {
@@ -430,7 +437,7 @@ export class WorkflowEngineService {
       return true;
     }
 
-    const results = conditions.rules.map(rule => {
+    const results = conditions.rules.map((rule) => {
       const value = context[rule.field];
       switch (rule.operator) {
         case 'equals':
@@ -451,8 +458,8 @@ export class WorkflowEngineService {
     });
 
     return conditions.operator === 'AND'
-      ? results.every(r => r)
-      : results.some(r => r);
+      ? results.every((r) => r)
+      : results.some((r) => r);
   }
 
   private checkPermissions(
@@ -517,7 +524,10 @@ export class WorkflowEngineService {
       await this.searchService.indexEntityData(searchableData);
       this.logger.debug(`Workflow instance indexed: ${instance.id}`);
     } catch (error) {
-      this.logger.error(`Failed to index workflow instance: ${instance.id}`, error);
+      this.logger.error(
+        `Failed to index workflow instance: ${instance.id}`,
+        error,
+      );
     }
   }
 
@@ -536,14 +546,14 @@ export class WorkflowEngineService {
   ): Promise<any> {
     try {
       const workflows = await this.listWorkflows(tenantId, entityType);
-      
+
       const recommendation = await this.aiService.execute({
         category: 'workflow_decision' as any,
         key: 'workflow_recommendation',
         input: JSON.stringify({
           entityType,
           context,
-          availableWorkflows: workflows.map(w => ({
+          availableWorkflows: workflows.map((w) => ({
             id: w.id,
             name: w.name,
             description: w.description,
@@ -557,7 +567,9 @@ export class WorkflowEngineService {
         recommendation: JSON.parse(recommendation.result),
       };
     } catch (error) {
-      this.logger.error(`Failed to get workflow recommendations: ${error.message}`);
+      this.logger.error(
+        `Failed to get workflow recommendations: ${error.message}`,
+      );
       return {
         success: false,
         recommendation: null,
@@ -580,29 +592,41 @@ export class WorkflowEngineService {
         key: 'workflow_analysis',
         input: JSON.stringify({
           totalInstances: instances.length,
-          completedInstances: instances.filter(i => i.status === InstanceStatus.COMPLETED).length,
+          completedInstances: instances.filter(
+            (i) => i.status === InstanceStatus.COMPLETED,
+          ).length,
           averageCompletionTime: this.calculateAverageCompletionTime(instances),
-          slaViolations: instances.reduce((sum, i) => sum + (i.slaViolations?.length || 0), 0),
+          slaViolations: instances.reduce(
+            (sum, i) => sum + (i.slaViolations?.length || 0),
+            0,
+          ),
         }),
         context: { tenantId },
       });
 
       return JSON.parse(analysis.result);
     } catch (error) {
-      this.logger.error(`Failed to analyze workflow performance: ${error.message}`);
+      this.logger.error(
+        `Failed to analyze workflow performance: ${error.message}`,
+      );
       return null;
     }
   }
 
-  private calculateAverageCompletionTime(instances: WorkflowInstance[]): number {
+  private calculateAverageCompletionTime(
+    instances: WorkflowInstance[],
+  ): number {
     const completedInstances = instances.filter(
-      i => i.status === InstanceStatus.COMPLETED && i.completedAt && i.createdAt,
+      (i) =>
+        i.status === InstanceStatus.COMPLETED && i.completedAt && i.createdAt,
     );
-    
+
     if (completedInstances.length === 0) return 0;
 
     const totalTime = completedInstances.reduce((sum, instance) => {
-      const completionTime = new Date(instance.completedAt!).getTime() - new Date(instance.createdAt).getTime();
+      const completionTime =
+        new Date(instance.completedAt!).getTime() -
+        new Date(instance.createdAt).getTime();
       return sum + completionTime;
     }, 0);
 
@@ -615,7 +639,10 @@ export class WorkflowEngineService {
     tenantId: string,
     workflowInstanceId: string,
   ): Promise<Document[]> {
-    return this.documentHubService.getWorkflowDocuments(tenantId, workflowInstanceId);
+    return this.documentHubService.getWorkflowDocuments(
+      tenantId,
+      workflowInstanceId,
+    );
   }
 
   async attachDocumentToWorkflow(
@@ -625,7 +652,7 @@ export class WorkflowEngineService {
     userId: string,
   ): Promise<Document> {
     const instance = await this.getInstance(workflowInstanceId);
-    
+
     if (instance.tenantId !== tenantId) {
       throw new BadRequestException('Access denied');
     }
@@ -644,11 +671,14 @@ export class WorkflowEngineService {
     extractionSchema: Record<string, any>,
   ): Promise<any> {
     const instance = await this.getInstance(workflowInstanceId);
-    
+
     const results = await Promise.all(
       documentIds.map(async (docId) => {
         try {
-          return await this.documentHubService.extractDocumentData(docId, extractionSchema);
+          return await this.documentHubService.extractDocumentData(
+            docId,
+            extractionSchema,
+          );
         } catch (error) {
           this.logger.error(`Failed to process document ${docId}:`, error);
           return { documentId: docId, success: false, error: error.message };
@@ -658,7 +688,7 @@ export class WorkflowEngineService {
 
     // Update workflow context with extracted data
     const extractedData = results
-      .filter(r => r.success)
+      .filter((r) => r.success)
       .reduce((acc, r) => ({ ...acc, ...r.extractedData }), {});
 
     instance.context = {
@@ -672,8 +702,8 @@ export class WorkflowEngineService {
     return {
       workflowInstanceId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
+      successful: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
       extractedData,
     };
   }
@@ -683,13 +713,9 @@ export class WorkflowEngineService {
     workflowInstanceId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'workflow_instance',
-        entityId: workflowInstanceId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'workflow_instance',
+      entityId: workflowInstanceId,
+    });
   }
 }

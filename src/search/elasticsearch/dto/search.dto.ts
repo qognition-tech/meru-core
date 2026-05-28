@@ -52,7 +52,11 @@ export class SearchDocumentsDto {
   @IsString()
   sortBy?: string = '_score';
 
-  @ApiPropertyOptional({ description: 'Sort order', default: 'desc', enum: ['asc', 'desc'] })
+  @ApiPropertyOptional({
+    description: 'Sort order',
+    default: 'desc',
+    enum: ['asc', 'desc'],
+  })
   @IsOptional()
   @IsEnum(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc' = 'desc';
@@ -154,7 +158,10 @@ export class SuggestQueryDto {
   @IsString()
   text: string;
 
-  @ApiPropertyOptional({ description: 'Field to suggest from', default: 'title' })
+  @ApiPropertyOptional({
+    description: 'Field to suggest from',
+    default: 'title',
+  })
   @IsOptional()
   @IsString()
   field?: string = 'title';

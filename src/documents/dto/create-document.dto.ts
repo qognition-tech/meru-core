@@ -1,6 +1,18 @@
-import { IsString, IsEnum, IsOptional, IsNumber, IsBoolean, IsArray, IsObject } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsNumber,
+  IsBoolean,
+  IsArray,
+  IsObject,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { DocumentType, DocumentEncryption, DocumentStatus } from '../entities/document.entity';
+import {
+  DocumentType,
+  DocumentEncryption,
+  DocumentStatus,
+} from '../entities/document.entity';
 
 export class CreateDocumentDto {
   @ApiProperty({ description: 'Document name' })
@@ -24,7 +36,10 @@ export class CreateDocumentDto {
   @IsString()
   mimeType?: string;
 
-  @ApiPropertyOptional({ enum: DocumentEncryption, description: 'Required encryption level' })
+  @ApiPropertyOptional({
+    enum: DocumentEncryption,
+    description: 'Required encryption level',
+  })
   @IsOptional()
   @IsEnum(DocumentEncryption)
   requiredEncryption?: DocumentEncryption;

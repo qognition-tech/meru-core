@@ -8,7 +8,12 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { ApiResponse, MeruErrorCode, MeruError, ValidationErrorDetail } from '../../common/types';
+import {
+  ApiResponse,
+  MeruErrorCode,
+  MeruError,
+  ValidationErrorDetail,
+} from '../../common/types';
 
 /**
  * Global exception filter that enforces the Meru API Response Envelope.
@@ -28,7 +33,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
   /** Maps HTTP status codes to Meru error codes */
-  private mapStatusToErrorCode(status: number, exception: HttpException | null): MeruErrorCode {
+  private mapStatusToErrorCode(
+    status: number,
+    exception: HttpException | null,
+  ): MeruErrorCode {
     switch (status) {
       case HttpStatus.BAD_REQUEST:
         return MeruErrorCode.VALIDATION_ERROR;
@@ -58,7 +66,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   /** Extracts validation details from class-validator errors */
-  private extractValidationDetails(exceptionResponse: any): ValidationErrorDetail[] | undefined {
+  private extractValidationDetails(
+    exceptionResponse: any,
+  ): ValidationErrorDetail[] | undefined {
     if (Array.isArray(exceptionResponse?.message)) {
       return exceptionResponse.message.map((msg: string) => {
         // Parse class-validator format: "field - constraint message"
@@ -74,10 +84,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   /** Builds a MeruError from exception */
-  private buildError(
-    exception: unknown,
-    status: number,
-  ): MeruError {
+  private buildError(exception: unknown, status: number): MeruError {
     const httpException = exception instanceof HttpException ? exception : null;
     const code = this.mapStatusToErrorCode(status, httpException);
 

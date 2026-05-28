@@ -12,9 +12,20 @@ import { S3 } from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { Document, DocumentStatus, DocumentEncryption, DocumentType } from './entities/document.entity';
-import { DocumentVersion, VersionStatus } from './entities/document-version.entity';
-import { DocumentMetadata, MetadataType } from './entities/document-metadata.entity';
+import {
+  Document,
+  DocumentStatus,
+  DocumentEncryption,
+  DocumentType,
+} from './entities/document.entity';
+import {
+  DocumentVersion,
+  VersionStatus,
+} from './entities/document-version.entity';
+import {
+  DocumentMetadata,
+  MetadataType,
+} from './entities/document-metadata.entity';
 import { User } from '../iam/entities/user.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
@@ -71,7 +82,9 @@ export class DocumentsService {
         throw new NotFoundException('User not found');
       }
 
-      const fileType = dto.fileType || this.detectFileType(dto.originalFileName || file.originalname);
+      const fileType =
+        dto.fileType ||
+        this.detectFileType(dto.originalFileName || file.originalname);
       const fileSize = file.size;
 
       const encryptionLevel = dto.requiredEncryption || DocumentEncryption.NONE;
@@ -80,7 +93,11 @@ export class DocumentsService {
       const documentSlug = this.generateSlug(dto.name, tenantId);
 
       const s3Key = this.generateS3Key(tenantId, documentSlug, 1, fileType);
-      const s3UploadResult = await this.uploadToS3(encrypted, s3Key, file.mimetype);
+      const s3UploadResult = await this.uploadToS3(
+        encrypted,
+        s3Key,
+        file.mimetype,
+      );
 
       const document = queryRunner.manager.create(Document, {
         id: uuidv4(),
@@ -115,8 +132,14 @@ export class DocumentsService {
         s3Bucket: s3UploadResult.Bucket,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
-        encryptionKey: encryptionLevel !== DocumentEncryption.NONE ? this.getEncryptionKey() : undefined,
-        encryptionAlgorithm: encryptionLevel !== DocumentEncryption.NONE ? 'aes-256-gcm' : undefined,
+        encryptionKey:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? this.getEncryptionKey()
+            : undefined,
+        encryptionAlgorithm:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? 'aes-256-gcm'
+            : undefined,
         changeDescription: dto.changeDescription || 'Initial upload',
         changeMetadata: {
           changedBy: userId,
@@ -202,7 +225,9 @@ export class DocumentsService {
   ): Promise<UploadResult> {
     this.logger.log(`Creating new version for document: ${documentId}`);
 
-    const document = await this.documentRepo.findOne({ where: { id: documentId, tenantId } });
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+    });
     if (!document) {
       throw new NotFoundException('Document not found');
     }
@@ -223,8 +248,17 @@ export class DocumentsService {
       const encryptionLevel = document.requiredEncryption;
       const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
 
-      const s3Key = this.generateS3Key(tenantId, document.slug, newVersionNumber, document.fileType);
-      const s3UploadResult = await this.uploadToS3(encrypted, s3Key, file.mimetype);
+      const s3Key = this.generateS3Key(
+        tenantId,
+        document.slug,
+        newVersionNumber,
+        document.fileType,
+      );
+      const s3UploadResult = await this.uploadToS3(
+        encrypted,
+        s3Key,
+        file.mimetype,
+      );
 
       const version = queryRunner.manager.create(DocumentVersion, {
         id: uuidv4(),
@@ -235,8 +269,14 @@ export class DocumentsService {
         s3Bucket: s3UploadResult.Bucket,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
-        encryptionKey: encryptionLevel !== DocumentEncryption.NONE ? this.getEncryptionKey() : undefined,
-        encryptionAlgorithm: encryptionLevel !== DocumentEncryption.NONE ? 'aes-256-gcm' : undefined,
+        encryptionKey:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? this.getEncryptionKey()
+            : undefined,
+        encryptionAlgorithm:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? 'aes-256-gcm'
+            : undefined,
         changeDescription,
         changeMetadata: {
           changedBy: userId,
@@ -274,7 +314,12 @@ export class DocumentsService {
   async findAll(
     tenantId: string,
     searchDto: SearchDocumentsDto,
-  ): Promise<{ documents: Document[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    documents: Document[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const {
       query,
       fileTypes,
@@ -299,19 +344,27 @@ export class DocumentsService {
     }
 
     if (encryption) {
-      queryBuilder.andWhere('document.encryption = :encryption', { encryption });
+      queryBuilder.andWhere('document.encryption = :encryption', {
+        encryption,
+      });
     }
 
     if (linkedEntityType) {
-      queryBuilder.andWhere('document.linkedEntityType = :linkedEntityType', { linkedEntityType });
+      queryBuilder.andWhere('document.linkedEntityType = :linkedEntityType', {
+        linkedEntityType,
+      });
     }
 
     if (linkedEntityId) {
-      queryBuilder.andWhere('document.linkedEntityId = :linkedEntityId', { linkedEntityId });
+      queryBuilder.andWhere('document.linkedEntityId = :linkedEntityId', {
+        linkedEntityId,
+      });
     }
 
     if (fileTypes && fileTypes.length > 0) {
-      queryBuilder.andWhere('document.fileType IN (:...fileTypes)', { fileTypes });
+      queryBuilder.andWhere('document.fileType IN (:...fileTypes)', {
+        fileTypes,
+      });
     }
 
     if (tags && tags.length > 0) {
@@ -325,7 +378,9 @@ export class DocumentsService {
       );
 
       if (includeAI) {
-        queryBuilder.orWhere('document.aiAnalysis::text ILIKE :query', { query: `%${query}%` });
+        queryBuilder.orWhere('document.aiAnalysis::text ILIKE :query', {
+          query: `%${query}%`,
+        });
       }
     }
 
@@ -344,7 +399,11 @@ export class DocumentsService {
     };
   }
 
-  async findOne(id: string, tenantId: string, userId: string): Promise<Document> {
+  async findOne(
+    id: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
       relations: ['versions', 'uploadedBy'],
@@ -433,7 +492,9 @@ export class DocumentsService {
         where: { id: versionId, documentId },
       });
     } else {
-      document = document || await this.documentRepo.findOne({ where: { id: documentId } });
+      document =
+        document ||
+        (await this.documentRepo.findOne({ where: { id: documentId } }));
       if (!document) {
         throw new NotFoundException('Document not found');
       }
@@ -487,7 +548,11 @@ export class DocumentsService {
     await this.documentRepo.save(document);
   }
 
-  async triggerAIAnalysis(documentId: string, tenantId: string, userId: string): Promise<void> {
+  async triggerAIAnalysis(
+    documentId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<void> {
     this.logger.log(`Triggering AI analysis for document: ${documentId}`);
 
     try {
@@ -510,10 +575,14 @@ export class DocumentsService {
 
       const fileContent = await this.downloadFile(version.s3Key);
 
-      const analysis = await this.orchestrationService.performIntelligentSearch(tenantId, '', {
-        includeAIAnalysis: true,
-        searchType: 'semantic',
-      });
+      const analysis = await this.orchestrationService.performIntelligentSearch(
+        tenantId,
+        '',
+        {
+          includeAIAnalysis: true,
+          searchType: 'semantic',
+        },
+      );
 
       document.aiAnalysis = {
         analyzedAt: new Date(),
@@ -526,7 +595,9 @@ export class DocumentsService {
 
       this.logger.log(`AI analysis completed for document: ${documentId}`);
     } catch (error: any) {
-      this.logger.error(`AI analysis failed for document ${documentId}: ${error.message}`);
+      this.logger.error(
+        `AI analysis failed for document ${documentId}: ${error.message}`,
+      );
     }
   }
 
@@ -549,12 +620,20 @@ export class DocumentsService {
     return Buffer.concat([iv, authTag, encrypted]);
   }
 
-  private async decryptFile(buffer: Buffer, key: string, algorithm: string): Promise<Buffer> {
+  private async decryptFile(
+    buffer: Buffer,
+    key: string,
+    algorithm: string,
+  ): Promise<Buffer> {
     const iv = buffer.slice(0, 16);
     const authTag = buffer.slice(16, 32);
     const encrypted = buffer.slice(32);
 
-    const decipher = crypto.createDecipheriv(algorithm, Buffer.from(key, 'base64'), iv) as crypto.DecipherGCM;
+    const decipher = crypto.createDecipheriv(
+      algorithm,
+      Buffer.from(key, 'base64'),
+      iv,
+    ) as crypto.DecipherGCM;
     decipher.setAuthTag(authTag);
 
     return Buffer.concat([decipher.update(encrypted), decipher.final()]);
@@ -595,7 +674,12 @@ export class DocumentsService {
     });
   }
 
-  private generateS3Key(tenantId: string, slug: string, version: number, fileType: DocumentType): string {
+  private generateS3Key(
+    tenantId: string,
+    slug: string,
+    version: number,
+    fileType: DocumentType,
+  ): string {
     return `tenants/${tenantId}/documents/${slug}/v${version}.${fileType}`;
   }
 
@@ -627,10 +711,17 @@ export class DocumentsService {
   }
 
   private getEncryptionKey(): string {
-    return this.configService.get('DOCUMENT_ENCRYPTION_KEY', 'default-encryption-key-32-chars!');
+    return this.configService.get(
+      'DOCUMENT_ENCRYPTION_KEY',
+      'default-encryption-key-32-chars!',
+    );
   }
 
-  private async checkAccess(document: Document, userId: string, action: 'read' | 'write' | 'delete' | 'share'): Promise<void> {
+  private async checkAccess(
+    document: Document,
+    userId: string,
+    action: 'read' | 'write' | 'delete' | 'share',
+  ): Promise<void> {
     if (document.rbac.owner === userId) {
       return;
     }
@@ -638,13 +729,17 @@ export class DocumentsService {
     if (document.rbac.permissions && document.rbac.permissions[action]) {
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (user) {
-        const hasPermission = user.roles.some(role => document.rbac.permissions![action].includes(role));
+        const hasPermission = user.roles.some((role) =>
+          document.rbac.permissions![action].includes(role),
+        );
         if (hasPermission) {
           return;
         }
       }
     }
 
-    throw new ForbiddenException(`You don't have ${action} permission for this document`);
+    throw new ForbiddenException(
+      `You don't have ${action} permission for this document`,
+    );
   }
 }

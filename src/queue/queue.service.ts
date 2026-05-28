@@ -1,9 +1,19 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In, DataSource } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker } from './entities/job.entity';
+import {
+  QueueJob,
+  QueueJobLog,
+  QueueScheduledJob,
+  QueueWorker,
+} from './entities/job.entity';
 import {
   JobStatus,
   JobPriority,
@@ -73,9 +83,11 @@ export class QueueService implements OnModuleInit {
       },
     } as any);
 
-    const saved = await this.jobRepo.save(job) as unknown as QueueJob;
+    const saved = (await this.jobRepo.save(job)) as unknown as QueueJob;
 
-    this.logger.log(`Job created: ${saved.id} (${type}) for tenant ${tenantId}`);
+    this.logger.log(
+      `Job created: ${saved.id} (${type}) for tenant ${tenantId}`,
+    );
 
     // Emit event for immediate processing
     if (!options.delay) {
@@ -146,7 +158,9 @@ export class QueueService implements OnModuleInit {
   }
 
   async cancelScheduledJob(id: string, tenantId: string): Promise<void> {
-    const scheduled = await this.scheduledRepo.findOne({ where: { id, tenantId } });
+    const scheduled = await this.scheduledRepo.findOne({
+      where: { id, tenantId },
+    });
     if (!scheduled) {
       throw new NotFoundException('Scheduled job not found');
     }
@@ -157,17 +171,23 @@ export class QueueService implements OnModuleInit {
 
   // ==================== JOB PROCESSING ====================
 
-  async getNextJob(workerTypes: JobType[], tenantId?: string): Promise<QueueJob | null> {
+  async getNextJob(
+    workerTypes: JobType[],
+    tenantId?: string,
+  ): Promise<QueueJob | null> {
     const queryBuilder = this.jobRepo.createQueryBuilder('job');
 
     queryBuilder.where('job.status = :status', { status: JobStatus.PENDING });
-    
+
     if (tenantId) {
       queryBuilder.andWhere('job.tenantId = :tenantId', { tenantId });
     }
 
     queryBuilder.andWhere('job.type IN (:...types)', { types: workerTypes });
-    queryBuilder.andWhere('(job.scheduledFor IS NULL OR job.scheduledFor <= :now)', { now: new Date() });
+    queryBuilder.andWhere(
+      '(job.scheduledFor IS NULL OR job.scheduledFor <= :now)',
+      { now: new Date() },
+    );
 
     queryBuilder.orderBy('job.priority', 'ASC');
     queryBuilder.addOrderBy('job.createdAt', 'ASC');
@@ -230,7 +250,11 @@ export class QueueService implements OnModuleInit {
     this.logger.log(`Job completed: ${jobId} in ${job.duration}ms`);
   }
 
-  async failJob(jobId: string, error: string, shouldRetry: boolean = false): Promise<void> {
+  async failJob(
+    jobId: string,
+    error: string,
+    shouldRetry: boolean = false,
+  ): Promise<void> {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) return;
 
@@ -239,27 +263,37 @@ export class QueueService implements OnModuleInit {
 
     if (shouldRetry && job.attempts < job.maxAttempts) {
       job.status = JobStatus.RETRYING;
-      
+
       // Calculate retry delay
       let retryDelay = 5000; // Default 5 seconds
       if (job.options.backoff) {
         if (job.options.backoff.type === 'exponential') {
-          retryDelay = job.options.backoff.delay * Math.pow(2, job.attempts - 1);
+          retryDelay =
+            job.options.backoff.delay * Math.pow(2, job.attempts - 1);
         } else {
           retryDelay = job.options.backoff.delay;
         }
       }
 
       job.scheduledFor = new Date(Date.now() + retryDelay);
-      
-      await this.logJobEvent(jobId, 'retry', { attempt: job.attempts, error, retryDelay });
-      this.logger.log(`Job retrying: ${jobId} (attempt ${job.attempts}/${job.maxAttempts})`);
+
+      await this.logJobEvent(jobId, 'retry', {
+        attempt: job.attempts,
+        error,
+        retryDelay,
+      });
+      this.logger.log(
+        `Job retrying: ${jobId} (attempt ${job.attempts}/${job.maxAttempts})`,
+      );
     } else {
       job.status = JobStatus.FAILED;
       job.duration = Date.now() - (job.processedAt?.getTime() || Date.now());
       job.result = { success: false, error };
 
-      await this.logJobEvent(jobId, 'failed', { error, attempts: job.attempts });
+      await this.logJobEvent(jobId, 'failed', {
+        error,
+        attempts: job.attempts,
+      });
       this.eventEmitter.emit('queue.job.failed', job);
 
       this.logger.error(`Job failed: ${jobId} - ${error}`);
@@ -270,15 +304,23 @@ export class QueueService implements OnModuleInit {
 
   // ==================== JOB MANAGEMENT ====================
 
-  async getJobs(filter: JobFilter, page: number = 1, limit: number = 20): Promise<{ jobs: QueueJob[]; total: number }> {
+  async getJobs(
+    filter: JobFilter,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{ jobs: QueueJob[]; total: number }> {
     const queryBuilder = this.jobRepo.createQueryBuilder('job');
 
     if (filter.tenantId) {
-      queryBuilder.where('job.tenantId = :tenantId', { tenantId: filter.tenantId });
+      queryBuilder.where('job.tenantId = :tenantId', {
+        tenantId: filter.tenantId,
+      });
     }
 
     if (filter.status) {
-      const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+      const statuses = Array.isArray(filter.status)
+        ? filter.status
+        : [filter.status];
       queryBuilder.andWhere('job.status IN (:...statuses)', { statuses });
     }
 
@@ -288,19 +330,27 @@ export class QueueService implements OnModuleInit {
     }
 
     if (filter.userId) {
-      queryBuilder.andWhere("job.data->>'userId' = :userId", { userId: filter.userId });
+      queryBuilder.andWhere("job.data->>'userId' = :userId", {
+        userId: filter.userId,
+      });
     }
 
     if (filter.priority) {
-      queryBuilder.andWhere('job.priority = :priority', { priority: filter.priority });
+      queryBuilder.andWhere('job.priority = :priority', {
+        priority: filter.priority,
+      });
     }
 
     if (filter.createdAfter) {
-      queryBuilder.andWhere('job.createdAt >= :createdAfter', { createdAfter: filter.createdAfter });
+      queryBuilder.andWhere('job.createdAt >= :createdAfter', {
+        createdAfter: filter.createdAfter,
+      });
     }
 
     if (filter.createdBefore) {
-      queryBuilder.andWhere('job.createdAt <= :createdBefore', { createdBefore: filter.createdBefore });
+      queryBuilder.andWhere('job.createdAt <= :createdBefore', {
+        createdBefore: filter.createdBefore,
+      });
     }
 
     if (filter.tags?.length) {
@@ -334,7 +384,11 @@ export class QueueService implements OnModuleInit {
     });
   }
 
-  async retryJob(jobId: string, tenantId?: string, delay?: number): Promise<QueueJob> {
+  async retryJob(
+    jobId: string,
+    tenantId?: string,
+    delay?: number,
+  ): Promise<QueueJob> {
     const job = await this.getJob(jobId, tenantId);
 
     if (job.status !== JobStatus.FAILED && job.status !== JobStatus.CANCELLED) {
@@ -381,12 +435,12 @@ export class QueueService implements OnModuleInit {
       this.jobRepo.count({ where: { ...where, status: JobStatus.PENDING } }),
       this.jobRepo.count({ where: { ...where, status: JobStatus.COMPLETED } }),
       this.jobRepo.count({ where: { ...where, status: JobStatus.FAILED } }),
-      this.jobRepo.count({ 
-        where: { 
-          ...where, 
+      this.jobRepo.count({
+        where: {
+          ...where,
           status: JobStatus.SCHEDULED,
           scheduledFor: LessThan(new Date()),
-        } 
+        },
       }),
     ]);
 
@@ -394,10 +448,19 @@ export class QueueService implements OnModuleInit {
     const typeStats = await this.jobRepo
       .createQueryBuilder('job')
       .select('job.type', 'type')
-      .addSelect('COUNT(CASE WHEN job.status = :processing THEN 1 END)', 'active')
-      .addSelect('COUNT(CASE WHEN job.status = :completed THEN 1 END)', 'completed')
+      .addSelect(
+        'COUNT(CASE WHEN job.status = :processing THEN 1 END)',
+        'active',
+      )
+      .addSelect(
+        'COUNT(CASE WHEN job.status = :completed THEN 1 END)',
+        'completed',
+      )
       .addSelect('COUNT(CASE WHEN job.status = :failed THEN 1 END)', 'failed')
-      .addSelect('AVG(CASE WHEN job.status = :completed THEN job.duration END)', 'avgDuration')
+      .addSelect(
+        'AVG(CASE WHEN job.status = :completed THEN job.duration END)',
+        'avgDuration',
+      )
       .where(tenantId ? 'job.tenantId = :tenantId' : '1=1', { tenantId })
       .setParameters({
         processing: JobStatus.PROCESSING,
@@ -480,7 +543,9 @@ export class QueueService implements OnModuleInit {
 
         await this.scheduledRepo.save(scheduled);
       } catch (error) {
-        this.logger.error(`Failed to process scheduled job ${scheduled.id}: ${error.message}`);
+        this.logger.error(
+          `Failed to process scheduled job ${scheduled.id}: ${error.message}`,
+        );
       }
     }
   }

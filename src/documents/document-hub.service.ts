@@ -1,7 +1,16 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Document, DocumentStatus, DocumentType } from './entities/document.entity';
+import {
+  Document,
+  DocumentStatus,
+  DocumentType,
+} from './entities/document.entity';
 import { DocumentVersion } from './entities/document-version.entity';
 import { DocumentMetadata } from './entities/document-metadata.entity';
 import { SearchService } from '../search/search.service';
@@ -86,14 +95,16 @@ export class DocumentHubService {
 
     document.linkedEntityType = entityType;
     document.linkedEntityId = entityId;
-    
+
     const updated = await this.documentRepo.save(document);
-    
+
     // Index for search
     await this.indexDocumentForSearch(updated);
-    
-    this.logger.log(`Document ${documentId} attached to ${entityType}:${entityId}`);
-    
+
+    this.logger.log(
+      `Document ${documentId} attached to ${entityType}:${entityId}`,
+    );
+
     return updated;
   }
 
@@ -175,7 +186,9 @@ export class DocumentHubService {
         });
         aiSummary = aiAnalysis.result;
       } catch (aiError) {
-        this.logger.debug(`AI analysis not available for document ${document.id}`);
+        this.logger.debug(
+          `AI analysis not available for document ${document.id}`,
+        );
       }
 
       const searchableData = {
@@ -216,20 +229,26 @@ export class DocumentHubService {
     limit: number = 20,
   ): Promise<any[]> {
     const results = await this.searchService.search(tenantId, query, limit);
-    
+
     // Filter by entity if specified
     if (filters?.entityType || filters?.entityId) {
       return results.filter((result: any) => {
-        if (filters.entityType && result.metadata?.linkedEntityType !== filters.entityType) {
+        if (
+          filters.entityType &&
+          result.metadata?.linkedEntityType !== filters.entityType
+        ) {
           return false;
         }
-        if (filters.entityId && result.metadata?.linkedEntityId !== filters.entityId) {
+        if (
+          filters.entityId &&
+          result.metadata?.linkedEntityId !== filters.entityId
+        ) {
           return false;
         }
         return true;
       });
     }
-    
+
     return results;
   }
 
@@ -317,7 +336,10 @@ export class DocumentHubService {
         extractedData: JSON.parse(extraction.result),
       };
     } catch (error) {
-      this.logger.error(`Failed to extract data from document: ${documentId}`, error);
+      this.logger.error(
+        `Failed to extract data from document: ${documentId}`,
+        error,
+      );
       return {
         success: false,
         error: error.message,
@@ -363,13 +385,15 @@ export class DocumentHubService {
       doc.linkedEntityId = targetEntityId;
       const updated = await this.documentRepo.save(doc);
       updatedDocuments.push(updated);
-      
+
       // Re-index
       await this.indexDocumentForSearch(updated);
     }
 
-    this.logger.log(`Copied ${documents.length} documents to ${targetEntityType}:${targetEntityId}`);
-    
+    this.logger.log(
+      `Copied ${documents.length} documents to ${targetEntityType}:${targetEntityId}`,
+    );
+
     return updatedDocuments;
   }
 
@@ -399,7 +423,7 @@ export class DocumentHubService {
 
     // Check explicit permissions
     // TODO: Implement proper permission checking based on document.accessControl
-    
+
     return true; // Simplified for now
   }
 
@@ -427,7 +451,7 @@ export class DocumentHubService {
       byType: {} as Record<string, number>,
     };
 
-    documents.forEach(doc => {
+    documents.forEach((doc) => {
       const type = doc.fileType || 'unknown';
       stats.byType[type] = (stats.byType[type] || 0) + 1;
     });

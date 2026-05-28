@@ -1,5 +1,20 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { BillingService } from './billing.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
@@ -24,7 +39,10 @@ export class BillingController {
   @ApiOperation({ summary: 'Get all billing plans' })
   @ApiQuery({ name: 'billingModel', required: false })
   async getPlans(@Request() req, @Query('billingModel') billingModel?: string) {
-    const plans = await this.billingService.getPlans(req.user.tenantId, billingModel as any);
+    const plans = await this.billingService.getPlans(
+      req.user.tenantId,
+      billingModel as any,
+    );
     return { success: true, data: plans };
   }
 
@@ -33,14 +51,20 @@ export class BillingController {
   @Post('subscriptions')
   @ApiOperation({ summary: 'Create a subscription' })
   async createSubscription(@Request() req, @Body() dto: any) {
-    const subscription = await this.billingService.createSubscription(req.user.tenantId, dto);
+    const subscription = await this.billingService.createSubscription(
+      req.user.tenantId,
+      dto,
+    );
     return { success: true, data: subscription };
   }
 
   @Get('subscriptions/:id')
   @ApiOperation({ summary: 'Get subscription details' })
   async getSubscription(@Request() req, @Param('id') id: string) {
-    const subscription = await this.billingService.getSubscription(id, req.user.tenantId);
+    const subscription = await this.billingService.getSubscription(
+      id,
+      req.user.tenantId,
+    );
     return { success: true, data: subscription };
   }
 

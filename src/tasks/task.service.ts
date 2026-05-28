@@ -6,9 +6,17 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan, In } from 'typeorm';
-import { Task, TaskStatus, TaskType, TaskPriority } from './entities/task.entity';
+import {
+  Task,
+  TaskStatus,
+  TaskType,
+  TaskPriority,
+} from './entities/task.entity';
 import { TaskComment } from './entities/task-comment.entity';
-import { RecurringJob, RecurringJobStatus } from './entities/recurring-job.entity';
+import {
+  RecurringJob,
+  RecurringJobStatus,
+} from './entities/recurring-job.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
@@ -96,7 +104,7 @@ export class TaskService {
     if (options.entityId) where.entityId = options.entityId;
     if (options.dueBefore) where.dueDate = LessThan(options.dueBefore);
     if (options.dueAfter) {
-      where.dueDate = where.dueDate 
+      where.dueDate = where.dueDate
         ? { ...where.dueDate, $moreThan: options.dueAfter }
         : MoreThan(options.dueAfter);
     }
@@ -252,7 +260,7 @@ export class TaskService {
   private extractMentions(content: string): string[] {
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
     const matches = content.match(mentionRegex);
-    return matches ? matches.map(m => m.substring(1)) : [];
+    return matches ? matches.map((m) => m.substring(1)) : [];
   }
 
   // ==================== RECURRING JOBS ====================
@@ -310,10 +318,7 @@ export class TaskService {
     });
   }
 
-  async pauseRecurringJob(
-    id: string,
-    tenantId: string,
-  ): Promise<RecurringJob> {
+  async pauseRecurringJob(id: string, tenantId: string): Promise<RecurringJob> {
     const job = await this.recurringJobRepo.findOne({
       where: { id, tenantId },
     });
@@ -410,7 +415,9 @@ export class TaskService {
 
     await this.recurringJobRepo.save(job);
 
-    this.logger.log(`Recurring job ${job.id} executed, task ${task.id} created`);
+    this.logger.log(
+      `Recurring job ${job.id} executed, task ${task.id} created`,
+    );
   }
 
   private calculateNextRun(schedule: string, startDate?: Date): Date {
@@ -451,7 +458,7 @@ export class TaskService {
     });
 
     // Convert to calendar events
-    return tasks.map(task => ({
+    return tasks.map((task) => ({
       id: task.id,
       title: task.title,
       description: task.description,
@@ -525,7 +532,11 @@ export class TaskService {
         where: {
           tenantId,
           assignedTo: userId,
-          status: In([TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED]),
+          status: In([
+            TaskStatus.TODO,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.BLOCKED,
+          ]),
         },
         order: { priority: 'DESC', dueDate: 'ASC' },
       });
@@ -535,7 +546,7 @@ export class TaskService {
         category: 'workflow_decision' as any,
         key: 'task_prioritization',
         input: JSON.stringify({
-          tasks: tasks.map(t => ({
+          tasks: tasks.map((t) => ({
             id: t.id,
             title: t.title,
             priority: t.priority,
@@ -553,7 +564,7 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error(`Failed to get prioritized tasks: ${error.message}`);
-      
+
       // Return tasks without AI recommendations on error
       const tasks = await this.taskRepo.find({
         where: {
@@ -681,14 +692,10 @@ export class TaskService {
     taskId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'task',
-        entityId: taskId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'task',
+      entityId: taskId,
+    });
   }
 
   async getTaskDocumentStats(

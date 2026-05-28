@@ -1,6 +1,18 @@
-import { IsString, IsOptional, IsEnum, IsArray, IsInt, IsBoolean, Min } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsArray,
+  IsInt,
+  IsBoolean,
+  Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { DocumentType, DocumentStatus, DocumentEncryption } from '../entities/document.entity';
+import {
+  DocumentType,
+  DocumentStatus,
+  DocumentEncryption,
+} from '../entities/document.entity';
 import { Type } from 'class-transformer';
 
 export class SearchDocumentsDto {
@@ -9,18 +21,28 @@ export class SearchDocumentsDto {
   @IsString()
   query?: string;
 
-  @ApiPropertyOptional({ enum: DocumentType, isArray: true, description: 'Filter by file types' })
+  @ApiPropertyOptional({
+    enum: DocumentType,
+    isArray: true,
+    description: 'Filter by file types',
+  })
   @IsOptional()
   @IsArray()
   @IsEnum(DocumentType, { each: true })
   fileTypes?: DocumentType[];
 
-  @ApiPropertyOptional({ enum: DocumentStatus, description: 'Filter by status' })
+  @ApiPropertyOptional({
+    enum: DocumentStatus,
+    description: 'Filter by status',
+  })
   @IsOptional()
   @IsEnum(DocumentStatus)
   status?: DocumentStatus;
 
-  @ApiPropertyOptional({ enum: DocumentEncryption, description: 'Filter by encryption' })
+  @ApiPropertyOptional({
+    enum: DocumentEncryption,
+    description: 'Filter by encryption',
+  })
   @IsOptional()
   @IsEnum(DocumentEncryption)
   encryption?: DocumentEncryption;
@@ -53,7 +75,11 @@ export class SearchDocumentsDto {
   @Type(() => Number)
   page?: number;
 
-  @ApiPropertyOptional({ description: 'Items per page', minimum: 1, maximum: 100 })
+  @ApiPropertyOptional({
+    description: 'Items per page',
+    minimum: 1,
+    maximum: 100,
+  })
   @IsOptional()
   @IsInt()
   @Min(1)

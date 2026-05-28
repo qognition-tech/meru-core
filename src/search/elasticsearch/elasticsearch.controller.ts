@@ -36,8 +36,18 @@ import {
   FacetedSearchDto,
   ReindexDto,
 } from './dto/search.dto';
-import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './entities/search-index.entity';
-import { SearchResult, SearchIndexStats, SearchAnalytics, BulkIndexResult, IndexMapping } from './interfaces/search.interface';
+import {
+  ElasticsearchIndex,
+  ElasticsearchDocument,
+  ElasticsearchSearchLog,
+} from './entities/search-index.entity';
+import {
+  SearchResult,
+  SearchIndexStats,
+  SearchAnalytics,
+  BulkIndexResult,
+  IndexMapping,
+} from './interfaces/search.interface';
 
 @ApiTags('Elasticsearch')
 @ApiBearerAuth()
@@ -49,8 +59,15 @@ export class ElasticsearchController {
   // ==================== INDEX MANAGEMENT ====================
 
   @Post('indices')
-  @ApiOperation({ summary: 'Create index', description: 'Create a new Elasticsearch index' })
-  @ApiResponse({ status: 201, description: 'Index created successfully', type: ElasticsearchIndex })
+  @ApiOperation({
+    summary: 'Create index',
+    description: 'Create a new Elasticsearch index',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Index created successfully',
+    type: ElasticsearchIndex,
+  })
   async createIndex(
     @Body() dto: CreateIndexDto,
     @TenantId() tenantId: string,
@@ -68,8 +85,15 @@ export class ElasticsearchController {
   }
 
   @Get('indices')
-  @ApiOperation({ summary: 'List indices', description: 'List all Elasticsearch indices for tenant' })
-  @ApiResponse({ status: 200, description: 'Indices retrieved successfully', type: [ElasticsearchIndex] })
+  @ApiOperation({
+    summary: 'List indices',
+    description: 'List all Elasticsearch indices for tenant',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Indices retrieved successfully',
+    type: [ElasticsearchIndex],
+  })
   async listIndices(
     @TenantId() tenantId: string,
   ): Promise<ElasticsearchIndex[]> {
@@ -77,8 +101,14 @@ export class ElasticsearchController {
   }
 
   @Get('indices/stats')
-  @ApiOperation({ summary: 'Get index statistics', description: 'Get statistics for all indices' })
-  @ApiResponse({ status: 200, description: 'Statistics retrieved successfully' })
+  @ApiOperation({
+    summary: 'Get index statistics',
+    description: 'Get statistics for all indices',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+  })
   async getIndexStats(
     @TenantId() tenantId: string,
   ): Promise<SearchIndexStats[]> {
@@ -86,19 +116,29 @@ export class ElasticsearchController {
   }
 
   @Put('indices/:name/mapping')
-  @ApiOperation({ summary: 'Update index mapping', description: 'Update the mapping of an existing index' })
+  @ApiOperation({
+    summary: 'Update index mapping',
+    description: 'Update the mapping of an existing index',
+  })
   @ApiResponse({ status: 200, description: 'Mapping updated successfully' })
   async updateMapping(
     @Param('name') indexName: string,
     @Body() dto: UpdateMappingDto,
     @TenantId() tenantId: string,
   ): Promise<void> {
-    return this.elasticsearchService.updateMapping(tenantId, indexName, dto.mapping as IndexMapping);
+    return this.elasticsearchService.updateMapping(
+      tenantId,
+      indexName,
+      dto.mapping as IndexMapping,
+    );
   }
 
   @Delete('indices/:name')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete index', description: 'Delete an Elasticsearch index' })
+  @ApiOperation({
+    summary: 'Delete index',
+    description: 'Delete an Elasticsearch index',
+  })
   @ApiResponse({ status: 204, description: 'Index deleted successfully' })
   async deleteIndex(
     @Param('name') indexName: string,
@@ -110,7 +150,10 @@ export class ElasticsearchController {
   // ==================== DOCUMENT OPERATIONS ====================
 
   @Post('indices/:name/documents')
-  @ApiOperation({ summary: 'Index document', description: 'Add or update a document in the index' })
+  @ApiOperation({
+    summary: 'Index document',
+    description: 'Add or update a document in the index',
+  })
   @ApiResponse({ status: 201, description: 'Document indexed successfully' })
   async indexDocument(
     @Param('name') indexName: string,
@@ -118,26 +161,37 @@ export class ElasticsearchController {
     @TenantId() tenantId: string,
     @CurrentUser('sub') userId: string,
   ): Promise<{ id: string }> {
-    const id = await this.elasticsearchService.indexDocument(tenantId, indexName, {
-      ...dto,
-      type: dto.entityType,
-      createdById: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    const id = await this.elasticsearchService.indexDocument(
+      tenantId,
+      indexName,
+      {
+        ...dto,
+        type: dto.entityType,
+        createdById: userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    );
 
     return { id };
   }
 
   @Post('indices/:name/documents/bulk')
-  @ApiOperation({ summary: 'Bulk index documents', description: 'Index multiple documents at once' })
-  @ApiResponse({ status: 200, description: 'Bulk index completed', type: Object })
+  @ApiOperation({
+    summary: 'Bulk index documents',
+    description: 'Index multiple documents at once',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bulk index completed',
+    type: Object,
+  })
   async bulkIndex(
     @Param('name') indexName: string,
     @Body() dto: BulkIndexDto,
     @TenantId() tenantId: string,
   ): Promise<BulkIndexResult> {
-    const operations = dto.documents.map(doc => ({
+    const operations = dto.documents.map((doc) => ({
       operation: 'index' as const,
       id: doc.entityId,
       document: {
@@ -152,33 +206,54 @@ export class ElasticsearchController {
   }
 
   @Get('indices/:name/documents/:id')
-  @ApiOperation({ summary: 'Get document', description: 'Retrieve a document by ID' })
+  @ApiOperation({
+    summary: 'Get document',
+    description: 'Retrieve a document by ID',
+  })
   @ApiResponse({ status: 200, description: 'Document retrieved successfully' })
   async getDocument(
     @Param('name') indexName: string,
     @Param('id') documentId: string,
     @TenantId() tenantId: string,
   ): Promise<any> {
-    return this.elasticsearchService.getDocument(tenantId, indexName, documentId);
+    return this.elasticsearchService.getDocument(
+      tenantId,
+      indexName,
+      documentId,
+    );
   }
 
   @Delete('indices/:name/documents/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete document', description: 'Remove a document from the index' })
+  @ApiOperation({
+    summary: 'Delete document',
+    description: 'Remove a document from the index',
+  })
   @ApiResponse({ status: 204, description: 'Document deleted successfully' })
   async deleteDocument(
     @Param('name') indexName: string,
     @Param('id') documentId: string,
     @TenantId() tenantId: string,
   ): Promise<void> {
-    return this.elasticsearchService.deleteDocument(tenantId, indexName, documentId);
+    return this.elasticsearchService.deleteDocument(
+      tenantId,
+      indexName,
+      documentId,
+    );
   }
 
   // ==================== SEARCH ====================
 
   @Post('search')
-  @ApiOperation({ summary: 'Search documents', description: 'Full-text search across indices' })
-  @ApiResponse({ status: 200, description: 'Search completed successfully', type: Object })
+  @ApiOperation({
+    summary: 'Search documents',
+    description: 'Full-text search across indices',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Search completed successfully',
+    type: Object,
+  })
   async search(
     @Body() dto: SearchDocumentsDto,
     @TenantId() tenantId: string,
@@ -188,12 +263,16 @@ export class ElasticsearchController {
       tenantId,
       {
         query: dto.query,
-        filters: dto.filters ? Object.entries(dto.filters).map(([field, value]) => ({
-          field,
-          operator: 'eq',
-          value,
-        })) : undefined,
-        sort: [{ field: dto.sortBy || '_score', order: dto.sortOrder || 'desc' }],
+        filters: dto.filters
+          ? Object.entries(dto.filters).map(([field, value]) => ({
+              field,
+              operator: 'eq',
+              value,
+            }))
+          : undefined,
+        sort: [
+          { field: dto.sortBy || '_score', order: dto.sortOrder || 'desc' },
+        ],
         pagination: {
           from: ((dto.page || 1) - 1) * (dto.limit || 20),
           size: dto.limit || 20,
@@ -205,8 +284,15 @@ export class ElasticsearchController {
   }
 
   @Post('search/semantic')
-  @ApiOperation({ summary: 'Semantic search', description: 'Vector-based semantic search' })
-  @ApiResponse({ status: 200, description: 'Semantic search completed', type: Object })
+  @ApiOperation({
+    summary: 'Semantic search',
+    description: 'Vector-based semantic search',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Semantic search completed',
+    type: Object,
+  })
   async semanticSearch(
     @Body() dto: SemanticSearchDto,
     @TenantId() tenantId: string,
@@ -215,7 +301,7 @@ export class ElasticsearchController {
     // In production, generate embedding from query text using OpenAI
     // For now, return empty embedding - would need AI service integration
     const embedding: number[] = [];
-    
+
     return this.elasticsearchService.semanticSearch(
       tenantId,
       dto.query,
@@ -226,8 +312,15 @@ export class ElasticsearchController {
   }
 
   @Post('search/faceted')
-  @ApiOperation({ summary: 'Faceted search', description: 'Search with faceted aggregations' })
-  @ApiResponse({ status: 200, description: 'Faceted search completed', type: Object })
+  @ApiOperation({
+    summary: 'Faceted search',
+    description: 'Search with faceted aggregations',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Faceted search completed',
+    type: Object,
+  })
   async facetedSearch(
     @Body() dto: FacetedSearchDto,
     @TenantId() tenantId: string,
@@ -240,8 +333,15 @@ export class ElasticsearchController {
   }
 
   @Post('suggest')
-  @ApiOperation({ summary: 'Get suggestions', description: 'Get search query suggestions' })
-  @ApiResponse({ status: 200, description: 'Suggestions retrieved', type: [String] })
+  @ApiOperation({
+    summary: 'Get suggestions',
+    description: 'Get search query suggestions',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Suggestions retrieved',
+    type: [String],
+  })
   async suggest(
     @Body() dto: SuggestQueryDto,
     @TenantId() tenantId: string,
@@ -256,9 +356,17 @@ export class ElasticsearchController {
   // ==================== ANALYTICS ====================
 
   @Get('analytics')
-  @ApiOperation({ summary: 'Get search analytics', description: 'Get search usage analytics' })
+  @ApiOperation({
+    summary: 'Get search analytics',
+    description: 'Get search usage analytics',
+  })
   @ApiResponse({ status: 200, description: 'Analytics retrieved successfully' })
-  @ApiQuery({ name: 'days', required: false, type: Number, description: 'Number of days to analyze' })
+  @ApiQuery({
+    name: 'days',
+    required: false,
+    type: Number,
+    description: 'Number of days to analyze',
+  })
   async getAnalytics(
     @TenantId() tenantId: string,
     @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
@@ -267,9 +375,21 @@ export class ElasticsearchController {
   }
 
   @Get('search-logs')
-  @ApiOperation({ summary: 'Get search logs', description: 'Get recent search queries' })
-  @ApiResponse({ status: 200, description: 'Search logs retrieved', type: [ElasticsearchSearchLog] })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of logs to return' })
+  @ApiOperation({
+    summary: 'Get search logs',
+    description: 'Get recent search queries',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Search logs retrieved',
+    type: [ElasticsearchSearchLog],
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Number of logs to return',
+  })
   async getSearchLogs(
     @TenantId() tenantId: string,
     @Query('limit', new DefaultValuePipe(100), ParseIntPipe) limit: number,

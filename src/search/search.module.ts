@@ -7,11 +7,7 @@ import { CoreModule } from '../core/core.module';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([SearchIndex]),
-    CoreModule,
-    BillingModule,
-  ],
+  imports: [TypeOrmModule.forFeature([SearchIndex]), CoreModule, BillingModule],
   controllers: [SearchController],
   providers: [SearchService],
   exports: [SearchService],

@@ -27,7 +27,12 @@ import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Document, DocumentVersion, DocumentMetadata, User]),
+    TypeOrmModule.forFeature([
+      Document,
+      DocumentVersion,
+      DocumentMetadata,
+      User,
+    ]),
     MulterModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

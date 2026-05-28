@@ -4,12 +4,27 @@ import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
-import { JobProcessor, DocumentJobHandler, EmailJobHandler, AIJobHandler } from './queue.processor';
-import { QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker } from './entities/job.entity';
+import {
+  JobProcessor,
+  DocumentJobHandler,
+  EmailJobHandler,
+  AIJobHandler,
+} from './queue.processor';
+import {
+  QueueJob,
+  QueueJobLog,
+  QueueScheduledJob,
+  QueueWorker,
+} from './entities/job.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker]),
+    TypeOrmModule.forFeature([
+      QueueJob,
+      QueueJobLog,
+      QueueScheduledJob,
+      QueueWorker,
+    ]),
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

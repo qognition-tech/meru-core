@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import * as AWS from 'aws-sdk';
 import { setTimeout } from 'timers/promises';
 
@@ -26,7 +31,7 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
 
   constructor() {
     const region = process.env.AWS_REGION || 'us-east-1';
-    
+
     AWS.config.update({
       region,
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -66,11 +71,15 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
       await sts.getCallerIdentity().promise();
       this.logger.log('AWS credentials verified successfully');
     } catch (error: any) {
-      this.logger.error(`AWS credentials verification failed: ${error.message}`);
+      this.logger.error(
+        `AWS credentials verification failed: ${error.message}`,
+      );
       if (process.env.NODE_ENV === 'production') {
         throw new Error('Invalid AWS credentials. Application cannot start.');
       }
-      this.logger.warn('Running in development mode with potentially invalid credentials');
+      this.logger.warn(
+        'Running in development mode with potentially invalid credentials',
+      );
     }
   }
 
@@ -81,14 +90,18 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
     }
 
     let lastError: Error | null = null;
-    
+
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         if (attempt > 1) {
-          this.logger.warn(`Retry attempt ${attempt}/${this.MAX_RETRIES} for secret: ${secretName}`);
+          this.logger.warn(
+            `Retry attempt ${attempt}/${this.MAX_RETRIES} for secret: ${secretName}`,
+          );
         }
 
-        this.logger.log(`Fetching secrets from AWS Secrets Manager: ${secretName}`);
+        this.logger.log(
+          `Fetching secrets from AWS Secrets Manager: ${secretName}`,
+        );
         const data = await this.secretsManager
           .getSecretValue({ SecretId: secretName })
           .promise();
@@ -100,28 +113,38 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.debug(`Secret data retrieved, parsing JSON...`);
         const secrets = JSON.parse(secretString);
-        
+
         this.cachedSecrets = {
           host: secrets.host || process.env.DATABASE_HOST,
-          port: parseInt(secrets.port || process.env.DATABASE_PORT || '5432', 10),
+          port: parseInt(
+            secrets.port || process.env.DATABASE_PORT || '5432',
+            10,
+          ),
           username: secrets.username || process.env.DATABASE_USERNAME,
           password: secrets.password || process.env.DATABASE_PASSWORD,
-          database: secrets.database || process.env.DATABASE_NAME || 'meru_core',
+          database:
+            secrets.database || process.env.DATABASE_NAME || 'meru_core',
           ssl: secrets.ssl === undefined ? true : secrets.ssl,
           maxConnections: parseInt(secrets.maxConnections || '20', 10),
-          connectionTimeoutMillis: parseInt(secrets.connectionTimeoutMillis || '30000', 10),
+          connectionTimeoutMillis: parseInt(
+            secrets.connectionTimeoutMillis || '30000',
+            10,
+          ),
         };
-        
+
         this.cacheExpiry = Date.now() + this.CACHE_TTL;
-        
+
         this.logger.log('Successfully fetched and cached database secrets');
         this.logSecretsInfo(this.cachedSecrets);
-        
+
         return this.cachedSecrets;
       } catch (error: any) {
         lastError = error;
-        this.logger.error(`Attempt ${attempt} failed: ${error.message}`, error.stack);
-        
+        this.logger.error(
+          `Attempt ${attempt} failed: ${error.message}`,
+          error.stack,
+        );
+
         if (attempt < this.MAX_RETRIES) {
           this.logger.log(`Waiting ${this.RETRY_DELAY}ms before retry...`);
           await setTimeout(this.RETRY_DELAY);
@@ -130,38 +153,49 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (process.env.NODE_ENV === 'production') {
-      this.logger.error(`Failed to fetch secrets after ${this.MAX_RETRIES} attempts. Last error: ${lastError?.message}`);
-      throw new Error(`Failed to fetch database secrets from AWS: ${lastError?.message}`);
+      this.logger.error(
+        `Failed to fetch secrets after ${this.MAX_RETRIES} attempts. Last error: ${lastError?.message}`,
+      );
+      throw new Error(
+        `Failed to fetch database secrets from AWS: ${lastError?.message}`,
+      );
     } else {
-      this.logger.warn('All AWS retry attempts failed, falling back to environment variables');
+      this.logger.warn(
+        'All AWS retry attempts failed, falling back to environment variables',
+      );
       return this.getFallbackSecrets();
     }
   }
 
-  async rotateSecret(secretName: string, newSecretValue: Record<string, any>): Promise<void> {
+  async rotateSecret(
+    secretName: string,
+    newSecretValue: Record<string, any>,
+  ): Promise<void> {
     try {
       this.logger.log(`Initiating secret rotation: ${secretName}`);
-      
+
       const secretString = JSON.stringify(newSecretValue);
-      
-      await this.secretsManager.putSecretValue({
-        SecretId: secretName,
-        SecretString: secretString,
-      }).promise();
-      
+
+      await this.secretsManager
+        .putSecretValue({
+          SecretId: secretName,
+          SecretString: secretString,
+        })
+        .promise();
+
       this.cachedSecrets = null;
       this.cacheExpiry = 0;
-      
+
       this.logger.log('Secret rotated successfully, cache cleared');
-      
+
       this.emitSecretRotationEvent(secretName, 'success');
     } catch (error: any) {
       this.logger.error(`Failed to rotate secret: ${secretName}`, error.stack);
-      
+
       if (process.env.NODE_ENV === 'production') {
         throw error;
       }
-      
+
       this.emitSecretRotationEvent(secretName, 'failed');
     }
   }
@@ -172,11 +206,15 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
     this.cacheExpiry = 0;
   }
 
-  async healthCheck(): Promise<{ status: string; cached: boolean; awsAccessible: boolean }> {
+  async healthCheck(): Promise<{
+    status: string;
+    cached: boolean;
+    awsAccessible: boolean;
+  }> {
     try {
       const sts = new AWS.STS();
       await sts.getCallerIdentity().promise();
-      
+
       return {
         status: 'healthy',
         cached: !!this.cachedSecrets && Date.now() < this.cacheExpiry,
@@ -193,7 +231,7 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
 
   private getFallbackSecrets(): RdsSecrets {
     this.logger.warn('Using fallback environment variables');
-    
+
     return {
       host: process.env.DATABASE_HOST || 'localhost',
       port: parseInt(process.env.DATABASE_PORT || '5432', 10),
@@ -220,19 +258,24 @@ export class AwsSecretsService implements OnModuleInit, OnModuleDestroy {
 
   private startHealthCheck(): void {
     this.connectionHealthCheckInterval = setInterval(() => {
-      this.healthCheck().then((result) => {
-        if (result.status !== 'healthy') {
-          this.logger.error('AWS Secrets health check failed', result);
-        }
-      }).catch((error) => {
-        this.logger.error('Health check error', error);
-      });
+      this.healthCheck()
+        .then((result) => {
+          if (result.status !== 'healthy') {
+            this.logger.error('AWS Secrets health check failed', result);
+          }
+        })
+        .catch((error) => {
+          this.logger.error('Health check error', error);
+        });
     }, 60000); // Check every minute
   }
 
-  private emitSecretRotationEvent(secretName: string, status: 'success' | 'failed'): void {
+  private emitSecretRotationEvent(
+    secretName: string,
+    status: 'success' | 'failed',
+  ): void {
     this.logger.log(`Secret rotation event: ${secretName} - ${status}`);
-    
+
     if (process.env.ENABLE_EVENT_EMITTER === 'true') {
       this.logger.log(`Event emission enabled: secrets-rotation:${status}`);
     }
