@@ -1,3 +1,10 @@
+// Storage driver layer — S3/blob abstraction.
+//
+// Public surface: StorageService (upload, download, presigned URLs, lifecycle).
+// Providers live under providers/ — S3StorageProvider today; GCS/Azure later.
+// All file I/O across the platform should go through this module.
+// Documents module (DOC) is the intended primary consumer; today documents/
+// still calls aws-sdk directly — Phase B will rewire it through here.
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StorageService } from './storage.service';

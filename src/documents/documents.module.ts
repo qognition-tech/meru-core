@@ -1,3 +1,14 @@
+// DOC module per CLAUDE.md §2 row 10.
+//
+// Layer contract:
+//   - documents/ = BUSINESS layer: Document, DocumentVersion, DocumentMetadata
+//     entities; OCR, versioning, citations, fraud-detection hooks.
+//   - storage/   = DRIVER layer: S3/blob abstraction over multiple providers
+//     (S3StorageProvider, future GCS/Azure providers).
+//
+// TODO(Phase B): documents.service.ts currently uses `aws-sdk` directly
+// (see uploadToS3/downloadFile). Refactor to inject StorageService from
+// the Storage module — no direct S3 calls outside src/storage/.
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
