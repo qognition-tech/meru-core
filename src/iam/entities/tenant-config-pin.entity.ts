@@ -9,7 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Tenant } from './tenant.entity';
-import { ConfigPack } from '../../config/entities/config-pack.entity';
+import { ConfigPack } from '../../tenant/entities/config-pack.entity';
 import { User } from './user.entity';
 
 @Entity('tenant_config_pins')

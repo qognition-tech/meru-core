@@ -35,9 +35,9 @@ import { Session } from './iam/entities/session.entity';
 import { ApiKey } from './iam/entities/api-key.entity';
 import { TenantConfigPin } from './iam/entities/tenant-config-pin.entity';
 
-// Config entities (new)
-import { ConfigPack } from './config/entities/config-pack.entity';
-import { FeatureFlag } from './config/entities/feature-flag.entity';
+// TCM entities (Tenant Config Management — lives under src/tenant per CLAUDE.md §2)
+import { ConfigPack } from './tenant/entities/config-pack.entity';
+import { FeatureFlag } from './tenant/entities/feature-flag.entity';
 
 // CRM entities (new)
 import { Case } from './crm/entities/case.entity';
