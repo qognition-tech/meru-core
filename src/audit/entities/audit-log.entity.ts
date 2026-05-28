@@ -128,7 +128,16 @@ export class AuditLog {
   };
 
   @Column({ type: 'text', nullable: true })
-  checksum: string; // For integrity verification
+  checksum: string; // SHA256 of this event's payload (for single-row verification)
+
+  // Hash chain fields — WORM tamper-evidence per CLAUDE.md §6.5.
+  // chainHash = SHA256(previousChainHash + tenantId + timestamp.toISO() + action + entityId + userId + checksum)
+  // The first log for a tenant uses the genesis hash as previousChainHash.
+  @Column({ type: 'char', length: 64, nullable: true })
+  previousChainHash: string; // chainHash of the immediately prior log for this tenant
+
+  @Column({ type: 'char', length: 64, nullable: true })
+  chainHash: string; // this log's position in the chain
 
   @Column({ default: false })
   archived: boolean;

@@ -90,10 +90,36 @@ export class AuditController {
   }
 
   @Post('logs/verify')
-  @ApiOperation({ summary: 'Verify log integrity' })
+  @ApiOperation({ summary: 'Verify per-row checksums for all tenant logs' })
   async verifyIntegrity(@Request() req) {
     const result = await this.auditService.verifyTenantLogs(req.user.tenantId);
     return { success: true, data: result };
+  }
+
+  @Get('logs/verify-chain')
+  @ApiOperation({
+    summary: 'Verify tamper-evident hash chain for this tenant',
+    description:
+      'Walks every audit log in chronological order and verifies the SHA-256 chain is intact. Returns status=tampered if any log was modified or deleted.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chain verification result',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          status: 'valid',
+          total: 142,
+          valid: 142,
+          details: 'Chain intact (142 logs verified)',
+        },
+      },
+    },
+  })
+  async verifyChain(@Request() req) {
+    const result = await this.auditService.verifyChain(req.user.tenantId);
+    return { success: result.status === 'valid', data: result };
   }
 
   @Post('logs/export')

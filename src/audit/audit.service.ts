@@ -53,13 +53,13 @@ export class AuditService {
   // ==================== WORM LOGGING ====================
 
   async logEvent(dto: LogAuditEventDto): Promise<AuditLog> {
-    // Calculate changes between before and after state
+    const now = new Date();
     const changes = this.calculateChanges(dto.beforeState, dto.afterState);
 
-    // Generate checksum for integrity
+    // Per-event payload checksum (individual row integrity)
     const checksum = this.generateChecksum({
       tenantId: dto.tenantId,
-      timestamp: new Date(),
+      timestamp: now,
       userId: dto.userId,
       action: dto.action,
       entityId: dto.entityId,
@@ -67,11 +67,23 @@ export class AuditService {
       afterState: dto.afterState,
     });
 
+    // Hash chain: previous chain hash → this log's chain position
+    const previousChainHash = await this.getLastChainHash(dto.tenantId);
+    const chainHash = this.computeChainHash(
+      previousChainHash,
+      dto.tenantId,
+      now,
+      dto.action,
+      dto.entityId,
+      dto.userId,
+      checksum,
+    );
+
     const auditLog = this.auditRepo.create({
       tenantId: dto.tenantId,
       vertical: dto.context?.['vertical'],
       environment: dto.context?.['environment'],
-      timestamp: new Date(),
+      timestamp: now,
       userId: dto.userId,
       userEmail: dto.userEmail,
       userRole: dto.userRole,
@@ -87,11 +99,13 @@ export class AuditService {
       complianceStandard: dto.complianceStandard,
       complianceMetadata: dto.complianceMetadata || {},
       checksum,
+      previousChainHash,
+      chainHash,
       archived: false,
     });
 
     const saved = await this.auditRepo.save(auditLog);
-    this.logger.debug(`Audit log created: ${saved.id}`);
+    this.logger.debug(`Audit log created: ${saved.id} chain: ${chainHash.slice(0, 8)}…`);
 
     return saved;
   }
@@ -273,10 +287,7 @@ export class AuditService {
 
   async verifyLogIntegrity(logId: string): Promise<boolean> {
     const log = await this.auditRepo.findOne({ where: { id: logId } });
-
-    if (!log) {
-      throw new NotFoundException('Audit log not found');
-    }
+    if (!log) throw new NotFoundException('Audit log not found');
 
     const expectedChecksum = this.generateChecksum({
       tenantId: log.tenantId,
@@ -289,6 +300,61 @@ export class AuditService {
     });
 
     return log.checksum === expectedChecksum;
+  }
+
+  // Walk the full hash chain for a tenant chronologically.
+  // Returns valid=true only if every link is intact (no gaps, no tampered rows).
+  async verifyChain(tenantId: string): Promise<{
+    status: 'valid' | 'tampered';
+    total: number;
+    valid: number;
+    firstBrokenAt?: string; // id of first log where chain breaks
+    details: string;
+  }> {
+    const logs = await this.auditRepo.find({
+      where: { tenantId },
+      order: { timestamp: 'ASC', createdAt: 'ASC' },
+    });
+
+    if (logs.length === 0) {
+      return { status: 'valid', total: 0, valid: 0, details: 'No logs' };
+    }
+
+    const genesis = this.genesisHash(tenantId);
+    let runningHash = genesis;
+    let valid = 0;
+
+    for (const log of logs) {
+      const expected = this.computeChainHash(
+        runningHash,
+        log.tenantId,
+        log.timestamp,
+        log.action,
+        log.entityId,
+        log.userId,
+        log.checksum,
+      );
+
+      if (log.chainHash !== expected || log.previousChainHash !== runningHash) {
+        return {
+          status: 'tampered',
+          total: logs.length,
+          valid,
+          firstBrokenAt: log.id,
+          details: `Chain breaks at log ${log.id} (timestamp ${log.timestamp.toISOString()})`,
+        };
+      }
+
+      runningHash = log.chainHash;
+      valid++;
+    }
+
+    return {
+      status: 'valid',
+      total: logs.length,
+      valid,
+      details: `Chain intact (${valid} logs verified)`,
+    };
   }
 
   async verifyTenantLogs(tenantId: string): Promise<{
@@ -305,20 +371,14 @@ export class AuditService {
 
     for (const log of logs) {
       const isValid = await this.verifyLogIntegrity(log.id);
-      if (isValid) {
-        valid++;
-      } else {
+      if (isValid) valid++;
+      else {
         invalid++;
         invalidLogIds.push(log.id);
       }
     }
 
-    return {
-      total: logs.length,
-      valid,
-      invalid,
-      invalidLogIds,
-    };
+    return { total: logs.length, valid, invalid, invalidLogIds };
   }
 
   // ==================== EXPORT ====================
@@ -461,7 +521,47 @@ export class AuditService {
     return changes;
   }
 
-  private generateChecksum(data: any): string {
+  // Returns the previous chainHash for the last log in the tenant's chain.
+  // Returns the genesis hash if this is the first log for the tenant.
+  private async getLastChainHash(tenantId: string): Promise<string> {
+    const last = await this.auditRepo.findOne({
+      where: { tenantId },
+      order: { timestamp: 'DESC', createdAt: 'DESC' },
+      select: ['chainHash'],
+    });
+    return last?.chainHash ?? this.genesisHash(tenantId);
+  }
+
+  // Deterministic genesis anchor per tenant — not stored, re-derivable.
+  private genesisHash(tenantId: string): string {
+    return crypto
+      .createHash('sha256')
+      .update(`GENESIS:meru:${tenantId}`)
+      .digest('hex');
+  }
+
+  private computeChainHash(
+    previousChainHash: string,
+    tenantId: string,
+    timestamp: Date,
+    action: string,
+    entityId: string,
+    userId: string,
+    checksum: string,
+  ): string {
+    const payload = [
+      previousChainHash,
+      tenantId,
+      timestamp.toISOString(),
+      action,
+      entityId,
+      userId,
+      checksum,
+    ].join(':');
+    return crypto.createHash('sha256').update(payload).digest('hex');
+  }
+
+  private generateChecksum(data: unknown): string {
     const str = JSON.stringify(data);
     return crypto.createHash('sha256').update(str).digest('hex');
   }
