@@ -210,7 +210,45 @@ Examples: `"Show my pending cases"`, `"Draft a 482 visa application for John"`, 
 
 ---
 
-## 7. REPOSITORY STRUCTURE (MONOREPO)
+## 7. REPOSITORY STRUCTURE
+
+### 7.1 Current State (Phase 1 — this repo, `meru-core`)
+
+Single NestJS backend representing `api.meru.com`. The 14 modules live as NestJS modules under `src/`. The monorepo (apps/ + packages/config-packs + UIs) in §7.2 is the **target**, not the present.
+
+```
+meru-core/
+├── src/
+│   ├── iam/             # IAM — auth, tenants, roles, sessions, API keys
+│   ├── tenant/          # (merging into config/ in Phase A)
+│   ├── config/          # TCM — config packs, feature flags, supabase config
+│   ├── crm/             # CRM — UniversalEntity (polymorphic per CLAUDE.md §2)
+│   ├── search/          # (deduping with elasticsearch/ in Phase A)
+│   ├── elasticsearch/   # SRCH — Elasticsearch + pgvector hybrid
+│   ├── ai/              # AI gateway + 4 specialist engines (engines/)
+│   ├── workflow/        # WF — BPMN state machine
+│   ├── forms/           # FORM — JSON-schema driven
+│   ├── tasks/           # TASK — assignments, recurring jobs
+│   ├── notifications/   # COM — multi-channel templates
+│   ├── documents/       # DOC — entities, OCR, versioning, metadata
+│   ├── storage/         # S3 driver layer (used by documents/)
+│   ├── billing/         # BILL — Stripe, usage records, invoices
+│   ├── analytics/       # BI — reports, dashboards, executions
+│   ├── audit/           # AUD — audit logs (hash-chaining TBD)
+│   ├── integrations/    # INT — gov API adapters (entity stub only)
+│   ├── queue/           # BullMQ workers
+│   ├── orchestration/   # (consolidating with core/ in Phase A)
+│   ├── core/            # Cross-cutting filters/interceptors/policies
+│   ├── common/          # Shared types
+│   ├── migrations/      # TypeORM migrations (squashing in Phase A)
+│   └── main.ts / app.module.ts
+├── docs/                # ARCHITECTURE / PRD / TRD / STRATEGY / DEVELOPMENT_STRATEGY / DATABASE_SCHEMA / DESIGN_GUIDELINES
+├── scripts/             # DB and provisioning scripts (Phase A target)
+├── infra/               # Compose, terraform, k8s, github-actions (Phase A target)
+└── CLAUDE.md            # This document
+```
+
+### 7.2 Target Monorepo Structure (post-Phase B, when UIs land)
 
 ```
 meru/
@@ -282,19 +320,22 @@ meru/
 
 ## 8. TECHNICAL STACK SUMMARY
 
-| Layer | Choice |
-|---|---|
-| **Frontend** | Next.js 15 (App Router), React Server Components, Tailwind 4, shadcn/ui |
-| **API** | tRPC (internal), REST/OpenAPI (external partners) |
-| **Backend** | Node.js (TypeScript), modular monolith for GovernanceX |
-| **Database** | Postgres + Drizzle ORM, RLS-enforced |
-| **Search** | Elasticsearch + pgvector (hybrid) |
-| **Queue** | BullMQ / Temporal (for long-running BPMN workflows) |
-| **Storage** | S3-compatible (with per-tenant KMS keys) |
-| **AI** | Model-agnostic gateway (OpenAI, Anthropic, local) routed via the AI module |
-| **Auth** | OAuth2 / OIDC, MFA, optional SSO (SAML) |
-| **Observability** | OpenTelemetry → Datadog / Grafana |
-| **Infra** | Multi-region (UAE, KSA, UK, AU) — data residency per country pack |
+| Layer | Current (Phase 1) | Target / Future |
+|---|---|---|
+| **Frontend** | *Not in this repo* | Next.js 15 (App Router), RSC, Tailwind 4, shadcn/ui |
+| **API (Backend)** | **NestJS 11** + REST/OpenAPI (Swagger at `/api`) | Same; tRPC added later if a TS-only UI client needs it |
+| **Backend Runtime** | Node.js + TypeScript | Same |
+| **ORM** | **TypeORM 0.3** (entities + decorators) | Stay on TypeORM unless we hit a wall (decision: see §11.4) |
+| **Database** | Postgres (Supabase / RDS) — RLS enforced via migration | Same |
+| **Search** | Elasticsearch (`@elastic/elasticsearch` v9) + pgvector | Hybrid BM25 + embeddings |
+| **Queue** | BullMQ (`@nestjs/bull`) | Add Temporal only if a workflow truly needs it |
+| **Storage** | AWS S3 (`aws-sdk`) — per-tenant prefix; KMS planned | Per-tenant KMS keys for regulated buckets |
+| **AI** | Model-agnostic via `langchain` + `openai`; Anthropic next | Add local / regional models per country pack |
+| **Auth** | Supabase JWT (primary) + custom Passport strategy; SAML/Local parked | OAuth2 / OIDC, MFA via `otplib`, enterprise SSO via SAML when needed |
+| **Observability** | (TBD) — Logger only | OpenTelemetry → Datadog / Grafana |
+| **Infra** | Docker Compose (collapsing in Phase A); k8s manifests stubbed | Multi-region per country pack |
+
+**Why TypeORM, not Drizzle?** The codebase has 50+ entities and 11 migrations already in place. The cost of migrating to Drizzle now (~2-4 weeks of pure ORM swap) is not worth it. Decision: stay on TypeORM. Revisit only if RLS composability becomes painful.
 
 ---
 
@@ -329,13 +370,13 @@ When working in this repo:
 
 1. **Read this `CLAUDE.md` first.** Always. Before any file edit.
 2. **Consult the detailed docs** for specifics: [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design, [PRD.md](docs/PRD.md) for product scope, [TRD.md](docs/TRD.md) for technical specs, [STRATEGY.md](docs/STRATEGY.md) for business context.
-3. **80/20 rule:** if you're tempted to add vertical-specific code into `packages/core-api/`, **STOP** — it belongs in a JSON pack or a vertical app.
-4. **Schema first:** any new entity → start with Drizzle schema + RLS policy + Zod type, then build outward.
+3. **80/20 rule:** if you're tempted to add vertical-specific code into `src/` (any of the 14 NestJS modules), **STOP** — it belongs in a JSON config pack (target: `packages/config-packs/`, scaffolding via `src/config/`) or a future vertical app.
+4. **Schema first:** any new entity → start with a TypeORM entity + RLS policy in a migration + DTO with `class-validator` decorators, then wire the service/controller. Update `app.module.ts` `entities[]` array.
 5. **Citations or silence:** AI features without citation enforcement do not ship.
 6. **One concern per PR:** never mix a core-module change with a vertical-pack change.
 7. **Update the relevant ADR** in `docs/ADR/` for any architectural decision.
 
 ---
 
-*Last updated: 2026-05-28*
+*Last updated: 2026-05-28 — Phase A cleanup pass; current-state §7.1 and stack §8 reconciled with NestJS/TypeORM reality*
 *Document owner: Meru Platform Team*
