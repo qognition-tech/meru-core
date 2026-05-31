@@ -1,7 +1,7 @@
 # Meru RegOS — Product Requirements Document
 
-> **Version**: 1.0 | **Status**: Target State
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 1.1 | **Status**: Target State — Phase A/B/C implementation complete
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > This document defines **what** we're building and **why** — for engineering, product, sales, and investors.
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) · [TRD.md](./TRD.md) · [STRATEGY.md](./STRATEGY.md)

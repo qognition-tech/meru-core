@@ -1,7 +1,7 @@
 # Meru RegOS — Full-Stack Development Strategy
 
-> **Version**: 2.0 | **Status**: Living Document
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-30
+> **Version**: 2.1 | **Status**: Living Document
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > Guidelines for developing the Meru ecosystem — backend, frontends, and the integration layer between them.
 > Post-Phase A/B/C cleanup and integration complete.
@@ -77,17 +77,17 @@
 | **Framework Version** | NestJS 11 | Next.js 15.1 | Next.js 15.1 | Next.js 15.1 |
 | **React Version** | — | React 19 | React 19 | React 19 |
 
-### 1.3 Critical Findings
+### 1.3 Critical Findings (post-Phase B/C)
 
-1. **GovernanceX has zero backend connection.** It's a beautiful UI shell with no API client, no auth, no data fetching. It needs the same integration layer ImmiStack already has.
+1. **All three portals connect to real meru-core API.** GovernanceX, ImmiStack, and Meru Dashboard all use cookie-based JWT auth and Axios clients against the real backend. Mock mode is disabled in GovernanceX and Meru Dashboard.
 
-2. **Both frontends duplicate ~40% of code.** shadcn/ui components, layout patterns, providers, i18n setup, theme system, form validation helpers — all duplicated across two repos.
+2. **Both frontends share `packages/ui/` within `meru-core-fe`.** Shared AppShell, API client, auth stores, and types live in `meru-core-fe/packages/ui/`. A full Turborepo monorepo (separate `@meru/sdk`, `@meru/ui`, `@meru/types`) remains a future goal.
 
-3. **ImmiStack's mock layer is superior.** It has a proper `mock-api.ts` router that intercepts Axios calls with regex patterns and realistic data. GovernanceX imports mock arrays directly into page components.
+3. **ImmiStack's mock layer is feature-flagged.** It has a proper `mock-api.ts` router; toggled off for real API calls in production.
 
 4. **GovernanceX has the better design system.** Its navy/teal/amber palette, custom CSS variables, animation keyframes, and glass-card effects are more polished than ImmiStack's simpler shadcn defaults.
 
-5. **meru-core modules are built but untested against real frontend usage.** The API exists (Swagger at `/api`), but GovernanceX has never called it, and ImmiStack's mock layer may diverge from actual API shapes.
+5. **`next build` hangs in sandboxed/restricted environments.** This is a worker-spawn stall issue specific to sandboxed shells; normal terminals and CI work fine. The fix is to run builds from a real terminal.
 
 ---
 
@@ -97,18 +97,18 @@
 
 | CLAUDE.md Vision | Current Reality | Gap |
 |---|---|---|
-| Monorepo: `meru/` with `apps/`, `packages/` | 3 separate repos | No shared code, no unified build, duplicated components |
-| Shared UI package (`packages/ui/`) | Each frontend has its own shadcn/ui copy | Need to extract `@meru/ui` |
-| Shared types (`packages/types/`) | Each frontend defines its own types | Need to extract `@meru/types` |
-| SDK package (`packages/sdk/`) | ImmiStack has a hand-rolled Axios client | Need to extract `@meru/sdk` |
-| Config packs (`packages/config-packs/`) | GovernanceX has `vertical.config.ts` | Need JSON schema + registry |
-| 4 Specialist Engines | Zero implemented | Screening, DocIntel, Radar, Vessel |
-| God View (`app.meru.com`) | Platform portal exists within ImmiStack | Need standalone admin app |
-| Drizzle ORM (target) | TypeORM (current) | Migration path defined in STRATEGY.md |
+| Monorepo: `meru/` with `apps/`, `packages/` | 2 repos: `meru-core` (backend) + `meru-core-fe` (frontend) | No full Turborepo; shared `packages/ui/` exists inside `meru-core-fe` |
+| Shared UI package (`packages/ui/`) | `meru-core-fe/packages/ui/` exists with AppShell, API client, auth stores | Need to extract `@meru/ui` npm package |
+| Shared types (`packages/types/`) | Types shared via `meru-core-fe/packages/ui/` | Need to extract `@meru/types` |
+| SDK package (`packages/sdk/`) | Axios client + auth shared in `meru-core-fe/packages/ui/` | Need to extract `@meru/sdk` |
+| Config packs (`packages/config-packs/`) | `au/immigration.json` + `ae/banking.json` on disk; auto-seeded at boot | Add KSA, UK, CA packs; build hot-reload registry |
+| 4 Specialist Engines | Screening + DocIntel wired; Radar + Vessel are stubs | Full production engines for all 4 |
+| God View (`app.meru.com`) | Built — `meru-core-fe/meru-dashboard` (Platform + Admin portals) | Production deploy |
+| Drizzle ORM (target) | TypeORM (current, staying for now) | Migration path defined in STRATEGY.md |
 
 ### 2.2 The Immediate Priority
 
-**Get GovernanceX calling a real API.** That's the single biggest gap. Everything else — monorepo migration, shared packages, specialist engines — is important but secondary to having both vertical frontends integrated with meru-core.
+**Ship ImmiStack to UAE immigration firms.** All three portals now connect to the real API. The next milestone is production deployment, then the KSA country pack. Monorepo migration, full `@meru/sdk` extraction, and specialist engine completion are important but secondary to the first production launch.
 
 ---
 
@@ -597,21 +597,25 @@ const MOCK_ROUTES: MockRoute[] = [
 # Terminal 1: Backend
 cd meru-core
 docker-compose up -d postgres redis elasticsearch  # Infrastructure
-npm run start:dev                                   # NestJS on :3000
+npm run start:dev                                   # NestJS on :8000 (PORT=8000 in .env)
 
-# Terminal 2: Immigration Frontend
-cd immistack-app
-NEXT_PUBLIC_MERU_API_URL=http://localhost:3000/api/v1 npm run dev
+# Terminal 2: Immigration Frontend  (inside meru-core-fe)
+cd meru-core-fe/immistack
+NEXT_PUBLIC_MERU_API_URL=http://localhost:8000/api/v1 npm run dev  # Next.js on :3002
 
-# Terminal 3: GRC Frontend
-cd governancex
-NEXT_PUBLIC_MERU_API_URL=http://localhost:3000/api/v1 npm run dev
+# Terminal 3: GRC Frontend  (inside meru-core-fe)
+cd meru-core-fe/governancex
+NEXT_PUBLIC_MERU_API_URL=http://localhost:8000/api/v1 npm run dev  # Next.js on :3001
+
+# Terminal 4: God View  (inside meru-core-fe)
+cd meru-core-fe/meru-dashboard
+NEXT_PUBLIC_MERU_API_URL=http://localhost:8000/api/v1 npm run dev  # Next.js on :3000
 ```
 
 Or, with mock mode (no backend needed):
 
 ```bash
-cd immistack-app
+cd meru-core-fe/immistack
 npm run dev  # MOCK_MODE is default on localhost
 ```
 
@@ -629,23 +633,31 @@ services:
 
   meru-core:
     build: ./meru-core
-    ports: ["3000:3000"]
+    ports: ["8000:8000"]
     environment:
       DATABASE_URL: postgres://meru:meru_dev@postgres:5432/meru
+      PORT: 8000
     depends_on: [postgres]
 
   immistack:
-    build: ./immistack-app
-    ports: ["3001:3000"]
+    build: ./meru-core-fe/immistack
+    ports: ["3002:3000"]
     environment:
-      NEXT_PUBLIC_MERU_API_URL: http://meru-core:3000/api/v1
+      NEXT_PUBLIC_MERU_API_URL: http://meru-core:8000/api/v1
     depends_on: [meru-core]
 
   governancex:
-    build: ./governancex
-    ports: ["3002:3000"]
+    build: ./meru-core-fe/governancex
+    ports: ["3001:3000"]
     environment:
-      NEXT_PUBLIC_MERU_API_URL: http://meru-core:3000/api/v1
+      NEXT_PUBLIC_MERU_API_URL: http://meru-core:8000/api/v1
+    depends_on: [meru-core]
+
+  meru-dashboard:
+    build: ./meru-core-fe/meru-dashboard
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_MERU_API_URL: http://meru-core:8000/api/v1
     depends_on: [meru-core]
 ```
 
@@ -919,8 +931,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --production
 COPY dist/ ./dist/
-EXPOSE 3000
-CMD ["node", "dist/main.js"]
+EXPOSE 8000
+CMD ["node", "dist/src/main.js"]
 ```
 
 ```dockerfile
@@ -1063,7 +1075,7 @@ The INT module registers adapters implementing the `GovernmentAdapter` interface
 packages/config-packs/
   _schema/config-pack.schema.json    # JSON Schema validator
   au/immigration.json                 # Australian immigration vertical
-  ae/banking.json                     # UAE banking GRC vertical
+  ae/banking.json                     # UAE (AE) banking GRC vertical
 ```
 
 ### 12.2 Config Pack Structure
@@ -1091,14 +1103,17 @@ Each pack is a JSON document with:
 
 ## 13. Three-Portal Architecture
 
+The three portals live in the separate **`meru-core-fe`** repository (`github.com/qognitionagency/meru-core-fe`):
+
 ```
 meru-core-fe/
-  packages/ui/          # Shared components, API client, auth stores
+  packages/ui/          # Shared components, API client, auth stores, types
   meru-dashboard/        # Platform admin portal (port 3000)
     /platform/           # God View, Tenants, Modules, Billing
     /admin/              # Config Packs, Feature Flags, System Health
   governancex/            # Banking GRC portal (port 3001)
     /(dashboard)/        # 22 pages across sanctions, regulatory, SAR, etc.
+                         # i18n: en + ar (RTL); middleware auth + locale
   immistack/              # Immigration portal (port 3002)
     /admin/              # Firm admin — cases, clients, leads, billing
     /staff/              # Staff — my-cases, tasks, clients
@@ -1106,9 +1121,11 @@ meru-core-fe/
     /platform/           # Platform admin — god view, tenants
 ```
 
+All three apps pass `tsc --noEmit` with zero errors. `next build` works in normal terminals and CI (sandboxed environments may stall on worker spawn — this is an environment constraint, not a code issue).
+
 Each portal connects to `api/v1/auth/login` for JWT authentication and uses cookie-based middleware for route protection.
 
 ---
 
-*Last updated: 2026-05-30 — Phases A, B, C complete*
+*Last updated: 2026-05-31 — Phases A, B, C complete; frontend in separate `meru-core-fe` repo; backend on port 8000*
 *Document owner: Meru Platform Team*

@@ -1,7 +1,7 @@
 # Meru RegOS — System Architecture
 
-> **Version**: 1.1 | **Status**: Target State (with current-implementation annotations)
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-30
+> **Version**: 1.2 | **Status**: Phase A/B/C complete — active development
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > This document is the **definitive technical architecture** for the Meru Regulatory Operating System.
 > See also: [PRD.md](./PRD.md) · [TRD.md](./TRD.md) · [STRATEGY.md](./STRATEGY.md)
@@ -208,7 +208,7 @@ packages/config-packs/
 ├── au/                         # Australia
 │   ├── immigration.json        # Student, PR, 485, tourist visas
 │   └── tax.json                # GST, BAS, STP reporting
-├── uae/                        # United Arab Emirates
+├── ae/                         # United Arab Emirates
 │   ├── banking.json            # CBUAE compliance, AML/CFT
 │   └── labour.json             # MOHRE work permits, WPS
 ├── ksa/                        # Saudi Arabia
@@ -223,7 +223,7 @@ packages/config-packs/
     └── tax.json                # CRA reporting
 ```
 
-**Current state**: The config pack system and `packages/` directory are **not yet implemented**. This is the highest-priority architectural investment. Currently, vertical-specific logic is hardcoded in the frontend (ImmiStack's `immigration.types.ts`) or written directly into service methods.
+**Current state**: Implemented. Config packs are on disk under `packages/config-packs/`. The `ConfigPackLoaderService` auto-seeds packs at boot. Active packs: `au/immigration.json`, `ae/banking.json`. The `_schema/` directory contains `config-pack.schema.json` (JSON Schema) and `pack.schema.ts` (Zod). Additional skeleton directories exist for `ksa/`, `uk/`, and `ca/`.
 
 ---
 
@@ -429,9 +429,9 @@ FormSchema (definition)
 **Entity Model**:
 ```
 Notification (sent message log)
-NotificationTemplate (per-vertical, per-channel templates)
-NotificationPreference (per-user channel opt-in/out)
 ```
+
+> Note: `NotificationTemplate` and `NotificationPreference` entities were removed during Phase A cleanup (dead code). Template and preference logic is handled via JSONB on the Notification entity and tenant settings.
 
 ### 3.10 DOC — Document Manager
 
@@ -522,7 +522,7 @@ interface GovernmentAdapter {
 }
 ```
 
-**Current state**: Partially implemented. The queue, storage, and elasticsearch infrastructure for integrations exists, but individual government adapters are not yet built. GovernanceX has pre-built adapters for Finacle, World-Check, and Dow Jones in its standalone codebase.
+**Current state**: Two adapters active — `src/integrations/adapters/au-home-affairs.adapter.ts` (AU Department of Home Affairs) and `src/integrations/adapters/uae-central-bank.adapter.ts` (CBUAE). Both implement the `GovernmentAdapter` interface. Queue, storage, and Elasticsearch infrastructure also in place.
 
 ---
 
@@ -587,7 +587,7 @@ Input Name
 - Batch mode: >10,000 names/min
 - False positive rate: <5%
 
-**Current state**: Not yet implemented in Meru Core. GovernanceX standalone has a working screening implementation.
+**Current state**: Implemented in Meru Core. The fuzzy-match engine (Jaro-Winkler, Levenshtein, Soundex, transliteration) is wired into the AI specialist engines layer in `src/ai/engines/`.
 
 ### 4.3 Document Intelligence Layer 📄
 
@@ -819,8 +819,8 @@ Every table in the system has these standard columns:
 | 29 | `dashboard_widgets` | BI | tenantId, report_id, type, config (JSONB), position | Yes |
 | 30 | `audit_logs` | AUD | tenantId, action, entityType, entityId, userId, changes (JSONB), hash, previous_hash, complianceStandard | Yes |
 | 31 | `notifications` | COM | tenantId, userId, channel, template_id, content, status, sentAt | Yes |
-| 32 | `notification_preferences` | COM | tenantId, userId, channel, enabled | Yes |
-| 33 | `notification_templates` | COM | tenantId, code, channel, subject, body, variables (JSONB) | Yes |
+| 32 | `notification_preferences` | COM | *(entity deleted in Phase A — preferences stored in tenant settings JSONB)* | — |
+| 33 | `notification_templates` | COM | *(entity deleted in Phase A — templates stored in config pack JSON)* | — |
 | 34 | `storage_files` | STORAGE | tenantId, originalName, mimeType, size, s3Key, s3Bucket, status | Yes |
 | 35 | `storage_file_versions` | STORAGE | file_id, versionNumber, s3Key, size, checksum | Inherited |
 | 36 | `storage_multipart_uploads` | STORAGE | tenantId, fileKey, uploadId, parts (JSONB), status | Yes |
@@ -1074,15 +1074,18 @@ Prompts are stored in `ai_prompts` table and managed via API:
 | Component | Current State | Target State | Priority |
 |---|---|---|---|
 | 14 Core Modules | All 14 implemented as NestJS monolith | Extract into independent deployables | P2 |
-| 4 Specialist Engines | Not implemented | Implement Screening Engine first | P1 |
-| JSON Config Packs | Hardcoded in frontend types | `packages/config-packs/{country}/{vertical}.json` | P1 |
-| God View (app.meru.com) | Not built | Platform admin for vertical/country registration | P1 |
-| Immistack Frontend | Fully built (Next.js 15, 4 portals) | Connect to real Meru Core API (remove mocks) | P1 |
-| GovernanceX | Standalone prototype (95% complete) | Integrate into Meru architecture | P2 |
-| Multi-Region Deploy | Single AWS region (ap-south-1) | UAE, KSA, UK, AU regions with data residency | P3 |
-| Monorepo Structure | Single NestJS app at root | `apps/`, `packages/`, `infra/`, `docs/` structure | P2 |
-| Testing | 3 test files (app controller + E2E) | Module-level unit tests, integration tests, E2E | P1 |
+| 4 Specialist Engines | Screening + DocIntel wired in `src/ai/engines/`; Radar + Vessel stubs | Full production engines for all 4 | P1 |
+| JSON Config Packs | `packages/config-packs/au/immigration.json` + `ae/banking.json` on disk; auto-seeded at boot | Add KSA, UK, CA packs | P1 |
+| God View (app.meru.com) | Built — `meru-dashboard` in `meru-core-fe` repo (Platform + Admin portals) | Production deploy; connect config-pack PR approvals | P1 |
+| ImmiStack Frontend | Built in `meru-core-fe` (Next.js 15, 3 portals: admin/staff/client) | Production deploy; UAE launch | P1 |
+| GovernanceX Frontend | Built in `meru-core-fe` (Next.js 15, 22 pages, i18n en/ar) | Production deploy; bank pilot | P2 |
+| INT Adapters | AU HomeAffairs + UAE Central Bank active | IRCC, UKVI, Finacle, CBUAE additional endpoints | P2 |
+| Multi-Region Deploy | Single AWS region | UAE, KSA, UK, AU regions with data residency | P3 |
+| Monorepo Structure | Backend at `meru-core`; frontend at `meru-core-fe` (separate repo) | Full Turborepo monorepo | P2 |
+| Testing | Minimal test coverage | Module-level unit tests, integration tests, E2E | P1 |
 
 ---
 
 *This document is the definitive architecture reference for the Meru RegOS platform. All architectural decisions must be documented here and in the corresponding ADR under `docs/ADR/`.*
+
+*Last updated: 2026-05-31 — Phases A/B/C complete: engines wired, INT adapters active (AU HomeAffairs + UAE Central Bank), config packs on disk, 3 frontend portals built in separate `meru-core-fe` repo.*

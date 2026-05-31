@@ -1,7 +1,7 @@
 # Meru RegOS — Business & Execution Strategy
 
-> **Version**: 1.0 | **Status**: Living Document
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 1.1 | **Status**: Living Document
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > This document defines **how we win** and **how we get there** — the business strategy behind the Meru Regulatory Operating System.
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) · [PRD.md](./PRD.md) · [TRD.md](./TRD.md)

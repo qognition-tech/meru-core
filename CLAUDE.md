@@ -176,7 +176,7 @@ All expansion happens through `app.meru.com` — no code deploys required for th
 ### 5.3 Sample Pack Path
 ```
 /packages/config-packs/au/immigration.json
-/packages/config-packs/uae/banking.json
+/packages/config-packs/ae/banking.json
 /packages/config-packs/ksa/tax.json
 ```
 
@@ -378,5 +378,5 @@ When working in this repo:
 
 ---
 
-*Last updated: 2026-05-30 — Phase A/B/C complete: dead code removed, engines wired, 3 frontend portals live, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk*
+*Last updated: 2026-05-31 — Phase A/B/C complete: dead code removed, engines wired, 3 frontend portals live in separate `meru-core-fe` repo, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk (ae/banking.json, au/immigration.json), backend on PORT=8000*
 *Document owner: Meru Platform Team*

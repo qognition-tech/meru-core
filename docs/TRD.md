@@ -1,7 +1,7 @@
 # Meru RegOS — Technical Requirements Document
 
-> **Version**: 1.0 | **Status**: Target State (with implementation annotations)
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 1.1 | **Status**: Phase A/B/C complete — active implementation
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > This document provides **detailed technical specifications** for implementation teams.
 > See also: [ARCHITECTURE.md](./ARCHITECTURE.md) · [PRD.md](./PRD.md) · [STRATEGY.md](./STRATEGY.md)
@@ -956,21 +956,21 @@ interface PushResult {
 }
 ```
 
-### 9.2 Planned Adapters
+### 9.2 Adapters (Active + Planned)
 
-| Adapter | Country | Vertical | Type | Priority |
+| Adapter | Country | Vertical | Type | Status |
 |---|---|---|---|---|
-| HomeAffairs (ImmiAccount) | AU | Immigration | REST/SOAP | P1 |
-| VEVO | AU | Immigration | REST | P1 |
-| IRCC | CA | Immigration | REST | P2 |
-| UKVI (Home Office) | UK | Immigration | REST | P2 |
-| Finacle Core Banking | Global | Banking | SOAP/REST | P1 |
-| World-Check One | Global | Banking | REST | P2 |
-| Dow Jones Risk & Compliance | Global | Banking | REST | P2 |
-| CBUAE | UAE | Banking | REST | P2 |
-| SAMA | KSA | Banking | REST | P3 |
-| ZATCA | KSA | Tax | REST | P3 |
-| MOHRE | UAE | Labour | REST | P3 |
+| HomeAffairs (ImmiAccount) | AU | Immigration | REST/SOAP | **Active** — `src/integrations/adapters/au-home-affairs.adapter.ts` |
+| UAE Central Bank (CBUAE) | AE | Banking | REST | **Active** — `src/integrations/adapters/uae-central-bank.adapter.ts` |
+| VEVO | AU | Immigration | REST | Planned P1 |
+| IRCC | CA | Immigration | REST | Planned P2 |
+| UKVI (Home Office) | UK | Immigration | REST | Planned P2 |
+| Finacle Core Banking | Global | Banking | SOAP/REST | Planned P1 |
+| World-Check One | Global | Banking | REST | Planned P2 |
+| Dow Jones Risk & Compliance | Global | Banking | REST | Planned P2 |
+| SAMA | KSA | Banking | REST | Planned P3 |
+| ZATCA | KSA | Tax | REST | Planned P3 |
+| MOHRE | AE | Labour | REST | Planned P3 |
 
 ### 9.3 Adapter Configuration
 
@@ -1094,7 +1094,7 @@ NEXTAUTH_SECRET=<random-64-char-string>
 # Backend (NestJS)
 NODE_ENV=development
 VERTICAL=immigration
-PORT=3000
+PORT=8000
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_NAME=meru_immigration_dev
@@ -1278,3 +1278,5 @@ Envelope encryption: Data key encrypts document, vertical key encrypts data key
 ---
 
 *This document specifies the technical requirements for the Meru RegOS platform. All implementations must meet or exceed the performance budgets in Section 13. All deployments must satisfy the security requirements in Section 12.*
+
+*Last updated: 2026-05-31 — Phases A/B/C complete. Backend runs on PORT=8000. AU HomeAffairs + UAE Central Bank adapters active. `start:prod` script: `node dist/src/main`.*

@@ -1,7 +1,7 @@
 # Meru RegOS — Design Guidelines & Brand System
 
-> **Version**: 1.0 | **Status**: Living Document
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 1.1 | **Status**: Living Document
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-31
 >
 > The definitive design system for all Meru products — shared tokens, component patterns, layout conventions, and brand expression across verticals.
 >
