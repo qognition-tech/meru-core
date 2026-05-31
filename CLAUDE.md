@@ -378,5 +378,5 @@ When working in this repo:
 
 ---
 
-*Last updated: 2026-05-28 — Phase A cleanup pass; current-state §7.1 and stack §8 reconciled with NestJS/TypeORM reality*
+*Last updated: 2026-05-30 — Phase A/B/C complete: dead code removed, engines wired, 3 frontend portals live, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk*
 *Document owner: Meru Platform Team*

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
 import { IamModule } from './iam/iam.module';
 import { TenantModule } from './tenant/tenant.module';
@@ -116,7 +117,10 @@ import {
     // 2. Event Emitter for @OnEvent decorators
     EventEmitterModule.forRoot(),
 
-    // 3. Database Setup (Connecting all modules)
+    // 3. Scheduler for @Cron/@Interval decorators
+    ScheduleModule.forRoot(),
+
+    // 4. Database Setup (Connecting all modules)
     TypeOrmModule.forRootAsync({
       imports: [AppConfigModule],
       useFactory: (configService: ConfigService): any => {

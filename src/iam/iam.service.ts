@@ -16,7 +16,7 @@ import { ApiKey } from './entities/api-key.entity';
 import { UserPayload, CreateUserInput } from '../common/types';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { generateSecret, verify as totpVerify, generateURI } from 'otplib';
+import { generateSecret, generateURI, verify as totpVerify } from 'otplib';
 import * as QRCode from 'qrcode';
 
 @Injectable()
@@ -182,7 +182,10 @@ export class IamService {
     if (!user || !user.mfaSecret)
       throw new NotFoundException('MFA not initialized');
 
-    const isValid = totpVerify({ token, secret: user.mfaSecret });
+    const { valid: isValid } = await totpVerify({
+      token,
+      secret: user.mfaSecret,
+    });
     if (!isValid) throw new BadRequestException('Invalid verification code');
 
     user.mfaEnabled = true;
@@ -200,7 +203,10 @@ export class IamService {
       throw new BadRequestException('MFA not configured');
     }
 
-    const isValid = totpVerify({ token, secret: user.mfaSecret });
+    const { valid: isValid } = await totpVerify({
+      token,
+      secret: user.mfaSecret,
+    });
     if (!isValid) throw new UnauthorizedException('Invalid MFA token');
 
     const roles = await this.roleRepo.find({

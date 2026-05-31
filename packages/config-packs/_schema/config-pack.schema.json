@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://meru.dev/config-pack.schema.json",
+  "title": "Meru Config Pack",
+  "description": "Schema for vertical/country configuration packs — the 20% layer on top of Meru Core's 80% shared engine",
+  "type": "object",
+  "required": ["code", "name", "version", "vertical"],
+  "properties": {
+    "code": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+$", "description": "Country-vertical code, e.g. au-immigration" },
+    "name": { "type": "string", "description": "Human-readable pack name" },
+    "description": { "type": "string" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "vertical": { "type": "string", "enum": ["immigration", "banking", "health", "tax", "labour", "education"] },
+    "country": { "type": "string", "minLength": 2, "maxLength": 3 },
+    "regulators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "adapterId": { "type": ["string", "null"] },
+          "endpoints": { "type": "object" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "visaCategories": { "type": "array" },
+    "complianceDomains": { "type": "object" },
+    "workflows": { "type": "object" },
+    "documentRequirements": { "type": "object" },
+    "roles": { "type": "array" },
+    "features": { "type": "object" }
+  }
+}

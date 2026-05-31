@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { WorkflowController } from './workflow.controller';
 import { WorkflowEngineService } from './workflow.service';
 import { Workflow } from './entities/workflow.entity';
@@ -19,7 +18,6 @@ import { AuditModule } from '../audit/audit.module';
       WorkflowTransition,
       WorkflowInstance,
     ]),
-    ScheduleModule.forRoot(),
     SearchModule,
     DocumentsModule,
     AuditModule,

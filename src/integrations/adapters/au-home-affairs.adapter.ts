@@ -406,7 +406,7 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private errorResponse(httpStatus: number, requestId: string, start: number): AdapterResponse {
+  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
     return {
       success: false,
       error: {
@@ -420,7 +420,7 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
     };
   }
 
-  private networkError(err: unknown, requestId: string, start: number): AdapterResponse {
+  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`DHA API network error: ${msg}`);
     return {

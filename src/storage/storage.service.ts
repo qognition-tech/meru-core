@@ -748,6 +748,42 @@ export class StorageService {
 
   // ==================== STORAGE MANAGEMENT ====================
 
+  async updateFile(
+    fileId: string,
+    updates: {
+      metadata?: Record<string, any>;
+      tags?: string[];
+      storageClass?: StorageClass;
+      access?: FileAccess;
+      status?: string;
+    },
+    tenantId: string,
+    userId: string,
+  ): Promise<StorageFile> {
+    const file = await this.fileRepo.findOne({
+      where: { id: fileId, tenantId },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    await this.checkAccess(file, userId, 'write');
+
+    if (updates.metadata !== undefined) file.metadata = updates.metadata;
+    if (updates.tags !== undefined) file.tags = updates.tags;
+    if (updates.access !== undefined) file.access = updates.access;
+    if (updates.status !== undefined) file.status = updates.status as FileStatus;
+
+    if (updates.storageClass && updates.storageClass !== file.storageClass) {
+      const provider = this.getProviderInstance(tenantId);
+      await provider.changeStorageClass(file.key, updates.storageClass);
+      file.storageClass = updates.storageClass;
+    }
+
+    file.updatedAt = new Date();
+    return this.fileRepo.save(file);
+  }
+
   async changeStorageClass(
     fileId: string,
     storageClass: StorageClass,

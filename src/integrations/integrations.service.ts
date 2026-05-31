@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AuHomeAffairsAdapter } from './adapters/au-home-affairs.adapter';
+import { UaeCentralBankAdapter } from './adapters/uae-central-bank.adapter';
 import type { GovernmentAdapter, AdapterCapability } from './interfaces/government-adapter.interface';
 
 // Registry pattern: callers resolve adapters by ID.
@@ -9,8 +10,12 @@ export class IntegrationsService {
   private readonly logger = new Logger(IntegrationsService.name);
   private readonly registry = new Map<string, GovernmentAdapter>();
 
-  constructor(auHomeAffairs: AuHomeAffairsAdapter) {
+  constructor(
+    auHomeAffairs: AuHomeAffairsAdapter,
+    uaeCentralBank: UaeCentralBankAdapter,
+  ) {
     this.register(auHomeAffairs);
+    this.register(uaeCentralBank);
   }
 
   private register(adapter: GovernmentAdapter): void {

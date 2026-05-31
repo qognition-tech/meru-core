@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { TaskController } from './task.controller';
 import { TaskService } from './task.service';
 import { Task } from './entities/task.entity';
@@ -13,7 +12,6 @@ import { AuditModule } from '../audit/audit.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Task, TaskComment, RecurringJob]),
-    ScheduleModule.forRoot(),
     SearchModule,
     DocumentsModule,
     AuditModule,

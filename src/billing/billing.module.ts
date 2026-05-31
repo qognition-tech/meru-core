@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { BillingPlan } from './entities/billing-plan.entity';
@@ -21,7 +20,6 @@ import { SearchModule } from '../search/search.module';
       Invoice,
       InvoiceItem,
     ]),
-    ScheduleModule.forRoot(),
     SearchModule,
   ],
   controllers: [BillingController],

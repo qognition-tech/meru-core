@@ -1,7 +1,7 @@
 # Meru RegOS — System Architecture
 
-> **Version**: 1.0 | **Status**: Target State (with current-implementation annotations)
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 1.1 | **Status**: Target State (with current-implementation annotations)
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-30
 >
 > This document is the **definitive technical architecture** for the Meru Regulatory Operating System.
 > See also: [PRD.md](./PRD.md) · [TRD.md](./TRD.md) · [STRATEGY.md](./STRATEGY.md)

@@ -268,4 +268,4 @@ export class MarkAsReadDto {
 
 // Import NotificationStatus for the query DTO
 import { NotificationStatus } from '../entities/notification.entity';
-import { TemplateType } from '../entities/notification-template.entity';
+import { TemplateType } from '../entities/notification.entity';

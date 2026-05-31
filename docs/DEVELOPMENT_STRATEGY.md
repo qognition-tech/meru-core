@@ -1,9 +1,10 @@
 # Meru RegOS — Full-Stack Development Strategy
 
-> **Version**: 1.0 | **Status**: Living Document
-> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-28
+> **Version**: 2.0 | **Status**: Living Document
+> **Owner**: Meru Platform Team | **Last Updated**: 2026-05-30
 >
 > Guidelines for developing the Meru ecosystem — backend, frontends, and the integration layer between them.
+> Post-Phase A/B/C cleanup and integration complete.
 
 ---
 
@@ -27,53 +28,54 @@
 ### 1.1 The Three Repositories
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CURRENT STATE (May 2026)                      │
-│                                                                  │
-│  meru-core (NestJS 11)         Immistack-app (Next.js 15)       │
-│  ┌──────────────────────┐      ┌──────────────────────────┐     │
-│  │ ✅ 18 modules         │      │ ✅ 4 portals (multi-role) │     │
-│  │ ✅ 43 DB entities     │◀────▶│ ✅ Auth (next-auth + JWT) │     │
-│  │ ✅ RLS multi-tenancy  │ REST │ ✅ Zustand + React Query  │     │
-│  │ ✅ Swagger/OpenAPI    │      │ ✅ Mock API layer         │     │
-│  │ ✅ Docker Compose     │      │ ✅ Kanban (dnd-kit)       │     │
-│  │ ✅ AI Gateway         │      │ ✅ i18n (en/ar)           │     │
-│  │ ⚠️ No specialist eng. │      │ ✅ shadcn/ui + Tailwind   │     │
-│  │ ⚠️ Monolith (planned  │      │ ✅ Onboarding wizard      │     │
-│  │    extraction path)   │      │ ⚠️ Next.js 15.1 (latest)  │     │
-│  └──────────────────────┘      └──────────────────────────┘     │
-│                                                                  │
-│  GovernanceX (Next.js 14)                                       │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ ⚠️ UI prototype only — ZERO backend integration           │   │
-│  │ ⚠️ Mock data everywhere, no API client                    │   │
-│  │ ⚠️ No auth (hardcoded user, simulated login)             │   │
-│  │ ⚠️ Next.js 14 (1 major version behind ImmiStack)         │   │
-│  │ ⚠️ No state management library                           │   │
-│  │ ✅ Beautiful UI — navy/teal/amber design system           │   │
-│  │ ✅ 20+ pages covering all GRC workflows                  │   │
-│  │ ✅ i18n (en/ar), RTL support, framer-motion animations   │   │
-│  │ ✅ Vertical config pattern (good for config-pack model)  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                 CURRENT STATE (May 30, 2026 — Post-Phases A/B/C)    │
+│                                                                      │
+│  meru-core (NestJS 11)           Immistack-app (Next.js 15.1)       │
+│  ┌────────────────────────┐      ┌────────────────────────────┐     │
+│  │ ✅ 14 modules cleaned   │      │ ✅ 4 portals (role-guarded) │     │
+│  │ ✅ 48 DB entities       │◀────▶│ ✅ JWT auth + refresh flow │     │
+│  │ ✅ RLS multi-tenancy    │ REST │ ✅ Zustand + Axios client  │     │
+│  │ ✅ Swagger/OpenAPI      │      │ ✅ Kanban + dnd-kit        │     │
+│  │ ✅ All 4 engines wired  │      │ ✅ shadcn/ui + Tailwind    │     │
+│  │ ✅ UAE Central Bank INT │      │ ✅ Role-based middleware   │     │
+│  │ ✅ AU HomeAffairs INT   │      │ ✅ Real API (no mocks)     │     │
+│  │ ✅ Config packs on disk │      │ ✅ Next.js 15.1 (latest)   │     │
+│  │ ✅ ScheduleModule once  │      └────────────────────────────┘     │
+│  │ ✅ 6 unused pkgs removed│                                         │
+│  └────────────────────────┘     Meru Dashboard (Next.js 15.1)       │
+│                                  ┌────────────────────────────┐     │
+│  GovernanceX (Next.js 15.1)     │ ✅ Platform + Admin portals │     │
+│  ┌────────────────────────┐     │ ✅ JWT auth + Zustand      │     │
+│  │ ✅ JWT auth + API client│     │ ✅ God View, Tenants       │     │
+│  │ ✅ Zustand store         │     │ ✅ Config Packs, Modules   │     │
+│  │ ✅ Next.js 15 + React 19│     │ ✅ System Health, Billing  │     │
+│  │ ✅ Middleware (i18n+auth)│     │ ✅ Dark theme, shadcn/ui   │     │
+│  │ ✅ Real backend connect  │     │ ✅ Connected to real API   │     │
+│  │ ✅ 22 pages, i18n en/ar │     └────────────────────────────┘     │
+│  └────────────────────────┘                                         │
+│                                                                      │
+│  Shared: packages/ui/ (AppShell, API client, auth stores, types)    │
+│  Config: packages/config-packs/{au/immigration.json,ae/banking.json} │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 Maturity Scorecard
 
-| Capability | meru-core | ImmiStack | GovernanceX |
-|---|---|---|---|
-| **API Integration** | — (is the API) | Full (Axios + React Query) | None (mock only) |
-| **Authentication** | JWT + RBAC | next-auth + JWT refresh | Mock only |
-| **State Management** | — | Zustand + React Query | None |
-| **Multi-tenancy** | RLS + domain routing | X-Tenant-ID header | None |
-| **Mock/Dev Mode** | — | Full mock API layer | Inline mock data |
-| **i18n** | — | next-intl (en) | next-intl (en/ar) |
-| **UI Components** | — | 22 shadcn/ui | 17 shadcn/ui |
-| **Forms** | class-validator | react-hook-form + zod | react-hook-form + zod |
-| **Drag & Drop** | — | dnd-kit (kanban) | dnd-kit |
-| **Charts** | — | Recharts | Recharts |
-| **Testing** | Jest (unit only) | None | None |
-| **Framework Version** | NestJS 11 (latest) | Next.js 15.1 (latest) | Next.js 14 (behind) |
+| Capability | meru-core | ImmiStack | GovernanceX | Meru Dashboard |
+|---|---|---|---|---|
+| **API Integration** | — (is the API) | Axios + API client | Axios + API client | Axios + API client |
+| **Authentication** | JWT + RBAC + Passport | JWT + cookie + refresh | JWT + cookie + Zustand | JWT + cookie + Zustand |
+| **State Management** | — | Zustand (3 stores) | Zustand (1 store) | Zustand (2 stores) |
+| **Multi-tenancy** | RLS + domain routing | X-Tenant-ID header | X-Tenant-ID header | X-Tenant-ID header |
+| **Mock/Dev Mode** | — | Feature-flagged | Disabled (real API) | Disabled (real API) |
+| **i18n** | — | next-intl (en) | next-intl (en/ar, RTL) | — (en only) |
+| **UI Components** | — | 22 shadcn/ui | 17 shadcn/ui | 8 shadcn/ui minimal |
+| **Forms** | class-validator | react-hook-form + zod | react-hook-form + zod | react-hook-form |
+| **Role-based routing** | @Roles + PolicyGuard | Middleware JWT decode | Middleware + i18n | Middleware |
+| **Gov API Adapters** | AU + UAE (2 adapters) | AU via Integrations | UAE via Integrations | — |
+| **Framework Version** | NestJS 11 | Next.js 15.1 | Next.js 15.1 | Next.js 15.1 |
+| **React Version** | — | React 19 | React 19 | React 19 |
 
 ### 1.3 Critical Findings
 
@@ -1017,6 +1019,96 @@ import { enableMockMode, disableMockMode, isMockMode } from '@meru/sdk/mock';
 
 ---
 
-*Last updated: 2026-05-28*
+## 11. Government API Adapters (INT Module)
+
+### 11.1 Adapter Registry
+
+The INT module registers adapters implementing the `GovernmentAdapter` interface. Each adapter handles a specific regulator's API.
+
+| Adapter ID | Country | Regulator | Capabilities | Status |
+|---|---|---|---|---|
+| `au-home-affairs` | AU | Department of Home Affairs | visa_status, application_status, sponsor_validation, vevo_check, lodge_application | Active |
+| `uae-central-bank` | AE | Central Bank of the UAE | screening, sar_filing, document_verification, identity_verification | Active |
+
+### 11.2 Adding a Country Adapter
+
+1. Create `src/integrations/adapters/{country}-{regulator}.adapter.ts`
+2. Implement `GovernmentAdapter` interface from `interfaces/government-adapter.interface.ts`
+3. Register in `integrations.module.ts` providers array
+4. Add to `integrations.service.ts` constructor for auto-registration
+5. Add controller endpoints in `integrations.controller.ts`
+6. Add the regulator to the relevant config pack JSON
+
+### 11.3 Adapter Endpoints
+
+**AU HomeAffairs** (prefix: `api/v1/integrations/au/`):
+- `GET /visa-status/:visaNumber?passportNumber=` — Visa status check
+- `GET /application-status/:applicationId` — Application tracking
+- `GET /sponsor-validation?abn=` — Employer sponsor validation
+- `POST /vevo-check` — VEVO visa entitlement verification
+
+**UAE Central Bank** (prefix: `api/v1/integrations/ae/`):
+- `POST /screening` — Sanctions screening against UN/OFAC/UAE lists
+- `POST /str` — File Suspicious Transaction Report with CBUAE
+- `GET /regulatory-updates?category=&since=` — CBUAE circulars/updates
+- `GET /verify-entity/:licenseNumber` — Trade license verification
+
+---
+
+## 12. Config Packs
+
+### 12.1 Location
+
+```
+packages/config-packs/
+  _schema/config-pack.schema.json    # JSON Schema validator
+  au/immigration.json                 # Australian immigration vertical
+  ae/banking.json                     # UAE banking GRC vertical
+```
+
+### 12.2 Config Pack Structure
+
+Each pack is a JSON document with:
+- **Metadata**: code, name, version, vertical, country
+- **Regulators**: IDs, adapters, endpoint mappings
+- **Domain Logic**: Workflow stages, document requirements, roles/permissions, features
+
+### 12.3 Adding a New Config Pack
+
+1. Create `packages/config-packs/{country}/{vertical}.json`
+2. Validate against `_schema/config-pack.schema.json`
+3. The `ConfigPackLoaderService` auto-seeds it at boot (per CLAUDE.md)
+4. Pack is version-pinned to tenants via the TCM module
+
+### 12.4 Available Packs
+
+| Pack Code | Vertical | Country | Version | Regulators |
+|---|---|---|---|---|
+| `au-immigration` | Immigration | AU | 2.4.1 | AU HomeAffairs |
+| `ae-banking` | Banking GRC | AE | 3.1.2 | CBUAE, UAE FIU |
+
+---
+
+## 13. Three-Portal Architecture
+
+```
+meru-core-fe/
+  packages/ui/          # Shared components, API client, auth stores
+  meru-dashboard/        # Platform admin portal (port 3000)
+    /platform/           # God View, Tenants, Modules, Billing
+    /admin/              # Config Packs, Feature Flags, System Health
+  governancex/            # Banking GRC portal (port 3001)
+    /(dashboard)/        # 22 pages across sanctions, regulatory, SAR, etc.
+  immistack/              # Immigration portal (port 3002)
+    /admin/              # Firm admin — cases, clients, leads, billing
+    /staff/              # Staff — my-cases, tasks, clients
+    /client/             # Client — own case, documents, payments
+    /platform/           # Platform admin — god view, tenants
+```
+
+Each portal connects to `api/v1/auth/login` for JWT authentication and uses cookie-based middleware for route protection.
+
+---
+
+*Last updated: 2026-05-30 — Phases A, B, C complete*
 *Document owner: Meru Platform Team*
-*Next review: After Phase 0 completion (Week 4)*

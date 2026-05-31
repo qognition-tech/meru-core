@@ -217,8 +217,18 @@ export class StorageController {
     @TenantId() tenantId: string,
     @CurrentUser('sub') userId: string,
   ): Promise<StorageFile> {
-    // This would need to be implemented in the service
-    throw new Error('Not implemented');
+    return this.storageService.updateFile(
+      fileId,
+      {
+        metadata: dto.metadata,
+        tags: dto.tags,
+        storageClass: dto.storageClass,
+        access: dto.access,
+        status: dto.status,
+      },
+      tenantId,
+      userId,
+    );
   }
 
   @Delete('files/:id')

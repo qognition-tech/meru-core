@@ -4,6 +4,8 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ScreeningEngine } from './engines/screening.engine';
 import { DocIntelEngine } from './engines/doc-intel.engine';
+import { DecisionEngine } from './engines/decision.engine';
+import { CommsEngine } from './engines/comms.engine';
 import { AiPrompt, AiEmbedding } from './entities/ai-prompt.entity';
 import { CoreModule } from '../core/core.module';
 import { CrmModule } from '../crm/crm.module';
@@ -14,6 +16,7 @@ import { DocumentsModule } from '../documents/documents.module';
 import { BillingModule } from '../billing/billing.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -27,9 +30,10 @@ import { AuditModule } from '../audit/audit.module';
     forwardRef(() => BillingModule),
     forwardRef(() => AnalyticsModule),
     forwardRef(() => AuditModule),
+    forwardRef(() => NotificationsModule),
   ],
   controllers: [AiController],
-  providers: [AiService, ScreeningEngine, DocIntelEngine],
-  exports: [AiService, ScreeningEngine, DocIntelEngine],
+  providers: [AiService, ScreeningEngine, DocIntelEngine, DecisionEngine, CommsEngine],
+  exports: [AiService, ScreeningEngine, DocIntelEngine, DecisionEngine, CommsEngine],
 })
 export class AiModule {}
