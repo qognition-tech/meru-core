@@ -3,6 +3,8 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan, In } from 'typeorm';
@@ -51,7 +53,9 @@ export class TaskService {
     @InjectRepository(RecurringJob)
     private recurringJobRepo: Repository<RecurringJob>,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
   ) {}
 

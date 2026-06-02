@@ -3,6 +3,8 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
@@ -48,6 +50,7 @@ export class AnalyticsService {
     private widgetRepo: Repository<DashboardWidget>,
     private dataSource: DataSource,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
   ) {}
 

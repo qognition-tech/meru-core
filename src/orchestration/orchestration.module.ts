@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { OrchestrationController } from './orchestration.controller';
 import { OrchestrationService } from './orchestration.service';
 import { CrmModule } from '../crm/crm.module';
@@ -8,7 +8,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [CrmModule, SearchModule, AiModule, AnalyticsModule, AuditModule],
+  imports: [forwardRef(() => CrmModule), SearchModule, forwardRef(() => AiModule), AnalyticsModule, AuditModule],
   controllers: [OrchestrationController],
   providers: [OrchestrationService],
   exports: [OrchestrationService],

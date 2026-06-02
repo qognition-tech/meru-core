@@ -9,7 +9,7 @@
 // TODO(Phase B): documents.service.ts currently uses `aws-sdk` directly
 // (see uploadToS3/downloadFile). Refactor to inject StorageService from
 // the Storage module — no direct S3 calls outside src/storage/.
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -23,6 +23,7 @@ import { User } from '../iam/entities/user.entity';
 import { OrchestrationModule } from '../orchestration/orchestration.module';
 import { IamModule } from '../iam/iam.module';
 import { SearchModule } from '../search/search.module';
+import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
@@ -43,7 +44,8 @@ import { AuditModule } from '../audit/audit.module';
       }),
       inject: [ConfigService],
     }),
-    OrchestrationModule,
+    forwardRef(() => OrchestrationModule),
+    forwardRef(() => AiModule),
     IamModule,
     SearchModule,
     AuditModule,

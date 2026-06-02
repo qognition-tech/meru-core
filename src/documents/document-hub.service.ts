@@ -3,6 +3,8 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -46,6 +48,7 @@ export class DocumentHubService {
     @InjectRepository(DocumentMetadata)
     private metadataRepo: Repository<DocumentMetadata>,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
   ) {}
 

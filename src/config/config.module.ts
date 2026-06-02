@@ -17,6 +17,6 @@ import { SupabaseConfigService } from './supabase-config.service';
     }),
   ],
   providers: [SupabaseConfigService],
-  exports: [ConfigService, SupabaseConfigService],
+  exports: [SupabaseConfigService],
 })
 export class AppConfigModule {}

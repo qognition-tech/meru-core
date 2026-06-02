@@ -14,6 +14,8 @@ import {
   NotificationType,
   NotificationPriority,
   NotificationCategory,
+  NotificationStatus,
+  TemplateType,
 } from '../entities/notification.entity';
 
 export class CreateNotificationDto {
@@ -266,6 +268,3 @@ export class MarkAsReadDto {
   notificationIds: string[];
 }
 
-// Import NotificationStatus for the query DTO
-import { NotificationStatus } from '../entities/notification.entity';
-import { TemplateType } from '../entities/notification.entity';

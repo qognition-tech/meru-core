@@ -3,6 +3,8 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -54,7 +56,9 @@ export class FormBuilderService {
     private submissionRepo: Repository<FormSubmission>,
     private dataSource: DataSource,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
   ) {}
 

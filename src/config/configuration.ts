@@ -22,7 +22,7 @@ export const validationSchema = Joi.object({
 
   // AWS Secrets Manager
   AWS_REGION: Joi.string().default('ap-south-1'),
-  AWS_RDS_SECRET_NAME: Joi.string().required(),
+  AWS_RDS_SECRET_NAME: Joi.string().optional().allow(''),
 
   // Database (loaded from Secrets Manager)
   DATABASE_HOST: Joi.string().optional(),
@@ -46,8 +46,8 @@ export const validationSchema = Joi.object({
   REDIS_PORT: Joi.number().optional(),
 
   // AWS S3
-  AWS_ACCESS_KEY_ID: Joi.string().required(),
-  AWS_SECRET_ACCESS_KEY: Joi.string().required(),
+  AWS_ACCESS_KEY_ID: Joi.string().optional().allow(''),
+  AWS_SECRET_ACCESS_KEY: Joi.string().optional().allow(''),
   AWS_S3_BUCKET: Joi.string().default('meru-documents'),
 
   // Documents

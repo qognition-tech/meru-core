@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WorkflowController } from './workflow.controller';
 import { WorkflowEngineService } from './workflow.service';
@@ -8,6 +8,7 @@ import { WorkflowTransition } from './entities/workflow-transition.entity';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
 import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
@@ -19,7 +20,8 @@ import { AuditModule } from '../audit/audit.module';
       WorkflowInstance,
     ]),
     SearchModule,
-    DocumentsModule,
+    forwardRef(() => DocumentsModule),
+    forwardRef(() => AiModule),
     AuditModule,
   ],
   controllers: [WorkflowController],

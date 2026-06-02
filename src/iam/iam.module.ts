@@ -46,6 +46,7 @@ import { AuditModule } from '../audit/audit.module';
   ],
   controllers: [IamController, TenantProvisioningController],
   providers: [IamService, JwtStrategy, PolicyGuard, TenantProvisioningService],
+  exports: [IamService, PolicyGuard, JwtStrategy],
 })
 export class IamModule {
   configure(consumer: any) {

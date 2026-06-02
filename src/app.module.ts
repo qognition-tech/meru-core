@@ -204,6 +204,9 @@ import {
           synchronize: false, // Disabled for production - use migrations
 
           logging: isDevelopment,
+          retryAttempts: isDevelopment ? 3 : 10,
+          retryDelay: 3000,
+          ssl: { rejectUnauthorized: false },
         };
       },
       inject: [ConfigService],

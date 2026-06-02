@@ -55,4 +55,6 @@ export type AdapterCapability =
   | 'sar_filing'           // file a suspicious activity report
   | 'document_verification' // verify document authenticity
   | 'identity_verification' // verify identity against national register
-  | 'vevo_check';          // AU-specific VEVO visa entitlement check
+  | 'vevo_check'           // AU-specific VEVO visa entitlement check
+  | 'right_to_work'        // UK-specific share-code right-to-work/rent check
+  | 'visa_view';           // NZ-specific VisaView visa entitlement check
