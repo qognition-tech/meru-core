@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { configuration, validationSchema } from './configuration';
 import { SupabaseConfigService } from './supabase-config.service';
 

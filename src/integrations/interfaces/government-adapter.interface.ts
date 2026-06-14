@@ -47,14 +47,14 @@ export interface GovernmentAdapter {
 }
 
 export type AdapterCapability =
-  | 'visa_status'          // check a visa's current status
-  | 'application_status'   // check an application's status
-  | 'sponsor_validation'   // validate employer/sponsor licence
-  | 'lodge_application'    // e-lodge a visa application
-  | 'screening'            // run sanctions/watchlist screening
-  | 'sar_filing'           // file a suspicious activity report
+  | 'visa_status' // check a visa's current status
+  | 'application_status' // check an application's status
+  | 'sponsor_validation' // validate employer/sponsor licence
+  | 'lodge_application' // e-lodge a visa application
+  | 'screening' // run sanctions/watchlist screening
+  | 'sar_filing' // file a suspicious activity report
   | 'document_verification' // verify document authenticity
   | 'identity_verification' // verify identity against national register
-  | 'vevo_check'           // AU-specific VEVO visa entitlement check
-  | 'right_to_work'        // UK-specific share-code right-to-work/rent check
-  | 'visa_view';           // NZ-specific VisaView visa entitlement check
+  | 'vevo_check' // AU-specific VEVO visa entitlement check
+  | 'right_to_work' // UK-specific share-code right-to-work/rent check
+  | 'visa_view'; // NZ-specific VisaView visa entitlement check

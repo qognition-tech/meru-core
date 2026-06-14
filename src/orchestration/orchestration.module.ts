@@ -8,7 +8,13 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [forwardRef(() => CrmModule), SearchModule, forwardRef(() => AiModule), AnalyticsModule, AuditModule],
+  imports: [
+    forwardRef(() => CrmModule),
+    SearchModule,
+    forwardRef(() => AiModule),
+    AnalyticsModule,
+    AuditModule,
+  ],
   controllers: [OrchestrationController],
   providers: [OrchestrationService],
   exports: [OrchestrationService],

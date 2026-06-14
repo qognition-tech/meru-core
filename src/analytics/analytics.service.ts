@@ -19,6 +19,7 @@ import {
   WidgetType,
 } from './entities/dashboard-widget.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 
@@ -52,6 +53,7 @@ export class AnalyticsService {
     private searchService: SearchService,
     @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   // ==================== REPORT BUILDER ====================
@@ -460,13 +462,28 @@ export class AnalyticsService {
         try {
           this.logger.log(`Executing scheduled report: ${report.id}`);
 
-          const result = await this.executeReport(report.tenantId, 'system', {
+          const format: 'csv' | 'xlsx' | 'pdf' = schedule.format ?? 'csv';
+          const exported = await this.exportReport(
+            report.tenantId,
+            report.id,
+            format,
+          );
+
+          // Emit event so any registered listener (e.g. COM module) can
+          // deliver the export to the schedule.recipients list.
+          this.eventEmitter.emit('analytics.report.ready', {
+            tenantId: report.tenantId,
             reportId: report.id,
-            format: schedule.format,
+            reportName: report.name,
+            format,
+            fileUrl: exported.fileUrl,
+            mimeType: exported.mimeType,
+            recipients: schedule.recipients ?? [],
           });
 
-          // TODO: Send email to recipients
-          this.logger.log(`Report ${report.id} executed successfully`);
+          this.logger.log(
+            `Scheduled report ${report.id} executed and emitted (format=${format})`,
+          );
         } catch (error) {
           this.logger.error(
             `Failed to execute scheduled report ${report.id}:`,
@@ -483,14 +500,77 @@ export class AnalyticsService {
     tenantId: string,
     reportId: string,
     format: 'csv' | 'xlsx' | 'pdf',
-  ): Promise<{ fileUrl: string }> {
-    const report = await this.getReport(reportId, tenantId);
+  ): Promise<{ fileUrl: string; data?: string; mimeType: string }> {
     const result = await this.executeReport(tenantId, 'system', { reportId });
+    const rows: Record<string, any>[] = Array.isArray(result.data)
+      ? result.data
+      : [];
 
-    // TODO: Implement actual export logic
-    // For now, return a placeholder
-    return {
-      fileUrl: `/api/analytics/reports/${reportId}/download`,
+    switch (format) {
+      case 'csv': {
+        const csv = this.rowsToCsv(rows);
+        // Return as RFC 2397 data URI so the caller can stream or store without
+        // a second round-trip. For large datasets wire storage.service.ts instead.
+        const b64 = Buffer.from(csv, 'utf8').toString('base64');
+        return {
+          fileUrl: `data:text/csv;base64,${b64}`,
+          data: csv,
+          mimeType: 'text/csv',
+        };
+      }
+
+      case 'xlsx': {
+        // XLSX requires an external library (e.g. exceljs). Return CSV with an
+        // appropriate header until the library is added as a dependency.
+        const csv = this.rowsToCsv(rows);
+        const b64 = Buffer.from(csv, 'utf8').toString('base64');
+        this.logger.warn(
+          `exportReport: xlsx requested but exceljs not installed — returning CSV`,
+        );
+        return {
+          fileUrl: `data:text/csv;base64,${b64}`,
+          data: csv,
+          mimeType: 'text/csv',
+        };
+      }
+
+      case 'pdf': {
+        // PDF generation requires puppeteer or pdfmake. Return JSON until wired.
+        const json = JSON.stringify(rows, null, 2);
+        const b64 = Buffer.from(json, 'utf8').toString('base64');
+        this.logger.warn(
+          `exportReport: pdf requested but no PDF library installed — returning JSON`,
+        );
+        return {
+          fileUrl: `data:application/json;base64,${b64}`,
+          data: json,
+          mimeType: 'application/json',
+        };
+      }
+
+      default:
+        throw new BadRequestException(`Unsupported export format: ${format}`);
+    }
+  }
+
+  // ── CSV helpers ─────────────────────────────────────────────────────────────
+
+  private rowsToCsv(rows: Record<string, any>[]): string {
+    if (rows.length === 0) return '';
+
+    const headers = Object.keys(rows[0]);
+    const escape = (v: unknown): string => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
     };
+
+    const lines = [
+      headers.map(escape).join(','),
+      ...rows.map((row) => headers.map((h) => escape(row[h])).join(',')),
+    ];
+
+    return lines.join('\r\n');
   }
 }

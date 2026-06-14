@@ -20,6 +20,7 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningController } from './tenant-provisioning.controller';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { AuditModule } from '../audit/audit.module';
+import { SamlService } from './services/saml.service';
 
 @Module({
   imports: [
@@ -45,8 +46,8 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [IamController, TenantProvisioningController],
-  providers: [IamService, JwtStrategy, PolicyGuard, TenantProvisioningService],
-  exports: [IamService, PolicyGuard, JwtStrategy],
+  providers: [IamService, JwtStrategy, PolicyGuard, TenantProvisioningService, SamlService],
+  exports: [IamService, PolicyGuard, JwtStrategy, SamlService],
 })
 export class IamModule {
   configure(consumer: any) {

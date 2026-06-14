@@ -8,6 +8,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import * as https from 'https';
+import * as http from 'http';
+import * as crypto from 'crypto';
 import {
   Workflow,
   WorkflowStatus,
@@ -26,6 +29,15 @@ import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import {
+  NotificationsService,
+  SendNotificationOptions,
+} from '../notifications/notifications.service';
+import {
+  NotificationType,
+  NotificationCategory,
+} from '../notifications/entities/notification.entity';
+import { TaskService, CreateTaskDto } from '../tasks/task.service';
 
 export interface TransitionRequest {
   instanceId: string;
@@ -77,6 +89,8 @@ export class WorkflowEngineService {
     private aiService: AiService,
     @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
+    private notificationsService: NotificationsService,
+    private taskService: TaskService,
   ) {}
 
   // ==================== WORKFLOW DEFINITION ====================
@@ -426,7 +440,26 @@ export class WorkflowEngineService {
           slaViolations: instance.slaViolations,
         });
 
-        // TODO: Send notifications based on escalation.notify
+        // Notify the escalation.notify list
+        if (escalation.notify?.length) {
+          for (const recipientId of escalation.notify as string[]) {
+            await this.notificationsService.sendNotification({
+              tenantId: instance.tenantId,
+              type: NotificationType.IN_APP,
+              recipientId,
+              subject: `SLA Escalation Level ${escalationLevel}`,
+              content: `Workflow instance ${instance.id} has breached its SLA and has been escalated to level ${escalationLevel}.`,
+              category: NotificationCategory.WORKFLOW,
+              metadata: {
+                workflowInstanceId: instance.id,
+                escalationLevel,
+                action: escalation.action,
+              },
+            }).catch((e) =>
+              this.logger.error(`SLA notification failed for ${recipientId}: ${e}`),
+            );
+          }
+        }
       }
     }
   }
@@ -488,21 +521,166 @@ export class WorkflowEngineService {
       try {
         switch (action.type) {
           case 'notification':
-            this.logger.log(`Sending notification: ${action.config.message}`);
+            await this.executeNotificationAction(action.config, instance);
             break;
           case 'webhook':
-            this.logger.log(`Calling webhook: ${action.config.url}`);
+            await this.executeWebhookAction(action.config, instance);
             break;
           case 'task':
-            this.logger.log(`Creating task: ${action.config.title}`);
+            await this.executeTaskAction(action.config, instance);
             break;
           default:
-            this.logger.log(`Action type ${action.type} not implemented`);
+            this.logger.warn(`Unknown workflow action type: ${action.type}`);
         }
       } catch (error) {
-        this.logger.error(`Failed to execute action: ${action.type}`, error);
+        this.logger.error(`Failed to execute action '${action.type}': ${error}`);
       }
     }
+  }
+
+  private async executeNotificationAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    const recipientId = config.recipientId ?? instance.startedBy;
+    if (!recipientId) return;
+
+    const options: SendNotificationOptions = {
+      tenantId: instance.tenantId,
+      type: (config.channel as NotificationType) ?? NotificationType.IN_APP,
+      recipientId,
+      subject: config.subject ?? 'Workflow Update',
+      content: this.interpolateTemplate(
+        config.message ?? config.content ?? 'Your workflow has been updated.',
+        instance.context,
+      ),
+      category: (config.category as NotificationCategory) ?? NotificationCategory.WORKFLOW,
+      metadata: {
+        workflowInstanceId: instance.id,
+        workflowId: instance.workflowId,
+        entityId: instance.entityId,
+        entityType: instance.entityType,
+      },
+    };
+
+    await this.notificationsService.sendNotification(options);
+    this.logger.log(`Workflow notification sent to ${recipientId} for instance ${instance.id}`);
+  }
+
+  private async executeWebhookAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    const { url, method = 'POST', headers = {}, secretHeader } = config;
+    if (!url) {
+      this.logger.warn(`Webhook action missing url for instance ${instance.id}`);
+      return;
+    }
+
+    const payload = JSON.stringify({
+      event: 'workflow.action',
+      instanceId: instance.id,
+      workflowId: instance.workflowId,
+      tenantId: instance.tenantId,
+      entityId: instance.entityId,
+      entityType: instance.entityType,
+      currentState: instance.currentState?.name,
+      context: instance.context,
+      timestamp: new Date().toISOString(),
+    });
+
+    const requestHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(payload)),
+      'X-Meru-Source': 'workflow-engine',
+      ...headers,
+    };
+
+    if (secretHeader) {
+      const hmac = crypto
+        .createHmac('sha256', secretHeader)
+        .update(payload)
+        .digest('hex');
+      requestHeaders['X-Meru-Signature'] = `sha256=${hmac}`;
+    }
+
+    await this.fireWebhook(url, method, requestHeaders, payload);
+    this.logger.log(`Webhook fired: ${method} ${url} for instance ${instance.id}`);
+  }
+
+  private fireWebhook(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const lib = parsed.protocol === 'https:' ? https : http;
+
+      const req = lib.request(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port,
+          path: parsed.pathname + parsed.search,
+          method: method.toUpperCase(),
+          headers,
+          timeout: 10_000,
+        },
+        (res) => {
+          res.resume(); // drain response
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`Webhook returned HTTP ${res.statusCode}`));
+          } else {
+            resolve();
+          }
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Webhook request timed out after 10s'));
+      });
+      req.on('error', reject);
+
+      req.write(body);
+      req.end();
+    });
+  }
+
+  private async executeTaskAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    if (!config.title) {
+      this.logger.warn(`Task action missing title for instance ${instance.id}`);
+      return;
+    }
+
+    const taskDto: CreateTaskDto = {
+      title: this.interpolateTemplate(config.title, instance.context),
+      description: config.description
+        ? this.interpolateTemplate(config.description, instance.context)
+        : undefined,
+      assignedTo: config.assignedTo ?? instance.startedBy,
+      assignedBy: 'system',
+      entityId: instance.entityId,
+      entityType: instance.entityType,
+      workflowInstanceId: instance.id,
+      dueDate: config.dueDays
+        ? new Date(Date.now() + config.dueDays * 86_400_000)
+        : undefined,
+    };
+
+    await this.taskService.createTask(instance.tenantId, taskDto);
+    this.logger.log(`Task created via workflow action for instance ${instance.id}`);
+  }
+
+  // Simple {{key}} template interpolation from workflow context
+  private interpolateTemplate(template: string, context: Record<string, any>): string {
+    return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+      context?.[key] !== undefined ? String(context[key]) : `{{${key}}}`,
+    );
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================

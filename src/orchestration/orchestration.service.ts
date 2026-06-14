@@ -2,6 +2,34 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { CrmService } from '../crm/crm.service';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
+import { PromptCategory } from '../ai/entities/ai-prompt.entity';
+import { VerticalType } from '../iam/enums/vertical.enum';
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function errorStack(error: unknown): string | undefined {
+  return error instanceof Error ? error.stack : undefined;
+}
+
+interface CategorizationResult {
+  primary?: string;
+  confidence?: number;
+  tags?: string[];
+}
+
+interface InsightsResult {
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical';
+  completeness?: number;
+  actions?: string[];
+}
+
+export interface IntelligentSearchResponse {
+  results: unknown;
+  method: 'semantic' | 'keyword';
+  enriched: boolean;
+}
 
 export interface EntityCreatedEvent {
   entityType: string;
@@ -47,7 +75,7 @@ export class OrchestrationService {
       searchType?: 'semantic' | 'keyword' | 'hybrid';
       limit?: number;
     } = {},
-  ): Promise<any> {
+  ): Promise<IntelligentSearchResponse | unknown[]> {
     this.logger.log(`Performing intelligent search: ${query}`, { options });
 
     const searchLimit = options.limit || 20;
@@ -105,7 +133,7 @@ export class OrchestrationService {
       }
 
       const categoryAnalysis = await this.aiService.execute({
-        category: 'data_extraction' as any,
+        category: PromptCategory.DATA_EXTRACTION,
         key: 'entity_categorization',
         input: JSON.stringify({
           entityType,
@@ -113,19 +141,23 @@ export class OrchestrationService {
         }),
         context: {
           tenantId,
-          vertical: entity.verticalAttributes?.vertical || 'default',
+          vertical:
+            (entity.verticalAttributes?.vertical as string | undefined) ||
+            'default',
         },
       });
 
-      const categories = JSON.parse(categoryAnalysis.result);
+      const categories = JSON.parse(
+        categoryAnalysis.result,
+      ) as CategorizationResult;
 
       return {
         primaryCategory: categories.primary || 'uncategorized',
         confidence: categories.confidence || 0.5,
         suggestedTags: categories.tags || [],
       };
-    } catch (error: any) {
-      this.logger.error(`Auto-categorization failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`Auto-categorization failed: ${errorMessage(error)}`);
 
       return {
         primaryCategory: 'uncategorized',
@@ -157,21 +189,23 @@ export class OrchestrationService {
           ...entity,
           verticalAttributes: {
             ...entity.verticalAttributes,
-            vertical: entity.verticalAttributes?.vertical || 'immigration',
+            vertical:
+              (entity.verticalAttributes?.vertical as string | undefined) ||
+              'immigration',
           },
         },
-        'immigration' as any,
+        VerticalType.IMMIGRATION,
       );
 
-      const parsedInsights = JSON.parse(insights.result);
+      const parsedInsights = JSON.parse(insights.result) as InsightsResult;
 
       return {
         riskLevel: parsedInsights.riskLevel || 'low',
         completeness: parsedInsights.completeness || 0,
         suggestedActions: parsedInsights.actions || [],
       };
-    } catch (error: any) {
-      this.logger.error(`Insight extraction failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`Insight extraction failed: ${errorMessage(error)}`);
 
       return {
         riskLevel: 'low',
@@ -192,18 +226,26 @@ export class OrchestrationService {
     this.logger.log(`Bulk indexing ${entityIds.length} entities`);
 
     const results = await Promise.allSettled(
-      entityIds.map(async (entityId) => {
-        try {
-          const entity = await this.crmService.findEntityById(entityId);
-          if (entity) {
-            await this.searchService.indexEntityData(entity);
-            return { entityId, success: true };
+      entityIds.map(
+        async (
+          entityId,
+        ): Promise<{
+          entityId: string;
+          success: boolean;
+          error?: unknown;
+        }> => {
+          try {
+            const entity = await this.crmService.findEntityById(entityId);
+            if (entity) {
+              await this.searchService.indexEntityData(entity);
+              return { entityId, success: true };
+            }
+            return { entityId, success: false, error: 'Entity not found' };
+          } catch (error) {
+            return { entityId, success: false, error };
           }
-          return { entityId, success: false, error: 'Entity not found' };
-        } catch (error) {
-          return { entityId, success: false, error };
-        }
-      }),
+        },
+      ),
     );
 
     const indexed = results.filter(
@@ -220,8 +262,8 @@ export class OrchestrationService {
           r.status === 'rejected' ||
           (r.status === 'fulfilled' && !r.value.success),
       )
-      .map((r) =>
-        r.status === 'rejected' ? r.reason : (r.value as any)?.error,
+      .map((r): unknown =>
+        r.status === 'rejected' ? (r.reason as unknown) : r.value.error,
       );
 
     this.logger.log(
@@ -238,10 +280,10 @@ export class OrchestrationService {
         await this.searchService.indexEntityData(entity);
         this.logger.debug(`Entity indexed for search: ${event.entityId}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.logger.error(
-        `Failed to index entity ${event.entityId}: ${error.message}`,
-        error.stack,
+        `Failed to index entity ${event.entityId}: ${errorMessage(error)}`,
+        errorStack(error),
       );
     }
   }
@@ -255,19 +297,20 @@ export class OrchestrationService {
           entityId: event.entityId,
           ...event.metadata,
         },
-        'immigration' as any,
+        VerticalType.IMMIGRATION,
       );
 
       this.logger.debug(`Entity analyzed with AI: ${event.entityId}`);
-    } catch (error: any) {
-      if (error.message?.includes('OPENAI_API_KEY not set')) {
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      if (message.includes('OPENAI_API_KEY not set')) {
         this.logger.debug(
           `AI analysis skipped (no API key): ${event.entityId}`,
         );
       } else {
         this.logger.error(
-          `AI analysis failed for entity ${event.entityId}: ${error.message}`,
-          error.stack,
+          `AI analysis failed for entity ${event.entityId}: ${message}`,
+          errorStack(error),
         );
       }
     }
@@ -295,28 +338,28 @@ export class OrchestrationService {
   }
 
   private async enrichWithAIAnalysis(
-    results: any[],
+    results: unknown[],
     query: string,
-  ): Promise<any[]> {
+  ): Promise<unknown[]> {
     try {
       const enriched = await Promise.all(
         results.slice(0, 5).map(async (result) => {
           const insights = await this.aiService.execute({
-            category: 'data_extraction' as any,
+            category: PromptCategory.DATA_EXTRACTION,
             key: 'search_result_enrichment',
             input: JSON.stringify({ result, originalQuery: query }),
           });
 
           return {
-            ...result,
-            aiInsights: JSON.parse(insights.result),
+            ...(result as Record<string, unknown>),
+            aiInsights: JSON.parse(insights.result) as unknown,
           };
         }),
       );
 
       return [...enriched, ...results.slice(5)];
-    } catch (error: any) {
-      this.logger.error(`AI enrichment failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`AI enrichment failed: ${errorMessage(error)}`);
       return results;
     }
   }

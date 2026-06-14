@@ -218,9 +218,9 @@ export class NotificationsController {
         req.user.tenantId,
         req.user.id,
         {
-          type: query.type as any,
-          status: query.status as any,
-          category: query.category as any,
+          type: query.type,
+          status: query.status,
+          category: query.category,
           isRead: query.isRead,
           page: query.page,
           limit: query.limit,

@@ -1,11 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  createClient,
+  type PostgrestSingleResponse,
+} from '@supabase/supabase-js';
 
 @Injectable()
 export class SupabaseConfigService implements OnModuleInit {
   private readonly logger = new Logger(SupabaseConfigService.name);
-  private _client!: SupabaseClient;
+  private _client!: ReturnType<typeof createClient>;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -27,15 +30,12 @@ export class SupabaseConfigService implements OnModuleInit {
         autoRefreshToken: false,
         persistSession: false,
       },
-      db: {
-        schema: 'public',
-      },
     });
 
     this.logger.log('Supabase client initialized successfully');
   }
 
-  get client(): SupabaseClient {
+  get client(): ReturnType<typeof createClient> {
     if (!this._client) {
       throw new Error(
         'Supabase client not initialized. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.',
@@ -44,7 +44,7 @@ export class SupabaseConfigService implements OnModuleInit {
     return this._client;
   }
 
-  get adminClient(): SupabaseClient {
+  get adminClient(): ReturnType<typeof createClient> {
     return this.client;
   }
 
@@ -52,11 +52,15 @@ export class SupabaseConfigService implements OnModuleInit {
     fn: string,
     params?: Record<string, unknown>,
   ): Promise<T> {
-    const { data, error } = await this.client.rpc(fn, params);
+    const rpc = this.client.rpc.bind(this.client) as (
+      fn: string,
+      params?: Record<string, unknown>,
+    ) => Promise<PostgrestSingleResponse<T>>;
+    const { data, error } = await rpc(fn, params);
     if (error) {
       throw error;
     }
-    return data as T;
+    return data;
   }
 
   async query(fn: string, params?: Record<string, unknown>): Promise<unknown> {

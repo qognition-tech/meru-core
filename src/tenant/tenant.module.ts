@@ -30,7 +30,11 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [TenantController, ConfigPackController],
-  providers: [TenantSettingsService, ConfigPackService, ConfigPackLoaderService],
+  providers: [
+    TenantSettingsService,
+    ConfigPackService,
+    ConfigPackLoaderService,
+  ],
   exports: [TenantSettingsService, ConfigPackService],
 })
 export class TenantModule {}

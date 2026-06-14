@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import { EntityType } from '../crm/entities/universal-entity.entity';
 
 // ============================================================
@@ -145,6 +146,14 @@ export interface TenantInfo {
 
 export interface AuthenticatedUser extends UserPayload {
   tenant: TenantInfo;
+}
+
+/**
+ * Express request after the JWT/API-key guard has populated `req.user`.
+ * Use in controllers handling authenticated routes so `req.user` is typed.
+ */
+export interface AuthenticatedRequest extends Request {
+  user: UserPayload;
 }
 
 export interface CreateUserInput {

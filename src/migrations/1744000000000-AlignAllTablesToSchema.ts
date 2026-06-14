@@ -1,10 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableForeignKey,
-  TableIndex,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AlignAllTablesToSchema1744000000000 implements MigrationInterface {
   name = 'AlignAllTablesToSchema1744000000000';

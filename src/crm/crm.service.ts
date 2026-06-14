@@ -1,13 +1,9 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  UniversalEntity,
-  EntityType,
-} from './entities/universal-entity.entity';
+import { UniversalEntity } from './entities/universal-entity.entity';
 import { TenantSettingsService } from '../tenant/tenant-settings.service';
 import { SearchService } from '../search/search.service';
-import { VerticalType } from '../iam/enums/vertical.enum';
 import { CreateEntityInput } from '../common/types';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
@@ -73,18 +69,15 @@ export class CrmService {
       });
 
       return savedEntity;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof BadRequestException) {
         throw error;
       }
 
-      this.logger.error(
-        `Failed to create entity: ${error.message}`,
-        error.stack,
-      );
-      throw new BadRequestException(
-        `Failed to create entity: ${error.message}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Failed to create entity: ${message}`, stack);
+      throw new BadRequestException(`Failed to create entity: ${message}`);
     }
   }
 

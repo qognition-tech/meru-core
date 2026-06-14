@@ -14,11 +14,11 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import type { Request as ExpressRequest } from 'express';
 import { CrmService } from './crm.service';
 import { CreateEntityDto } from './dto/create-entity.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
-import { SearchService } from '../search/search.service';
-import { OnModuleInit } from '@nestjs/common'; // Use our Context-Aware Guard
+import { UserPayload } from '../common/types';
 
 @Controller('crm')
 @ApiTags('crm')
@@ -33,9 +33,10 @@ export class CrmController {
   @ApiResponse({ status: 201, description: 'Entity created successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
-  createEntity(@Request() req, @Body() dto: CreateEntityDto) {
+  createEntity(@Request() req: ExpressRequest, @Body() dto: CreateEntityDto) {
     // req.user comes from JWT (has tenantId and vertical)
-    return this.crmService.createEntity(req.user.tenantId, dto);
+    const user = req.user as UserPayload;
+    return this.crmService.createEntity(user.tenantId, dto);
   }
 
   @Get('entities')
@@ -44,8 +45,9 @@ export class CrmController {
   @ApiOperation({ summary: 'Get all CRM entities for the tenant' })
   @ApiResponse({ status: 200, description: 'Entities retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getEntities(@Request() req) {
+  getEntities(@Request() req: ExpressRequest) {
     // Return entities for the user's tenant
-    return this.crmService.getEntitiesByTenant(req.user.tenantId);
+    const user = req.user as UserPayload;
+    return this.crmService.getEntitiesByTenant(user.tenantId);
   }
 }

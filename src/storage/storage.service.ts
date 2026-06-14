@@ -772,7 +772,8 @@ export class StorageService {
     if (updates.metadata !== undefined) file.metadata = updates.metadata;
     if (updates.tags !== undefined) file.tags = updates.tags;
     if (updates.access !== undefined) file.access = updates.access;
-    if (updates.status !== undefined) file.status = updates.status as FileStatus;
+    if (updates.status !== undefined)
+      file.status = updates.status as FileStatus;
 
     if (updates.storageClass && updates.storageClass !== file.storageClass) {
       const provider = this.getProviderInstance(tenantId);

@@ -224,7 +224,7 @@ export class IamService {
 
     // Update login stats
     await this.userRepo.increment({ id: user.id }, 'loginCount', 1);
-    await this.userRepo.update(user.id, { lastLoginAt: new Date() as any });
+    await this.userRepo.update(user.id, { lastLoginAt: new Date() });
 
     return tokens;
   }
@@ -424,7 +424,7 @@ export class IamService {
       >
     >,
   ) {
-    await this.userRepo.update(userId, updates as any);
+    await this.userRepo.update(userId, updates);
     return this.getProfile(userId);
   }
 

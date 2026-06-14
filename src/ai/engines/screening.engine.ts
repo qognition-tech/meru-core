@@ -13,7 +13,13 @@ export interface ScreeningRequest {
   identities?: Array<{
     field: string;
     value: string;
-    type: 'name' | 'alias' | 'document' | 'address' | 'date_of_birth' | 'nationality';
+    type:
+      | 'name'
+      | 'alias'
+      | 'document'
+      | 'address'
+      | 'date_of_birth'
+      | 'nationality';
   }>;
   // Allow caller to supply a custom watchlist for this request
   customWatchlist?: WatchlistEntry[];
@@ -48,7 +54,12 @@ export interface ScreeningHit {
   source: string;
   matchName: string;
   matchScore: number; // 0-1
-  algorithm: 'exact' | 'levenshtein' | 'jaro_winkler' | 'soundex' | 'transliteration';
+  algorithm:
+    | 'exact'
+    | 'levenshtein'
+    | 'jaro_winkler'
+    | 'soundex'
+    | 'transliteration';
   details: string;
   severity: 'info' | 'warning' | 'alert';
   listEntry?: WatchlistEntry;
@@ -74,14 +85,60 @@ export interface WatchlistEntry {
 // In production these are replaced by live-feed adapters in the INT module.
 const BUILTIN_WATCHLISTS: WatchlistEntry[] = [
   // OFAC SDN samples
-  { id: 'ofac-001', name: 'Al-Shabaab', aliases: ['Al Shabaab', 'Harakat al-Shabaab'], type: 'organization', listSource: 'ofac', country: 'SO', programs: ['SDGT'] },
-  { id: 'ofac-002', name: 'Hezbollah', aliases: ['Hizballah', 'Hizbullah', 'Party of God'], type: 'organization', listSource: 'ofac', country: 'LB', programs: ['SDGT', 'LEBANON'] },
-  { id: 'ofac-003', name: 'Kim Jong Un', aliases: ['Kim Jong-un', 'Kim Jongun'], type: 'individual', listSource: 'ofac', country: 'KP', dateOfBirth: '1984-01-08', programs: ['DPRK3'] },
+  {
+    id: 'ofac-001',
+    name: 'Al-Shabaab',
+    aliases: ['Al Shabaab', 'Harakat al-Shabaab'],
+    type: 'organization',
+    listSource: 'ofac',
+    country: 'SO',
+    programs: ['SDGT'],
+  },
+  {
+    id: 'ofac-002',
+    name: 'Hezbollah',
+    aliases: ['Hizballah', 'Hizbullah', 'Party of God'],
+    type: 'organization',
+    listSource: 'ofac',
+    country: 'LB',
+    programs: ['SDGT', 'LEBANON'],
+  },
+  {
+    id: 'ofac-003',
+    name: 'Kim Jong Un',
+    aliases: ['Kim Jong-un', 'Kim Jongun'],
+    type: 'individual',
+    listSource: 'ofac',
+    country: 'KP',
+    dateOfBirth: '1984-01-08',
+    programs: ['DPRK3'],
+  },
   // UN samples
-  { id: 'un-001', name: 'Islamic State', aliases: ['ISIS', 'ISIL', 'Daesh', 'Da\'esh'], type: 'organization', listSource: 'un', programs: ['1267'] },
-  { id: 'un-002', name: 'Al-Qaida', aliases: ['Al Qaeda', 'Al-Qaeda', 'AQ'], type: 'organization', listSource: 'un', programs: ['1267'] },
+  {
+    id: 'un-001',
+    name: 'Islamic State',
+    aliases: ['ISIS', 'ISIL', 'Daesh', "Da'esh"],
+    type: 'organization',
+    listSource: 'un',
+    programs: ['1267'],
+  },
+  {
+    id: 'un-002',
+    name: 'Al-Qaida',
+    aliases: ['Al Qaeda', 'Al-Qaeda', 'AQ'],
+    type: 'organization',
+    listSource: 'un',
+    programs: ['1267'],
+  },
   // UAE local samples
-  { id: 'uae-001', name: 'Muslim Brotherhood', aliases: ['Al-Ikhwan al-Muslimun', 'Ikhwan'], type: 'organization', listSource: 'uae_local', programs: ['UAE_TERROR'] },
+  {
+    id: 'uae-001',
+    name: 'Muslim Brotherhood',
+    aliases: ['Al-Ikhwan al-Muslimun', 'Ikhwan'],
+    type: 'organization',
+    listSource: 'uae_local',
+    programs: ['UAE_TERROR'],
+  },
 ];
 
 // ── ScreeningEngine ───────────────────────────────────────────────────────
@@ -93,7 +150,10 @@ export class ScreeningEngine {
   // Sub-200ms p95 target: all matching is in-process (no network I/O per name).
   // Live list ingestion happens asynchronously via the INT module.
 
-  async screen(request: ScreeningRequest, threshold = 0.85): Promise<ScreeningResult> {
+  async screen(
+    request: ScreeningRequest,
+    threshold = 0.85,
+  ): Promise<ScreeningResult> {
     const startMs = Date.now();
     const screeningId = `scr_${crypto.randomUUID()}`;
     const hits: ScreeningHit[] = [];
@@ -107,7 +167,12 @@ export class ScreeningEngine {
     for (const name of namesToCheck) {
       for (const entry of watchlist) {
         const bestMatch = this.matchAgainstEntry(name, entry, threshold);
-        if (bestMatch) hits.push({ ...bestMatch, type: this.entryToScreeningType(entry), timestamp: new Date() });
+        if (bestMatch)
+          hits.push({
+            ...bestMatch,
+            type: this.entryToScreeningType(entry),
+            timestamp: new Date(),
+          });
       }
     }
 
@@ -151,12 +216,15 @@ export class ScreeningEngine {
     entry: WatchlistEntry,
     threshold: number,
   ): Omit<ScreeningHit, 'type' | 'timestamp'> | null {
-    const candidates = [
-      entry.name,
-      ...(entry.aliases ?? []),
-    ].map((c) => this.normalise(c));
+    const candidates = [entry.name, ...(entry.aliases ?? [])].map((c) =>
+      this.normalise(c),
+    );
 
-    let best: { score: number; algorithm: ScreeningHit['algorithm']; candidate: string } | null = null;
+    let best: {
+      score: number;
+      algorithm: ScreeningHit['algorithm'];
+      candidate: string;
+    } | null = null;
 
     for (const candidate of candidates) {
       // 1. Exact
@@ -174,16 +242,19 @@ export class ScreeningEngine {
 
       // 2. Jaro-Winkler (best for names — prefix-sensitive)
       const jw = this.jaroWinkler(name, candidate);
-      if (jw > (best?.score ?? 0)) best = { score: jw, algorithm: 'jaro_winkler', candidate };
+      if (jw > (best?.score ?? 0))
+        best = { score: jw, algorithm: 'jaro_winkler', candidate };
 
       // 3. Levenshtein ratio (good for OCR errors, typos)
       const lev = this.levenshteinRatio(name, candidate);
-      if (lev > (best?.score ?? 0)) best = { score: lev, algorithm: 'levenshtein', candidate };
+      if (lev > (best?.score ?? 0))
+        best = { score: lev, algorithm: 'levenshtein', candidate };
 
       // 4. Soundex (catches phonetic variations)
       if (this.soundex(name) === this.soundex(candidate) && name.length > 2) {
-        const soundexScore = 0.80; // below exact but above random
-        if (soundexScore > (best?.score ?? 0)) best = { score: soundexScore, algorithm: 'soundex', candidate };
+        const soundexScore = 0.8; // below exact but above random
+        if (soundexScore > (best?.score ?? 0))
+          best = { score: soundexScore, algorithm: 'soundex', candidate };
       }
 
       // 5. Transliteration — Arabic/Latin normalisation
@@ -191,7 +262,8 @@ export class ScreeningEngine {
       const translitCandidate = this.transliterateArabic(candidate);
       if (translitName !== name || translitCandidate !== candidate) {
         const tJw = this.jaroWinkler(translitName, translitCandidate);
-        if (tJw > (best?.score ?? 0)) best = { score: tJw, algorithm: 'transliteration', candidate };
+        if (tJw > (best?.score ?? 0))
+          best = { score: tJw, algorithm: 'transliteration', candidate };
       }
     }
 
@@ -253,7 +325,10 @@ export class ScreeningEngine {
     }
 
     return (
-      (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3
+      (matches / s1.length +
+        matches / s2.length +
+        (matches - transpositions / 2) / matches) /
+      3
     );
   }
 
@@ -293,11 +368,23 @@ export class ScreeningEngine {
     if (!s) return '0000';
 
     const codes: Record<string, string> = {
-      B: '1', F: '1', P: '1', V: '1',
-      C: '2', G: '2', J: '2', K: '2', Q: '2', S: '2', X: '2', Z: '2',
-      D: '3', T: '3',
+      B: '1',
+      F: '1',
+      P: '1',
+      V: '1',
+      C: '2',
+      G: '2',
+      J: '2',
+      K: '2',
+      Q: '2',
+      S: '2',
+      X: '2',
+      Z: '2',
+      D: '3',
+      T: '3',
       L: '4',
-      M: '5', N: '5',
+      M: '5',
+      N: '5',
       R: '6',
     };
 
@@ -363,8 +450,13 @@ export class ScreeningEngine {
   private computeRisk(
     hits: ScreeningHit[],
     _request: ScreeningRequest,
-  ): { riskScore: number; riskLevel: ScreeningResult['riskLevel']; status: ScreeningResult['status'] } {
-    if (hits.length === 0) return { riskScore: 0, riskLevel: 'low', status: 'clear' };
+  ): {
+    riskScore: number;
+    riskLevel: ScreeningResult['riskLevel'];
+    status: ScreeningResult['status'];
+  } {
+    if (hits.length === 0)
+      return { riskScore: 0, riskLevel: 'low', status: 'clear' };
 
     const alertHits = hits.filter((h) => h.severity === 'alert');
     const warnHits = hits.filter((h) => h.severity === 'warning');
@@ -383,10 +475,19 @@ export class ScreeningEngine {
     let riskLevel: ScreeningResult['riskLevel'];
     let status: ScreeningResult['status'];
 
-    if (riskScore >= 75) { riskLevel = 'critical'; status = 'escalated'; }
-    else if (riskScore >= 50) { riskLevel = 'high'; status = 'hit'; }
-    else if (riskScore >= 25) { riskLevel = 'medium'; status = 'review_required'; }
-    else { riskLevel = 'low'; status = 'review_required'; }
+    if (riskScore >= 75) {
+      riskLevel = 'critical';
+      status = 'escalated';
+    } else if (riskScore >= 50) {
+      riskLevel = 'high';
+      status = 'hit';
+    } else if (riskScore >= 25) {
+      riskLevel = 'medium';
+      status = 'review_required';
+    } else {
+      riskLevel = 'low';
+      status = 'review_required';
+    }
 
     return { riskScore, riskLevel, status };
   }
@@ -402,35 +503,48 @@ export class ScreeningEngine {
   }
 
   private buildSummary(hits: ScreeningHit[], riskLevel: string): string {
-    if (hits.length === 0) return 'No matches found across configured watchlists.';
+    if (hits.length === 0)
+      return 'No matches found across configured watchlists.';
     const alerts = hits.filter((h) => h.severity === 'alert').length;
     const warnings = hits.filter((h) => h.severity === 'warning').length;
     return `${hits.length} match(es) found — ${alerts} alert(s), ${warnings} warning(s). Risk level: ${riskLevel.toUpperCase()}.`;
   }
 
-  private buildRecommendation(
-    riskLevel: string,
-    hits: ScreeningHit[],
-  ): string {
+  private buildRecommendation(riskLevel: string, hits: ScreeningHit[]): string {
     switch (riskLevel) {
-      case 'critical': return 'Immediate escalation required. Do not proceed without MLRO sign-off. File SAR if applicable.';
-      case 'high': return 'Refer to compliance officer for Enhanced Due Diligence (EDD). Do not onboard until cleared.';
-      case 'medium': return 'Flag for analyst review. Obtain additional identity documentation before proceeding.';
-      default: return hits.length > 0 ? 'Low confidence matches noted. Proceed with standard verification.' : 'No action required. Proceed normally.';
+      case 'critical':
+        return 'Immediate escalation required. Do not proceed without MLRO sign-off. File SAR if applicable.';
+      case 'high':
+        return 'Refer to compliance officer for Enhanced Due Diligence (EDD). Do not onboard until cleared.';
+      case 'medium':
+        return 'Flag for analyst review. Obtain additional identity documentation before proceeding.';
+      default:
+        return hits.length > 0
+          ? 'Low confidence matches noted. Proceed with standard verification.'
+          : 'No action required. Proceed normally.';
     }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private listMatchesTypes(entry: WatchlistEntry, types: ScreeningType[]): boolean {
-    if (types.includes('sanctions') && ['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource)) return true;
-    if (types.includes('watchlist') && entry.listSource === 'custom') return true;
+  private listMatchesTypes(
+    entry: WatchlistEntry,
+    types: ScreeningType[],
+  ): boolean {
+    if (
+      types.includes('sanctions') &&
+      ['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource)
+    )
+      return true;
+    if (types.includes('watchlist') && entry.listSource === 'custom')
+      return true;
     if (types.includes('pep') && entry.listSource === 'custom') return true;
-    return types.some((t) => t === entry.listSource as string);
+    return types.some((t) => t === (entry.listSource as string));
   }
 
   private entryToScreeningType(entry: WatchlistEntry): ScreeningType {
-    if (['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource)) return 'sanctions';
+    if (['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource))
+      return 'sanctions';
     if (entry.listSource === 'custom') return 'watchlist';
     return 'watchlist';
   }

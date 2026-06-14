@@ -30,7 +30,7 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
-import { Roles } from '../iam/decorators/roles.decorator';
+import type { AuthenticatedRequest } from '../common/types';
 
 @ApiTags('documents')
 @Controller('documents')
@@ -49,7 +49,7 @@ export class DocumentsController {
   async upload(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadDocumentDto,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
   ) {
     if (!file) {
       throw new BadRequestException('File is required');
@@ -76,7 +76,10 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Create a new document record (without file)' })
   @ApiResponse({ status: 201, description: 'Document created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  async create(@Body() dto: CreateDocumentDto, @Request() req) {
+  async create(
+    @Body() dto: CreateDocumentDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
     const document = await this.documentsService.create(
       dto,
       req.user.tenantId,
@@ -103,7 +106,7 @@ export class DocumentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('changeDescription') changeDescription: string,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
   ) {
     if (!file) {
       throw new BadRequestException('File is required');
@@ -133,7 +136,10 @@ export class DocumentsController {
   @ApiQuery({ name: 'query', required: false, description: 'Search query' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
-  async findAll(@Query() searchDto: SearchDocumentsDto, @Request() req) {
+  async findAll(
+    @Query() searchDto: SearchDocumentsDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
     const result = await this.documentsService.findAll(
       req.user.tenantId,
       searchDto,
@@ -157,7 +163,7 @@ export class DocumentsController {
   async findByEntity(
     @Param('entityType') entityType: string,
     @Param('entityId', ParseUUIDPipe) entityId: string,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
   ) {
     const result = await this.documentsService.findAll(req.user.tenantId, {
       linkedEntityType: entityType,
@@ -177,7 +183,10 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Get a document by ID' })
   @ApiResponse({ status: 200, description: 'Document retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Document not found' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     const document = await this.documentsService.findOne(
       id,
       req.user.tenantId,
@@ -196,7 +205,10 @@ export class DocumentsController {
     status: 200,
     description: 'Document versions retrieved successfully',
   })
-  async getVersions(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+  async getVersions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     const versions = await this.documentsService.getVersions(
       id,
       req.user.tenantId,
@@ -218,7 +230,7 @@ export class DocumentsController {
   async getVersion(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('versionId', ParseUUIDPipe) versionId: string,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
   ) {
     const version = await this.documentsService.getVersion(
       id,
@@ -241,7 +253,7 @@ export class DocumentsController {
   })
   async download(
     @Param('id', ParseUUIDPipe) id: string,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Query('versionId') versionId?: string,
   ) {
     const url = await this.documentsService.downloadUrl(
@@ -265,7 +277,7 @@ export class DocumentsController {
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDocumentDto,
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
   ) {
     const document = await this.documentsService.update(
       id,
@@ -285,7 +297,10 @@ export class DocumentsController {
   @ApiResponse({ status: 200, description: 'Document deleted successfully' })
   @ApiResponse({ status: 404, description: 'Document not found' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
-  async remove(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+  async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     await this.documentsService.remove(id, req.user.tenantId, req.user.id);
 
     return {
@@ -300,7 +315,10 @@ export class DocumentsController {
     status: 200,
     description: 'AI analysis triggered successfully',
   })
-  async analyze(@Param('id', ParseUUIDPipe) id: string, @Request() req) {
+  async analyze(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     await this.documentsService.triggerAIAnalysis(
       id,
       req.user.tenantId,

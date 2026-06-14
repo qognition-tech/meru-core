@@ -86,8 +86,14 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('AU_HOMEAFFAIRS_SANDBOX_URL', 'https://sandbox.immi.homeaffairs.gov.au/api')
-        : configService.get('AU_HOMEAFFAIRS_BASE_URL', 'https://immi.homeaffairs.gov.au/api'),
+        ? configService.get(
+            'AU_HOMEAFFAIRS_SANDBOX_URL',
+            'https://sandbox.immi.homeaffairs.gov.au/api',
+          )
+        : configService.get(
+            'AU_HOMEAFFAIRS_BASE_URL',
+            'https://immi.homeaffairs.gov.au/api',
+          ),
       authMethod: 'oauth2',
       credentials: {
         clientId: configService.get('AU_HOMEAFFAIRS_CLIENT_ID', ''),
@@ -137,7 +143,12 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -151,7 +162,12 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVisaStatus(visaNumber, passportNumber, requestId, start);
+      return this.sandboxVisaStatus(
+        visaNumber,
+        passportNumber,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -173,7 +189,13 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
       }
 
       const data = (await resp.json()) as VisaStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -204,7 +226,13 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as ApplicationStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -225,14 +253,23 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/sponsors/validate?abn=${encodeURIComponent(abn)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as SponsorValidationResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -251,23 +288,26 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
 
     try {
       const token = await this.getAccessToken();
-      const resp = await fetch(
-        `${this.config.baseUrl}/vevo/check`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'X-Request-ID': requestId,
-          },
-          body: JSON.stringify({ visaNumber, dateOfBirth }),
-          signal: AbortSignal.timeout(this.config.timeoutMs!),
+      const resp = await fetch(`${this.config.baseUrl}/vevo/check`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId,
         },
-      );
+        body: JSON.stringify({ visaNumber, dateOfBirth }),
+        signal: AbortSignal.timeout(this.config.timeoutMs!),
+      });
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as VevoCheckResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -294,10 +334,17 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
       }),
     });
 
-    if (!resp.ok) throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
 
-    const { access_token, expires_in } = (await resp.json()) as { access_token: string; expires_in: number };
-    this.tokenCache = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };
+    const { access_token, expires_in } = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    this.tokenCache = {
+      token: access_token,
+      expiresAt: Date.now() + expires_in * 1000,
+    };
     return access_token;
   }
 
@@ -351,8 +398,12 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
         stream: 'short-term',
         status: 'under_assessment',
         lodgedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-        lastUpdatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-        estimatedDecisionDate: new Date(Date.now() + 75 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        lastUpdatedAt: new Date(
+          Date.now() - 2 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        estimatedDecisionDate: new Date(Date.now() + 75 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0],
         outstandingRequirements: [],
       },
     };
@@ -406,7 +457,11 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
       error: {
@@ -420,7 +475,11 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`DHA API network error: ${msg}`);
     return {

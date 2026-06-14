@@ -7,17 +7,20 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, FindOptionsWhere } from 'typeorm';
 import {
   Document,
   DocumentStatus,
   DocumentType,
 } from './entities/document.entity';
 import { DocumentVersion } from './entities/document-version.entity';
-import { DocumentMetadata } from './entities/document-metadata.entity';
+import {
+  DocumentMetadata,
+  MetadataType,
+} from './entities/document-metadata.entity';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
-import { MetadataType } from './entities/document-metadata.entity';
+import { PromptCategory } from '../ai/entities/ai-prompt.entity';
 
 export interface DocumentAttachment {
   documentId: string;
@@ -34,6 +37,21 @@ export interface EntityDocumentsQuery {
   entityId: string;
   documentType?: DocumentType;
   status?: DocumentStatus;
+}
+
+/** Shape of a single global-search hit returned by the SearchService. */
+export interface DocumentSearchResult {
+  id: string;
+  type: string;
+  searchableId: string;
+  title: string;
+  snippet: string;
+  metadata?: {
+    linkedEntityType?: string;
+    linkedEntityId?: string;
+    [key: string]: unknown;
+  };
+  score: number;
 }
 
 @Injectable()
@@ -58,7 +76,7 @@ export class DocumentHubService {
    * Get all documents attached to any entity (CRM, Workflow, Task, Form, etc.)
    */
   async getEntityDocuments(query: EntityDocumentsQuery): Promise<Document[]> {
-    const where: any = {
+    const where: FindOptionsWhere<Document> = {
       tenantId: query.tenantId,
       linkedEntityType: query.entityType,
       linkedEntityId: query.entityId,
@@ -86,7 +104,7 @@ export class DocumentHubService {
     documentId: string,
     entityType: string,
     entityId: string,
-    userId: string,
+    _userId: string,
   ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId },
@@ -178,7 +196,7 @@ export class DocumentHubService {
       let aiSummary = '';
       try {
         const aiAnalysis = await this.aiService.execute({
-          category: 'document_analysis' as any,
+          category: 'document_analysis' as PromptCategory,
           key: 'document_summary',
           input: JSON.stringify({
             documentName: document.name,
@@ -188,7 +206,7 @@ export class DocumentHubService {
           context: { tenantId: document.tenantId },
         });
         aiSummary = aiAnalysis.result;
-      } catch (aiError) {
+      } catch {
         this.logger.debug(
           `AI analysis not available for document ${document.id}`,
         );
@@ -230,12 +248,16 @@ export class DocumentHubService {
       fileType?: DocumentType;
     },
     limit: number = 20,
-  ): Promise<any[]> {
-    const results = await this.searchService.search(tenantId, query, limit);
+  ): Promise<DocumentSearchResult[]> {
+    const results = (await this.searchService.search(
+      tenantId,
+      query,
+      limit,
+    )) as DocumentSearchResult[];
 
     // Filter by entity if specified
     if (filters?.entityType || filters?.entityId) {
-      return results.filter((result: any) => {
+      return results.filter((result) => {
         if (
           filters.entityType &&
           result.metadata?.linkedEntityType !== filters.entityType
@@ -260,7 +282,9 @@ export class DocumentHubService {
   /**
    * Analyze document with AI
    */
-  async analyzeDocument(documentId: string): Promise<any> {
+  async analyzeDocument(
+    documentId: string,
+  ): Promise<{ success: boolean; analysis: unknown }> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId },
     });
@@ -272,7 +296,7 @@ export class DocumentHubService {
     try {
       // Extract text content (placeholder - in production, use OCR or text extraction)
       const analysis = await this.aiService.execute({
-        category: 'document_analysis' as any,
+        category: 'document_analysis' as PromptCategory,
         key: 'document_extraction',
         input: JSON.stringify({
           documentId: document.id,
@@ -298,11 +322,12 @@ export class DocumentHubService {
 
       return {
         success: true,
-        analysis: JSON.parse(analysis.result),
+        analysis: JSON.parse(analysis.result) as unknown,
       };
-    } catch (error) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to analyze document: ${documentId}`, error);
-      throw new BadRequestException(`AI analysis failed: ${error.message}`);
+      throw new BadRequestException(`AI analysis failed: ${message}`);
     }
   }
 

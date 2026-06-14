@@ -15,8 +15,8 @@ export interface SanctionsScreeningResult {
   entityName: string;
   matchFound: boolean;
   matches: Array<{
-    listName: string;       // e.g. "UN", "OFAC", "UAE Local Terrorist List"
-    matchScore: number;     // 0-100
+    listName: string; // e.g. "UN", "OFAC", "UAE Local Terrorist List"
+    matchScore: number; // 0-100
     matchedName: string;
     matchedId?: string;
     sanctionsType: string;
@@ -38,9 +38,25 @@ export interface RegulatoryUpdate {
   urgency: 'immediate' | 'high' | 'medium' | 'low';
 }
 
+export interface STRFilingInput {
+  reportingEntityId: string;
+  subjectName: string;
+  subjectIdNumber?: string;
+  transactionDetails: string;
+  suspicionReason: string;
+  amount?: number;
+  currency?: string;
+  transactionDate?: string;
+}
+
 export interface STRFilingResult {
   filingId: string;
-  status: 'submitted' | 'acknowledged' | 'under_review' | 'accepted' | 'rejected';
+  status:
+    | 'submitted'
+    | 'acknowledged'
+    | 'under_review'
+    | 'accepted'
+    | 'rejected';
   acknowledgementNumber?: string;
   submittedAt: string;
   reviewedAt?: string;
@@ -78,7 +94,10 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('CBUAE_SANDBOX_URL', 'https://sandbox.api.centralbank.ae/v1')
+        ? configService.get(
+            'CBUAE_SANDBOX_URL',
+            'https://sandbox.api.centralbank.ae/v1',
+          )
         : configService.get('CBUAE_BASE_URL', 'https://api.centralbank.ae/v1'),
       authMethod: 'mtls',
       credentials: {
@@ -127,7 +146,12 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -135,13 +159,22 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
   async screenEntity(
     entityName: string,
-    entityDetails?: { nationality?: string; idNumber?: string; entityType?: string },
+    entityDetails?: {
+      nationality?: string;
+      idNumber?: string;
+      entityType?: string;
+    },
   ): Promise<AdapterResponse<SanctionsScreeningResult>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxScreenEntity(entityName, entityDetails, requestId, start);
+      return this.sandboxScreenEntity(
+        entityName,
+        entityDetails,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -154,7 +187,13 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as SanctionsScreeningResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -163,16 +202,7 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
   // ── STR/SAR Filing ──────────────────────────────────────────────────────
 
   async fileSTR(
-    filing: {
-      reportingEntityId: string;
-      subjectName: string;
-      subjectIdNumber?: string;
-      transactionDetails: string;
-      suspicionReason: string;
-      amount?: number;
-      currency?: string;
-      transactionDate?: string;
-    },
+    filing: STRFilingInput,
   ): Promise<AdapterResponse<STRFilingResult>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
@@ -191,7 +221,13 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as STRFilingResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -199,9 +235,11 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
   // ── Regulatory Updates ───────────────────────────────────────────────────
 
-  async getRegulatoryUpdates(
-    filters?: { category?: string; since?: string; limit?: number },
-  ): Promise<AdapterResponse<RegulatoryUpdate[]>> {
+  async getRegulatoryUpdates(filters?: {
+    category?: string;
+    since?: string;
+    limit?: number;
+  }): Promise<AdapterResponse<RegulatoryUpdate[]>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
 
@@ -225,7 +263,13 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as RegulatoryUpdate[];
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -241,7 +285,12 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVerifyEntity(tradeLicenseNumber, entityName, requestId, start);
+      return this.sandboxVerifyEntity(
+        tradeLicenseNumber,
+        entityName,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -255,7 +304,13 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as EntityVerificationResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -270,34 +325,45 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
     start: number,
   ): AdapterResponse<SanctionsScreeningResult> {
     this.logger.debug(`[SANDBOX] screenEntity: ${entityName}`);
-    const lowRisk = entityName.toLowerCase().includes('acme') ||
+    const lowRisk =
+      entityName.toLowerCase().includes('acme') ||
       entityName.toLowerCase().includes('global');
     return {
-      success: true, sandbox: true, requestId, latencyMs: Date.now() - start,
+      success: true,
+      sandbox: true,
+      requestId,
+      latencyMs: Date.now() - start,
       data: {
         entityName,
         matchFound: !lowRisk,
-        matches: lowRisk ? [] : [{
-          listName: 'UAE Local Terrorist List',
-          matchScore: 87,
-          matchedName: entityName,
-          matchedId: 'UAE-TL-2024-0042',
-          sanctionsType: 'Asset Freeze',
-          dateListed: '2024-03-15',
-        }],
+        matches: lowRisk
+          ? []
+          : [
+              {
+                listName: 'UAE Local Terrorist List',
+                matchScore: 87,
+                matchedName: entityName,
+                matchedId: 'UAE-TL-2024-0042',
+                sanctionsType: 'Asset Freeze',
+                dateListed: '2024-03-15',
+              },
+            ],
         screenedAt: new Date().toISOString(),
       },
     };
   }
 
   private sandboxFileSTR(
-    filing: any,
+    filing: STRFilingInput,
     requestId: string,
     start: number,
   ): AdapterResponse<STRFilingResult> {
     this.logger.debug(`[SANDBOX] fileSTR: ${filing.subjectName}`);
     return {
-      success: true, sandbox: true, requestId, latencyMs: Date.now() - start,
+      success: true,
+      sandbox: true,
+      requestId,
+      latencyMs: Date.now() - start,
       data: {
         filingId: `STR-${Date.now()}`,
         status: 'acknowledged',
@@ -314,16 +380,21 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
   ): AdapterResponse<RegulatoryUpdate[]> {
     this.logger.debug('[SANDBOX] getRegulatoryUpdates');
     return {
-      success: true, sandbox: true, requestId, latencyMs: Date.now() - start,
+      success: true,
+      sandbox: true,
+      requestId,
+      latencyMs: Date.now() - start,
       data: [
         {
           updateId: 'CBUAE-2026-001',
           circularNumber: '28/2026',
-          title: 'Updated AML/CFT Guidelines for Designated Non-Financial Businesses',
+          title:
+            'Updated AML/CFT Guidelines for Designated Non-Financial Businesses',
           category: 'aml',
           issuedDate: '2026-05-15',
           effectiveDate: '2026-06-01',
-          summary: 'Revised customer due diligence requirements for DNFBPs including real estate agents and precious metals dealers.',
+          summary:
+            'Revised customer due diligence requirements for DNFBPs including real estate agents and precious metals dealers.',
           fullTextUrl: 'https://centralbank.ae/circulars/28-2026',
           affectedSectors: ['real_estate', 'precious_metals', 'legal'],
           urgency: 'high',
@@ -335,7 +406,8 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
           category: 'sanctions',
           issuedDate: '2026-05-20',
           effectiveDate: '2026-05-20',
-          summary: 'Addition of 12 individuals and 5 entities to the UN sanctions list. Immediate freezing of assets required.',
+          summary:
+            'Addition of 12 individuals and 5 entities to the UN sanctions list. Immediate freezing of assets required.',
           fullTextUrl: 'https://centralbank.ae/circulars/29-2026',
           affectedSectors: ['banking', 'financial_services'],
           urgency: 'immediate',
@@ -347,7 +419,8 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
           category: 'prudential',
           issuedDate: '2026-05-25',
           effectiveDate: '2026-07-01',
-          summary: 'Updated BRF 1, BRF 2, and BRF 3 reporting templates with enhanced capital adequacy disclosure requirements.',
+          summary:
+            'Updated BRF 1, BRF 2, and BRF 3 reporting templates with enhanced capital adequacy disclosure requirements.',
           affectedSectors: ['banking'],
           urgency: 'medium',
         },
@@ -363,7 +436,10 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
   ): AdapterResponse<EntityVerificationResult> {
     this.logger.debug(`[SANDBOX] verifyEntity: ${tradeLicenseNumber}`);
     return {
-      success: true, sandbox: true, requestId, latencyMs: Date.now() - start,
+      success: true,
+      sandbox: true,
+      requestId,
+      latencyMs: Date.now() - start,
       data: {
         entityName: entityName || 'Al-Mansoori Trading LLC',
         tradeLicenseNumber,
@@ -371,7 +447,11 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
         licenseType: 'Commercial',
         issuingAuthority: 'Department of Economic Development — Dubai',
         expiryDate: '2027-12-31',
-        activities: ['General Trading', 'Import & Export', 'Financial Consulting'],
+        activities: [
+          'General Trading',
+          'Import & Export',
+          'Financial Consulting',
+        ],
         verifiedAt: new Date().toISOString(),
       },
     };
@@ -387,21 +467,37 @@ export class UaeCentralBankAdapter implements GovernmentAdapter {
     };
   }
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
-      error: { code: `HTTP_${httpStatus}`, message: `CBUAE API returned HTTP ${httpStatus}`, retryable: httpStatus >= 500 },
-      latencyMs: Date.now() - start, requestId, sandbox: this.sandboxMode,
+      error: {
+        code: `HTTP_${httpStatus}`,
+        message: `CBUAE API returned HTTP ${httpStatus}`,
+        retryable: httpStatus >= 500,
+      },
+      latencyMs: Date.now() - start,
+      requestId,
+      sandbox: this.sandboxMode,
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`CBUAE API network error: ${msg}`);
     return {
       success: false,
       error: { code: 'NETWORK_ERROR', message: msg, retryable: true },
-      latencyMs: Date.now() - start, requestId, sandbox: this.sandboxMode,
+      latencyMs: Date.now() - start,
+      requestId,
+      sandbox: this.sandboxMode,
     };
   }
 

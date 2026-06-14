@@ -39,9 +39,25 @@ export interface RegulatoryUpdate {
   urgency: 'immediate' | 'high' | 'medium' | 'low';
 }
 
+export interface STRFilingInput {
+  reportingEntityId: string;
+  subjectName: string;
+  subjectIdNumber?: string;
+  transactionDetails: string;
+  suspicionReason: string;
+  amount?: number;
+  currency?: string;
+  transactionDate?: string;
+}
+
 export interface STRFilingResult {
   filingId: string;
-  status: 'submitted' | 'acknowledged' | 'under_review' | 'accepted' | 'rejected';
+  status:
+    | 'submitted'
+    | 'acknowledged'
+    | 'under_review'
+    | 'accepted'
+    | 'rejected';
   acknowledgementNumber?: string;
   submittedAt: string;
   reviewedAt?: string;
@@ -79,7 +95,10 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('CBB_SANDBOX_URL', 'https://sandbox.api.cbb.gov.bh/v1')
+        ? configService.get(
+            'CBB_SANDBOX_URL',
+            'https://sandbox.api.cbb.gov.bh/v1',
+          )
         : configService.get('CBB_BASE_URL', 'https://api.cbb.gov.bh/v1'),
       authMethod: 'oauth2',
       credentials: {
@@ -128,7 +147,12 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -136,13 +160,22 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
   async screenEntity(
     entityName: string,
-    entityDetails?: { nationality?: string; idNumber?: string; entityType?: string },
+    entityDetails?: {
+      nationality?: string;
+      idNumber?: string;
+      entityType?: string;
+    },
   ): Promise<AdapterResponse<SanctionsScreeningResult>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxScreenEntity(entityName, entityDetails, requestId, start);
+      return this.sandboxScreenEntity(
+        entityName,
+        entityDetails,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -155,7 +188,13 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as SanctionsScreeningResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -163,16 +202,9 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
   // ── STR Filing ──────────────────────────────────────────────────────────
 
-  async fileSTR(filing: {
-    reportingEntityId: string;
-    subjectName: string;
-    subjectIdNumber?: string;
-    transactionDetails: string;
-    suspicionReason: string;
-    amount?: number;
-    currency?: string;
-    transactionDate?: string;
-  }): Promise<AdapterResponse<STRFilingResult>> {
+  async fileSTR(
+    filing: STRFilingInput,
+  ): Promise<AdapterResponse<STRFilingResult>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
 
@@ -190,7 +222,13 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as STRFilingResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -198,9 +236,11 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
   // ── Regulatory Updates ───────────────────────────────────────────────────
 
-  async getRegulatoryUpdates(
-    filters?: { category?: string; since?: string; limit?: number },
-  ): Promise<AdapterResponse<RegulatoryUpdate[]>> {
+  async getRegulatoryUpdates(filters?: {
+    category?: string;
+    since?: string;
+    limit?: number;
+  }): Promise<AdapterResponse<RegulatoryUpdate[]>> {
     const requestId = this.makeRequestId();
     const start = Date.now();
 
@@ -214,14 +254,23 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
       if (filters?.since) params.set('since', filters.since);
       if (filters?.limit) params.set('limit', String(filters.limit));
 
-      const resp = await fetch(`${this.config.baseUrl}/regulatory/circulars?${params}`, {
-        headers: this.authHeaders(requestId),
-        signal: AbortSignal.timeout(this.config.timeoutMs!),
-      });
+      const resp = await fetch(
+        `${this.config.baseUrl}/regulatory/circulars?${params}`,
+        {
+          headers: this.authHeaders(requestId),
+          signal: AbortSignal.timeout(this.config.timeoutMs!),
+        },
+      );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as RegulatoryUpdate[];
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -237,7 +286,12 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVerifyEntity(commercialRegistrationNumber, entityName, requestId, start);
+      return this.sandboxVerifyEntity(
+        commercialRegistrationNumber,
+        entityName,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -251,7 +305,13 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as EntityVerificationResult;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -278,10 +338,17 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
       }),
     });
 
-    if (!resp.ok) throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
 
-    const { access_token, expires_in } = (await resp.json()) as { access_token: string; expires_in: number };
-    this.tokenCache = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };
+    const { access_token, expires_in } = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    this.tokenCache = {
+      token: access_token,
+      expiresAt: Date.now() + expires_in * 1000,
+    };
     return access_token;
   }
 
@@ -295,7 +362,8 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
   ): AdapterResponse<SanctionsScreeningResult> {
     this.logger.debug(`[SANDBOX] screenEntity: ${entityName}`);
     const lowRisk =
-      entityName.toLowerCase().includes('acme') || entityName.toLowerCase().includes('global');
+      entityName.toLowerCase().includes('acme') ||
+      entityName.toLowerCase().includes('global');
     return {
       success: true,
       sandbox: true,
@@ -321,7 +389,11 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
     };
   }
 
-  private sandboxFileSTR(filing: any, requestId: string, start: number): AdapterResponse<STRFilingResult> {
+  private sandboxFileSTR(
+    filing: STRFilingInput,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<STRFilingResult> {
     this.logger.debug(`[SANDBOX] fileSTR: ${filing.subjectName}`);
     return {
       success: true,
@@ -369,7 +441,8 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
           category: 'sanctions',
           issuedDate: '2026-05-19',
           effectiveDate: '2026-05-19',
-          summary: 'Licensees must immediately freeze assets of newly listed persons and entities.',
+          summary:
+            'Licensees must immediately freeze assets of newly listed persons and entities.',
           fullTextUrl: 'https://cbb.gov.bh/rulebook/fc-124-2026',
           affectedSectors: ['banking', 'financial_services'],
           urgency: 'immediate',
@@ -384,7 +457,9 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
     requestId: string,
     start: number,
   ): AdapterResponse<EntityVerificationResult> {
-    this.logger.debug(`[SANDBOX] verifyEntity: ${commercialRegistrationNumber}`);
+    this.logger.debug(
+      `[SANDBOX] verifyEntity: ${commercialRegistrationNumber}`,
+    );
     return {
       success: true,
       sandbox: true,
@@ -395,7 +470,8 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
         commercialRegistrationNumber,
         status: 'verified',
         licenseType: 'Commercial',
-        issuingAuthority: 'Ministry of Industry and Commerce (Sijilat) — Manama',
+        issuingAuthority:
+          'Ministry of Industry and Commerce (Sijilat) — Manama',
         expiryDate: '2027-09-30',
         activities: ['General Trading', 'Investment', 'Financial Advisory'],
         verifiedAt: new Date().toISOString(),
@@ -413,17 +489,29 @@ export class BhCentralBankAdapter implements GovernmentAdapter {
     };
   }
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
-      error: { code: `HTTP_${httpStatus}`, message: `CBB API returned HTTP ${httpStatus}`, retryable: httpStatus >= 500 },
+      error: {
+        code: `HTTP_${httpStatus}`,
+        message: `CBB API returned HTTP ${httpStatus}`,
+        retryable: httpStatus >= 500,
+      },
       latencyMs: Date.now() - start,
       requestId,
       sandbox: this.sandboxMode,
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`CBB API network error: ${msg}`);
     return {

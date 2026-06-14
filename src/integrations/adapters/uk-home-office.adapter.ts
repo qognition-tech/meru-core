@@ -83,8 +83,14 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('UKVI_SANDBOX_URL', 'https://sandbox.api.homeoffice.gov.uk/v1')
-        : configService.get('UKVI_BASE_URL', 'https://api.homeoffice.gov.uk/v1'),
+        ? configService.get(
+            'UKVI_SANDBOX_URL',
+            'https://sandbox.api.homeoffice.gov.uk/v1',
+          )
+        : configService.get(
+            'UKVI_BASE_URL',
+            'https://api.homeoffice.gov.uk/v1',
+          ),
       authMethod: 'oauth2',
       credentials: {
         clientId: configService.get('UKVI_CLIENT_ID', ''),
@@ -133,7 +139,12 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -147,7 +158,12 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVisaStatus(visaReference, passportNumber, requestId, start);
+      return this.sandboxVisaStatus(
+        visaReference,
+        passportNumber,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -166,7 +182,13 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as VisaStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -187,14 +209,23 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/applications/${encodeURIComponent(applicationId)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as ApplicationStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -215,14 +246,23 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/sponsors/${encodeURIComponent(licenceNumber)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as SponsorLicenceResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -254,7 +294,13 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as RightToWorkResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -281,10 +327,17 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
       }),
     });
 
-    if (!resp.ok) throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
 
-    const { access_token, expires_in } = (await resp.json()) as { access_token: string; expires_in: number };
-    this.tokenCache = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };
+    const { access_token, expires_in } = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    this.tokenCache = {
+      token: access_token,
+      expiresAt: Date.now() + expires_in * 1000,
+    };
     return access_token;
   }
 
@@ -308,7 +361,10 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
         status: 'granted',
         grantDate: '2024-03-01',
         expiryDate: '2027-02-28',
-        conditions: ['No recourse to public funds', 'Work only for licensed sponsor'],
+        conditions: [
+          'No recourse to public funds',
+          'Work only for licensed sponsor',
+        ],
         holder: {
           firstName: 'Jane',
           lastName: 'Doe',
@@ -335,8 +391,12 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
         ghReference: `GWF${applicationId.replace(/\D/g, '').slice(0, 9).padStart(9, '0')}`,
         route: 'Skilled Worker',
         status: 'under_consideration',
-        submittedAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-        lastUpdatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        submittedAt: new Date(
+          Date.now() - 12 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        lastUpdatedAt: new Date(
+          Date.now() - 1 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
         priorityService: 'priority',
         outstandingRequirements: [],
       },
@@ -390,17 +450,29 @@ export class UkHomeOfficeAdapter implements GovernmentAdapter {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
-      error: { code: `HTTP_${httpStatus}`, message: `UKVI API returned HTTP ${httpStatus}`, retryable: httpStatus >= 500 },
+      error: {
+        code: `HTTP_${httpStatus}`,
+        message: `UKVI API returned HTTP ${httpStatus}`,
+        retryable: httpStatus >= 500,
+      },
       latencyMs: Date.now() - start,
       requestId,
       sandbox: this.sandboxMode,
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`UKVI API network error: ${msg}`);
     return {

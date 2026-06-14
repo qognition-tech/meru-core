@@ -267,4 +267,3 @@ export class MarkAsReadDto {
   @IsString({ each: true })
   notificationIds: string[];
 }
-

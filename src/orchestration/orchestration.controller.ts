@@ -1,8 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
   UseGuards,
   Request,
   Query,
@@ -13,12 +11,11 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiQuery,
-  ApiBody,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { OrchestrationService } from './orchestration.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import type { AuthenticatedRequest } from './authenticated-request.interface';
 
 @Controller('orchestration')
 @ApiTags('orchestration')
@@ -30,7 +27,7 @@ export class OrchestrationController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Health check for orchestration services' })
   @ApiResponse({ status: 200, description: 'Health status' })
-  async health(@Request() req) {
+  async health() {
     return this.orchestrationService.healthCheck();
   }
 
@@ -40,7 +37,7 @@ export class OrchestrationController {
   @ApiOperation({ summary: 'Perform intelligent AI-enhanced search' })
   @ApiResponse({ status: 200, description: 'Search results with AI analysis' })
   async intelligentSearch(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Query('query') query: string,
     @Query('includeAI') includeAI?: string,
     @Query('searchType') searchType?: string,
@@ -63,7 +60,10 @@ export class OrchestrationController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get AI-generated insights for an entity' })
   @ApiResponse({ status: 200, description: 'Entity insights' })
-  async getEntityInsights(@Request() req, @Param('id') id: string) {
+  async getEntityInsights(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
     return this.orchestrationService.extractInsights(req.user.tenantId, id);
   }
 }

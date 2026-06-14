@@ -123,7 +123,7 @@ export class ConfigPackService {
       entityId: id,
       description: `Version promoted from ${previousVersion} to ${newVersion}`,
       context: { previousVersion, newVersion },
-    } as any);
+    });
 
     this.logger.log(
       `Config pack '${pack.code}' promoted: v${previousVersion} → v${newVersion}`,

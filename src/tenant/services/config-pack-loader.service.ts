@@ -30,7 +30,9 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     if (process.env.SKIP_CONFIG_PACK_LOADER === 'true') {
-      this.logger.log('Config pack loader skipped (SKIP_CONFIG_PACK_LOADER=true)');
+      this.logger.log(
+        'Config pack loader skipped (SKIP_CONFIG_PACK_LOADER=true)',
+      );
       return;
     }
 

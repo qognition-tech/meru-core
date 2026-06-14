@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import {
   AiPrompt,
   ModelProvider,
@@ -49,20 +49,29 @@ export interface AiResponse {
 }
 
 export interface CrossModuleContext {
-  crm?: any;
-  workflow?: any;
-  tasks?: any;
-  documents?: any;
-  forms?: any;
-  billing?: any;
-  analytics?: any;
+  crm?: unknown;
+  workflow?: unknown;
+  tasks?: unknown;
+  documents?: unknown;
+  forms?: unknown;
+  billing?: unknown;
+  analytics?: unknown;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+interface AuditLogRecord {
+  severity?: string;
+  action?: string;
 }
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private openaiClient: OpenAI | null;
-  private requestQueue: Array<() => Promise<any>> = [];
+  private requestQueue: Array<() => Promise<unknown>> = [];
   private readonly MAX_CONCURRENT = 5;
 
   constructor(
@@ -122,8 +131,8 @@ export class AiService {
         default:
           return await this.executeOpenAI(fullPrompt, prompt);
       }
-    } catch (error: any) {
-      this.logger.error(`AI execution failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`AI execution failed: ${errorMessage(error)}`);
       throw error;
     }
   }
@@ -201,8 +210,8 @@ export class AiService {
       await this.embeddingRepo.save(embedding);
 
       return { embeddingId: embedding.id, vectorId };
-    } catch (error) {
-      this.logger.error(`Failed to create embedding: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`Failed to create embedding: ${errorMessage(error)}`);
       throw error;
     }
   }
@@ -238,8 +247,8 @@ export class AiService {
       return results
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
-    } catch (error) {
-      this.logger.error(`Semantic search failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`Semantic search failed: ${errorMessage(error)}`);
       throw error;
     }
   }
@@ -284,7 +293,9 @@ export class AiService {
       });
     }
 
-    const where: any = { category: request.category };
+    const where: FindOptionsWhere<AiPrompt> = {
+      category: request.category,
+    };
     if (request.tenantId) {
       where.tenantId = request.tenantId;
     }
@@ -346,8 +357,8 @@ export class AiService {
         sources,
         citationEnforced: false, // CitationEnforcementInterceptor sets this
       };
-    } catch (error) {
-      this.logger.error(`OpenAI execution failed: ${error.message}`);
+    } catch (error: unknown) {
+      this.logger.error(`OpenAI execution failed: ${errorMessage(error)}`);
       throw error;
     }
   }
@@ -433,8 +444,11 @@ export class AiService {
 
       // Analytics Context - Get recent reports
       context.analytics = await this.analyticsService.getReports(tenantId);
-    } catch (error) {
-      this.logger.warn('Error gathering cross-module context:', error.message);
+    } catch (error: unknown) {
+      this.logger.warn(
+        'Error gathering cross-module context:',
+        errorMessage(error),
+      );
     }
 
     return context;

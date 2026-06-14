@@ -45,8 +45,17 @@ export interface ApplicationStatusResponse {
 export interface AccreditedEmployerResponse {
   employerName: string;
   nzbn: string; // New Zealand Business Number
-  accreditationStatus: 'accredited' | 'pending' | 'declined' | 'revoked' | 'expired';
-  accreditationType?: 'standard' | 'high_volume' | 'triangular' | 'controlling_third_party';
+  accreditationStatus:
+    | 'accredited'
+    | 'pending'
+    | 'declined'
+    | 'revoked'
+    | 'expired';
+  accreditationType?:
+    | 'standard'
+    | 'high_volume'
+    | 'triangular'
+    | 'controlling_third_party';
   jobTokenAllocation?: number;
   jobTokensUsed?: number;
   expiryDate?: string;
@@ -82,8 +91,14 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('INZ_SANDBOX_URL', 'https://sandbox.api.immigration.govt.nz/v1')
-        : configService.get('INZ_BASE_URL', 'https://api.immigration.govt.nz/v1'),
+        ? configService.get(
+            'INZ_SANDBOX_URL',
+            'https://sandbox.api.immigration.govt.nz/v1',
+          )
+        : configService.get(
+            'INZ_BASE_URL',
+            'https://api.immigration.govt.nz/v1',
+          ),
       authMethod: 'oauth2',
       credentials: {
         clientId: configService.get('INZ_CLIENT_ID', ''),
@@ -132,7 +147,12 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -146,7 +166,12 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVisaStatus(visaNumber, passportNumber, requestId, start);
+      return this.sandboxVisaStatus(
+        visaNumber,
+        passportNumber,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -165,7 +190,13 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as VisaStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -186,14 +217,23 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/applications/${encodeURIComponent(applicationId)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as ApplicationStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -214,14 +254,23 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/employers/accreditation?nzbn=${encodeURIComponent(nzbn)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as AccreditedEmployerResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -253,7 +302,13 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as VisaViewResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -280,10 +335,17 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
       }),
     });
 
-    if (!resp.ok) throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
 
-    const { access_token, expires_in } = (await resp.json()) as { access_token: string; expires_in: number };
-    this.tokenCache = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };
+    const { access_token, expires_in } = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    this.tokenCache = {
+      token: access_token,
+      expiresAt: Date.now() + expires_in * 1000,
+    };
     return access_token;
   }
 
@@ -307,7 +369,10 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
         status: 'approved',
         issueDate: '2024-04-10',
         expiryDate: '2027-04-09',
-        conditions: ['Work only for accredited employer', 'Role: Software Engineer'],
+        conditions: [
+          'Work only for accredited employer',
+          'Role: Software Engineer',
+        ],
         holder: {
           firstName: 'Jane',
           lastName: 'Doe',
@@ -334,9 +399,15 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
         inzReference: `INZ${applicationId.replace(/\D/g, '').slice(0, 8).padStart(8, '0')}`,
         visaType: 'Accredited Employer Work Visa',
         status: 'assessment',
-        submittedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-        lastUpdatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-        estimatedDecisionDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        submittedAt: new Date(
+          Date.now() - 20 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        lastUpdatedAt: new Date(
+          Date.now() - 2 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        estimatedDecisionDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0],
         outstandingRequirements: [],
       },
     };
@@ -390,17 +461,29 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
-      error: { code: `HTTP_${httpStatus}`, message: `INZ API returned HTTP ${httpStatus}`, retryable: httpStatus >= 500 },
+      error: {
+        code: `HTTP_${httpStatus}`,
+        message: `INZ API returned HTTP ${httpStatus}`,
+        retryable: httpStatus >= 500,
+      },
       latencyMs: Date.now() - start,
       requestId,
       sandbox: this.sandboxMode,
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`INZ API network error: ${msg}`);
     return {

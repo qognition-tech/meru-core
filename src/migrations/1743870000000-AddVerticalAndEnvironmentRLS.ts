@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, Table } from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddVerticalAndEnvironmentRLS1743870000000 implements MigrationInterface {
   name = 'AddVerticalAndEnvironmentRLS1743870000000';

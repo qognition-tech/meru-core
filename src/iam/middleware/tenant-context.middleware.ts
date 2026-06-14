@@ -9,9 +9,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { VerticalType } from '../enums/vertical.enum';
+import { UserPayload } from '../../common/types';
 
 declare global {
   namespace Express {
+    // Make Passport's `Express.User` resolve to our JWT payload shape so
+    // `req.user` is consistently typed platform-wide (single source of truth).
+    // Passport's own `Request.user?: User` then provides the property — we must
+    // not redeclare `user` here or its type conflicts (TS2717).
+    interface User extends UserPayload {}
     interface Request {
       meruTenant?: Tenant;
       tenantId?: string;
@@ -41,7 +47,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       baseUrl: 'governancex.com',
     },
     'api.meru.com': {
-      vertical: VerticalType.IMMIGRATION as any, // Core platform
+      vertical: VerticalType.IMMIGRATION, // Core platform
       baseUrl: 'meru.com',
     },
   };
@@ -167,7 +173,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       const environment = this.envPrefixes[envPrefix];
 
       return {
-        vertical: VerticalType.IMMIGRATION as any, // Core platform
+        vertical: VerticalType.IMMIGRATION, // Core platform
         environment: environment || 'production',
         baseUrl: 'meru.com',
       };

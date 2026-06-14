@@ -105,7 +105,9 @@ export class AuditService {
     });
 
     const saved = await this.auditRepo.save(auditLog);
-    this.logger.debug(`Audit log created: ${saved.id} chain: ${chainHash.slice(0, 8)}…`);
+    this.logger.debug(
+      `Audit log created: ${saved.id} chain: ${chainHash.slice(0, 8)}…`,
+    );
 
     return saved;
   }

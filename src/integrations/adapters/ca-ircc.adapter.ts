@@ -14,7 +14,12 @@ import type {
 
 export interface VisaStatusResponse {
   documentNumber: string;
-  documentType: 'visitor_visa' | 'study_permit' | 'work_permit' | 'eta' | 'permanent_resident';
+  documentType:
+    | 'visitor_visa'
+    | 'study_permit'
+    | 'work_permit'
+    | 'eta'
+    | 'permanent_resident';
   status: 'approved' | 'refused' | 'in_process' | 'expired' | 'revoked';
   issueDate?: string;
   expiryDate?: string;
@@ -60,7 +65,8 @@ export interface EmployerComplianceResponse {
 export class CaIrccAdapter implements GovernmentAdapter {
   readonly adapterId = 'ca-ircc';
   readonly country = 'CA';
-  readonly regulatorName = 'Immigration, Refugees and Citizenship Canada (IRCC)';
+  readonly regulatorName =
+    'Immigration, Refugees and Citizenship Canada (IRCC)';
 
   private readonly logger = new Logger(CaIrccAdapter.name);
   private readonly config: AdapterConfig;
@@ -74,7 +80,10 @@ export class CaIrccAdapter implements GovernmentAdapter {
     this.sandboxMode = useSandbox;
     this.config = {
       baseUrl: useSandbox
-        ? configService.get('IRCC_SANDBOX_URL', 'https://sandbox.api.cic.gc.ca/v1')
+        ? configService.get(
+            'IRCC_SANDBOX_URL',
+            'https://sandbox.api.cic.gc.ca/v1',
+          )
         : configService.get('IRCC_BASE_URL', 'https://api.cic.gc.ca/v1'),
       authMethod: 'oauth2',
       credentials: {
@@ -123,7 +132,12 @@ export class CaIrccAdapter implements GovernmentAdapter {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { status: 'down', latencyMs: Date.now() - start, lastCheckedAt: new Date(), message: msg };
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        lastCheckedAt: new Date(),
+        message: msg,
+      };
     }
   }
 
@@ -137,7 +151,12 @@ export class CaIrccAdapter implements GovernmentAdapter {
     const start = Date.now();
 
     if (this.sandboxMode) {
-      return this.sandboxVisaStatus(documentNumber, passportNumber, requestId, start);
+      return this.sandboxVisaStatus(
+        documentNumber,
+        passportNumber,
+        requestId,
+        start,
+      );
     }
 
     try {
@@ -156,7 +175,13 @@ export class CaIrccAdapter implements GovernmentAdapter {
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as VisaStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -177,14 +202,23 @@ export class CaIrccAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/applications/${encodeURIComponent(applicationId)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as ApplicationStatusResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -205,14 +239,23 @@ export class CaIrccAdapter implements GovernmentAdapter {
       const resp = await fetch(
         `${this.config.baseUrl}/employers/validate?businessNumber=${encodeURIComponent(businessNumber)}`,
         {
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Request-ID': requestId,
+          },
           signal: AbortSignal.timeout(this.config.timeoutMs!),
         },
       );
 
       if (!resp.ok) return this.errorResponse(resp.status, requestId, start);
       const data = (await resp.json()) as EmployerComplianceResponse;
-      return { success: true, data, latencyMs: Date.now() - start, requestId, sandbox: false };
+      return {
+        success: true,
+        data,
+        latencyMs: Date.now() - start,
+        requestId,
+        sandbox: false,
+      };
     } catch (err: unknown) {
       return this.networkError(err, requestId, start);
     }
@@ -239,10 +282,17 @@ export class CaIrccAdapter implements GovernmentAdapter {
       }),
     });
 
-    if (!resp.ok) throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`OAuth2 token fetch failed: HTTP ${resp.status}`);
 
-    const { access_token, expires_in } = (await resp.json()) as { access_token: string; expires_in: number };
-    this.tokenCache = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };
+    const { access_token, expires_in } = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    this.tokenCache = {
+      token: access_token,
+      expiresAt: Date.now() + expires_in * 1000,
+    };
     return access_token;
   }
 
@@ -266,7 +316,10 @@ export class CaIrccAdapter implements GovernmentAdapter {
         status: 'approved',
         issueDate: '2024-02-01',
         expiryDate: '2027-01-31',
-        conditions: ['Employer-specific', 'No work in childcare/health without medical'],
+        conditions: [
+          'Employer-specific',
+          'No work in childcare/health without medical',
+        ],
         holder: {
           firstName: 'Jane',
           lastName: 'Doe',
@@ -293,9 +346,15 @@ export class CaIrccAdapter implements GovernmentAdapter {
         uci: `${1000000000 + (parseInt(applicationId.replace(/\D/g, '').slice(0, 4) || '0', 10) || 0)}`,
         applicationType: 'Express Entry — Federal Skilled Worker',
         status: 'background_check',
-        submittedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString(),
-        lastUpdatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-        estimatedDecisionDate: new Date(Date.now() + 50 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        submittedAt: new Date(
+          Date.now() - 40 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        lastUpdatedAt: new Date(
+          Date.now() - 3 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        estimatedDecisionDate: new Date(Date.now() + 50 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0],
         outstandingRequirements: [],
       },
     };
@@ -326,17 +385,29 @@ export class CaIrccAdapter implements GovernmentAdapter {
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  private errorResponse<T = unknown>(httpStatus: number, requestId: string, start: number): AdapterResponse<T> {
+  private errorResponse<T = unknown>(
+    httpStatus: number,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     return {
       success: false,
-      error: { code: `HTTP_${httpStatus}`, message: `IRCC API returned HTTP ${httpStatus}`, retryable: httpStatus >= 500 },
+      error: {
+        code: `HTTP_${httpStatus}`,
+        message: `IRCC API returned HTTP ${httpStatus}`,
+        retryable: httpStatus >= 500,
+      },
       latencyMs: Date.now() - start,
       requestId,
       sandbox: this.sandboxMode,
     };
   }
 
-  private networkError<T = unknown>(err: unknown, requestId: string, start: number): AdapterResponse<T> {
+  private networkError<T = unknown>(
+    err: unknown,
+    requestId: string,
+    start: number,
+  ): AdapterResponse<T> {
     const msg = err instanceof Error ? err.message : String(err);
     this.logger.error(`IRCC API network error: ${msg}`);
     return {

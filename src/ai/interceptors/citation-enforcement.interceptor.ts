@@ -39,13 +39,13 @@ export class CitationEnforcementInterceptor implements NestInterceptor {
     if ('data' in envelope && this.isAiResponse(envelope['data'])) {
       return {
         ...envelope,
-        data: this.enforce(envelope['data'] as AiResponse),
+        data: this.enforce(envelope['data']),
       };
     }
 
     // Handle bare AiResponse
     if (this.isAiResponse(body)) {
-      return this.enforce(body as AiResponse);
+      return this.enforce(body);
     }
 
     return body;

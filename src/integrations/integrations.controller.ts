@@ -1,5 +1,18 @@
-import { Controller, Get, Post, Param, Body, UseGuards, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  UseGuards,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { IntegrationsService } from './integrations.service';
@@ -40,7 +53,11 @@ export class IntegrationsController {
     return {
       success: result.success,
       data: result.data,
-      meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId },
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
       error: result.error,
     };
   }
@@ -67,15 +84,36 @@ export class IntegrationsController {
     @Param('visaNumber') visaNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
-    const result = await this.auAdapter.getVisaStatus(visaNumber, passportNumber);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    const result = await this.auAdapter.getVisaStatus(
+      visaNumber,
+      passportNumber,
+    );
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Get('au/application-status/:applicationId')
   @ApiOperation({ summary: 'AU — Check application status via DHA' })
   async auApplicationStatus(@Param('applicationId') applicationId: string) {
     const result = await this.auAdapter.getApplicationStatus(applicationId);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Get('au/sponsor-validation')
@@ -83,42 +121,93 @@ export class IntegrationsController {
   @ApiQuery({ name: 'abn', required: true })
   async auSponsorValidation(@Query('abn') abn: string) {
     const result = await this.auAdapter.validateSponsor(abn);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Post('au/vevo-check')
   @ApiOperation({ summary: 'AU — VEVO visa entitlement check' })
   async auVevoCheck(@Body() body: { visaNumber: string; dateOfBirth: string }) {
-    const result = await this.auAdapter.vevoCheck(body.visaNumber, body.dateOfBirth);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    const result = await this.auAdapter.vevoCheck(
+      body.visaNumber,
+      body.dateOfBirth,
+    );
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   // ── UAE Central Bank ──────────────────────────────────────────────────────
 
   @Post('ae/screening')
   @ApiOperation({ summary: 'AE — Sanctions screening via CBUAE' })
-  async aeScreening(@Body() body: { entityName: string; nationality?: string; idNumber?: string }) {
+  async aeScreening(
+    @Body()
+    body: {
+      entityName: string;
+      nationality?: string;
+      idNumber?: string;
+    },
+  ) {
     const result = await this.cbuaeAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
     });
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Post('ae/str')
-  @ApiOperation({ summary: 'AE — File Suspicious Transaction Report via CBUAE' })
-  async aeFileSTR(@Body() body: {
-    reportingEntityId: string;
-    subjectName: string;
-    subjectIdNumber?: string;
-    transactionDetails: string;
-    suspicionReason: string;
-    amount?: number;
-    currency?: string;
-    transactionDate?: string;
-  }) {
+  @ApiOperation({
+    summary: 'AE — File Suspicious Transaction Report via CBUAE',
+  })
+  async aeFileSTR(
+    @Body()
+    body: {
+      reportingEntityId: string;
+      subjectName: string;
+      subjectIdNumber?: string;
+      transactionDetails: string;
+      suspicionReason: string;
+      amount?: number;
+      currency?: string;
+      transactionDate?: string;
+    },
+  ) {
     const result = await this.cbuaeAdapter.fileSTR(body);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Get('ae/regulatory-updates')
@@ -129,22 +218,50 @@ export class IntegrationsController {
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
-    const result = await this.cbuaeAdapter.getRegulatoryUpdates({ category, since });
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    const result = await this.cbuaeAdapter.getRegulatoryUpdates({
+      category,
+      since,
+    });
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   @Get('ae/verify-entity/:licenseNumber')
   @ApiOperation({ summary: 'AE — Verify trade license via CBUAE' })
   async aeVerifyEntity(@Param('licenseNumber') licenseNumber: string) {
     const result = await this.cbuaeAdapter.verifyEntity(licenseNumber);
-    return { success: result.success, data: result.data, meta: { sandbox: result.sandbox, latencyMs: result.latencyMs, requestId: result.requestId }, error: result.error };
+    return {
+      success: result.success,
+      data: result.data,
+      meta: {
+        sandbox: result.sandbox,
+        latencyMs: result.latencyMs,
+        requestId: result.requestId,
+      },
+      error: result.error,
+    };
   }
 
   // ── Saudi SAMA ────────────────────────────────────────────────────────────
 
   @Post('sa/screening')
   @ApiOperation({ summary: 'SA — Sanctions screening via SAMA' })
-  async saScreening(@Body() body: { entityName: string; nationality?: string; idNumber?: string }) {
+  async saScreening(
+    @Body()
+    body: {
+      entityName: string;
+      nationality?: string;
+      idNumber?: string;
+    },
+  ) {
     const result = await this.samaAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -154,16 +271,19 @@ export class IntegrationsController {
 
   @Post('sa/str')
   @ApiOperation({ summary: 'SA — File Suspicious Transaction Report via SAMA' })
-  async saFileSTR(@Body() body: {
-    reportingEntityId: string;
-    subjectName: string;
-    subjectIdNumber?: string;
-    transactionDetails: string;
-    suspicionReason: string;
-    amount?: number;
-    currency?: string;
-    transactionDate?: string;
-  }) {
+  async saFileSTR(
+    @Body()
+    body: {
+      reportingEntityId: string;
+      subjectName: string;
+      subjectIdNumber?: string;
+      transactionDetails: string;
+      suspicionReason: string;
+      amount?: number;
+      currency?: string;
+      transactionDate?: string;
+    },
+  ) {
     const result = await this.samaAdapter.fileSTR(body);
     return IntegrationsController.envelope(result);
   }
@@ -176,7 +296,10 @@ export class IntegrationsController {
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
-    const result = await this.samaAdapter.getRegulatoryUpdates({ category, since });
+    const result = await this.samaAdapter.getRegulatoryUpdates({
+      category,
+      since,
+    });
     return IntegrationsController.envelope(result);
   }
 
@@ -191,7 +314,14 @@ export class IntegrationsController {
 
   @Post('qa/screening')
   @ApiOperation({ summary: 'QA — Sanctions screening via QCB' })
-  async qaScreening(@Body() body: { entityName: string; nationality?: string; idNumber?: string }) {
+  async qaScreening(
+    @Body()
+    body: {
+      entityName: string;
+      nationality?: string;
+      idNumber?: string;
+    },
+  ) {
     const result = await this.qcbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -201,16 +331,19 @@ export class IntegrationsController {
 
   @Post('qa/str')
   @ApiOperation({ summary: 'QA — File Suspicious Transaction Report via QCB' })
-  async qaFileSTR(@Body() body: {
-    reportingEntityId: string;
-    subjectName: string;
-    subjectIdNumber?: string;
-    transactionDetails: string;
-    suspicionReason: string;
-    amount?: number;
-    currency?: string;
-    transactionDate?: string;
-  }) {
+  async qaFileSTR(
+    @Body()
+    body: {
+      reportingEntityId: string;
+      subjectName: string;
+      subjectIdNumber?: string;
+      transactionDetails: string;
+      suspicionReason: string;
+      amount?: number;
+      currency?: string;
+      transactionDate?: string;
+    },
+  ) {
     const result = await this.qcbAdapter.fileSTR(body);
     return IntegrationsController.envelope(result);
   }
@@ -223,7 +356,10 @@ export class IntegrationsController {
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
-    const result = await this.qcbAdapter.getRegulatoryUpdates({ category, since });
+    const result = await this.qcbAdapter.getRegulatoryUpdates({
+      category,
+      since,
+    });
     return IntegrationsController.envelope(result);
   }
 
@@ -238,7 +374,14 @@ export class IntegrationsController {
 
   @Post('bh/screening')
   @ApiOperation({ summary: 'BH — Sanctions screening via CBB' })
-  async bhScreening(@Body() body: { entityName: string; nationality?: string; idNumber?: string }) {
+  async bhScreening(
+    @Body()
+    body: {
+      entityName: string;
+      nationality?: string;
+      idNumber?: string;
+    },
+  ) {
     const result = await this.cbbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -248,16 +391,19 @@ export class IntegrationsController {
 
   @Post('bh/str')
   @ApiOperation({ summary: 'BH — File Suspicious Transaction Report via CBB' })
-  async bhFileSTR(@Body() body: {
-    reportingEntityId: string;
-    subjectName: string;
-    subjectIdNumber?: string;
-    transactionDetails: string;
-    suspicionReason: string;
-    amount?: number;
-    currency?: string;
-    transactionDate?: string;
-  }) {
+  async bhFileSTR(
+    @Body()
+    body: {
+      reportingEntityId: string;
+      subjectName: string;
+      subjectIdNumber?: string;
+      transactionDetails: string;
+      suspicionReason: string;
+      amount?: number;
+      currency?: string;
+      transactionDate?: string;
+    },
+  ) {
     const result = await this.cbbAdapter.fileSTR(body);
     return IntegrationsController.envelope(result);
   }
@@ -270,7 +416,10 @@ export class IntegrationsController {
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
-    const result = await this.cbbAdapter.getRegulatoryUpdates({ category, since });
+    const result = await this.cbbAdapter.getRegulatoryUpdates({
+      category,
+      since,
+    });
     return IntegrationsController.envelope(result);
   }
 
@@ -290,7 +439,10 @@ export class IntegrationsController {
     @Param('documentNumber') documentNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
-    const result = await this.irccAdapter.getVisaStatus(documentNumber, passportNumber);
+    const result = await this.irccAdapter.getVisaStatus(
+      documentNumber,
+      passportNumber,
+    );
     return IntegrationsController.envelope(result);
   }
 
@@ -318,7 +470,10 @@ export class IntegrationsController {
     @Param('visaReference') visaReference: string,
     @Query('passportNumber') passportNumber: string,
   ) {
-    const result = await this.ukviAdapter.getVisaStatus(visaReference, passportNumber);
+    const result = await this.ukviAdapter.getVisaStatus(
+      visaReference,
+      passportNumber,
+    );
     return IntegrationsController.envelope(result);
   }
 
@@ -338,8 +493,13 @@ export class IntegrationsController {
 
   @Post('uk/right-to-work')
   @ApiOperation({ summary: 'UK — Right to Work check via UKVI' })
-  async ukRightToWork(@Body() body: { shareCode: string; dateOfBirth: string }) {
-    const result = await this.ukviAdapter.rightToWorkCheck(body.shareCode, body.dateOfBirth);
+  async ukRightToWork(
+    @Body() body: { shareCode: string; dateOfBirth: string },
+  ) {
+    const result = await this.ukviAdapter.rightToWorkCheck(
+      body.shareCode,
+      body.dateOfBirth,
+    );
     return IntegrationsController.envelope(result);
   }
 
@@ -352,7 +512,10 @@ export class IntegrationsController {
     @Param('visaNumber') visaNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
-    const result = await this.inzAdapter.getVisaStatus(visaNumber, passportNumber);
+    const result = await this.inzAdapter.getVisaStatus(
+      visaNumber,
+      passportNumber,
+    );
     return IntegrationsController.envelope(result);
   }
 
@@ -374,7 +537,10 @@ export class IntegrationsController {
   @Post('nz/visa-view')
   @ApiOperation({ summary: 'NZ — VisaView entitlement check via INZ' })
   async nzVisaView(@Body() body: { visaNumber: string; dateOfBirth: string }) {
-    const result = await this.inzAdapter.visaViewCheck(body.visaNumber, body.dateOfBirth);
+    const result = await this.inzAdapter.visaViewCheck(
+      body.visaNumber,
+      body.dateOfBirth,
+    );
     return IntegrationsController.envelope(result);
   }
 }

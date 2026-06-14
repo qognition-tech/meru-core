@@ -10,6 +10,8 @@ import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { TasksModule } from '../tasks/tasks.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { AuditModule } from '../audit/audit.module';
     forwardRef(() => DocumentsModule),
     forwardRef(() => AiModule),
     AuditModule,
+    NotificationsModule,
+    TasksModule,
   ],
   controllers: [WorkflowController],
   providers: [WorkflowEngineService],

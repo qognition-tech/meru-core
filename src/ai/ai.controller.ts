@@ -20,6 +20,14 @@ import { AiService } from './ai.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CitationEnforcementInterceptor } from './interceptors/citation-enforcement.interceptor';
 import type { AiRequest } from './ai.service';
+import type { AuthenticatedRequest } from '../orchestration/authenticated-request.interface';
+import { AiPrompt, PromptCategory } from './entities/ai-prompt.entity';
+import { VerticalType } from '../iam/enums/vertical.enum';
+
+interface AnalyzeEntityBody {
+  vertical?: VerticalType;
+  [key: string]: unknown;
+}
 
 // CLAUDE.md §6.3: ALL AI responses are citation-enforced.
 // CitationEnforcementInterceptor replaces any response that lacks sources[]
@@ -36,7 +44,10 @@ export class AiController {
   @ApiOperation({ summary: 'Execute an AI prompt' })
   @ApiResponse({ status: 200, description: 'AI response' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async execute(@Request() req, @Body() aiRequest: AiRequest) {
+  async execute(
+    @Request() req: AuthenticatedRequest,
+    @Body() aiRequest: AiRequest,
+  ) {
     return this.aiService.execute({
       ...aiRequest,
       tenantId: req.user.tenantId,
@@ -48,11 +59,14 @@ export class AiController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Analyze a CRM entity using AI' })
   @ApiResponse({ status: 200, description: 'Entity analysis result' })
-  async analyzeEntity(@Request() req, @Body() entityData: any) {
+  async analyzeEntity(
+    @Request() req: AuthenticatedRequest,
+    @Body() entityData: AnalyzeEntityBody,
+  ) {
     return this.aiService.analyzeEntity(
       req.user.tenantId,
       entityData,
-      entityData.vertical || 'immigration',
+      entityData.vertical || VerticalType.IMMIGRATION,
     );
   }
 
@@ -62,13 +76,13 @@ export class AiController {
   @ApiOperation({ summary: 'Create an embedding for text' })
   @ApiResponse({ status: 200, description: 'Embedding created' })
   async createEmbedding(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Body()
     data: {
       text: string;
       type: string;
       resourceId: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     },
   ) {
     return this.aiService.createEmbedding(
@@ -89,7 +103,7 @@ export class AiController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'Search results' })
   async semanticSearch(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Query('query') query: string,
     @Query('type') type?: string,
     @Query('limit') limit?: string,
@@ -108,9 +122,12 @@ export class AiController {
   @ApiOperation({ summary: 'Get available prompts' })
   @ApiQuery({ name: 'category', required: false })
   @ApiResponse({ status: 200, description: 'Prompts list' })
-  async getPrompts(@Request() req, @Query('category') category?: string) {
+  async getPrompts(
+    @Request() req: AuthenticatedRequest,
+    @Query('category') category?: string,
+  ) {
     return this.aiService.getPromptsByCategory(
-      category as any,
+      category as PromptCategory,
       req.user.tenantId,
     );
   }
@@ -120,7 +137,7 @@ export class AiController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create or update a prompt' })
   @ApiResponse({ status: 200, description: 'Prompt saved' })
-  async upsertPrompt(@Body() promptData: any) {
+  async upsertPrompt(@Body() promptData: Partial<AiPrompt>) {
     return this.aiService.upsertPrompt(promptData);
   }
 }
