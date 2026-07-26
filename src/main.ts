@@ -6,7 +6,7 @@ import { AllExceptionsFilter } from './core/filters/http-exception.filter';
 import { ResponseEnvelopeInterceptor } from './core/interceptors/response-envelope.interceptor';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -44,7 +44,7 @@ async function bootstrap() {
 
   // 2. Request ID Middleware — ensures every request has a traceable ID
   app.use((req, _res, next) => {
-    req.headers['x-request-id'] = req.headers['x-request-id'] || uuidv4();
+    req.headers['x-request-id'] = req.headers['x-request-id'] || randomUUID();
     next();
   });
 

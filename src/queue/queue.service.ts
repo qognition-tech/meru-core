@@ -25,7 +25,7 @@ import {
   JobFilter,
   QueueMetrics,
 } from './interfaces/job.interface';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { CronExpressionParser } from 'cron-parser';
 
 @Injectable()
@@ -143,7 +143,7 @@ export class QueueService implements OnModuleInit {
     const nextRun = interval.next().toDate();
 
     const scheduled = this.scheduledRepo.create({
-      id: uuidv4(),
+      id: randomUUID(),
       tenantId,
       name,
       type,

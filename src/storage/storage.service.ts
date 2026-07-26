@@ -27,7 +27,7 @@ import {
 import { S3StorageProvider } from './providers/s3.provider';
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class StorageService {
@@ -61,8 +61,8 @@ export class StorageService {
     await queryRunner.startTransaction();
 
     try {
-      const fileId = uuidv4();
-      const versionId = uuidv4();
+      const fileId = randomUUID();
+      const versionId = randomUUID();
       const versionNumber = 1;
 
       // Generate storage key
@@ -173,7 +173,7 @@ export class StorageService {
         order: { versionNumber: 'DESC' },
       });
       const versionNumber = (lastVersion?.versionNumber || 0) + 1;
-      const versionId = uuidv4();
+      const versionId = randomUUID();
 
       // Generate key for new version
       const key = this.generateKey(
@@ -339,7 +339,7 @@ export class StorageService {
     fileId: string;
     uploadUrls: { partNumber: number; url: string }[];
   }> {
-    const fileId = uuidv4();
+    const fileId = randomUUID();
     const key = this.generateKey(tenantId, fileId, 1, fileName);
 
     const provider = this.getProviderInstance(tenantId);
@@ -430,7 +430,7 @@ export class StorageService {
     await provider.completeMultipartUpload(uploadId, file.key, parts);
 
     // Update file status
-    const versionId = uuidv4();
+    const versionId = randomUUID();
     file.status = FileStatus.ACTIVE;
     file.currentVersionId = versionId;
 
@@ -500,8 +500,8 @@ export class StorageService {
     await queryRunner.startTransaction();
 
     try {
-      const newFileId = uuidv4();
-      const versionId = uuidv4();
+      const newFileId = randomUUID();
+      const versionId = randomUUID();
       const fileName = newName || sourceFile.originalName;
       const key = this.generateKey(tenantId, newFileId, 1, fileName);
 

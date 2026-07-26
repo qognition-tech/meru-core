@@ -26,7 +26,7 @@ import {
   SearchAggregation,
   AggregationResult,
 } from './interfaces/search.interface';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class ElasticsearchService implements OnModuleInit {
@@ -125,7 +125,7 @@ export class ElasticsearchService implements OnModuleInit {
       }
 
       const index = this.indexRepo.create({
-        id: uuidv4(),
+        id: randomUUID(),
         tenantId,
         name,
         entityType,
@@ -226,7 +226,7 @@ export class ElasticsearchService implements OnModuleInit {
     generateEmbedding: boolean = false,
   ): Promise<string> {
     const fullIndexName = this.getIndexName(tenantId, indexName);
-    const docId = document.id || uuidv4();
+    const docId = document.id || randomUUID();
 
     const docToIndex = {
       ...document,
@@ -257,7 +257,7 @@ export class ElasticsearchService implements OnModuleInit {
       await this.indexRepo.save(index);
 
       const doc = this.documentRepo.create({
-        id: uuidv4(),
+        id: randomUUID(),
         tenantId,
         indexId: index.id,
         entityType: document.type || 'unknown',

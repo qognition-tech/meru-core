@@ -19,7 +19,7 @@ const { ValidationPipe } = require('@nestjs/common');
 const { ExpressAdapter } = require('@nestjs/platform-express');
 const express = require('express');
 const helmet = require('helmet');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('node:crypto');
 
 const { AppModule } = require('../dist/src/app.module');
 const {
@@ -66,7 +66,7 @@ async function bootstrap() {
 
   // The envelope interceptor reads this back out.
   app.use((req, _res, next) => {
-    req.headers['x-request-id'] = req.headers['x-request-id'] || uuidv4();
+    req.headers['x-request-id'] = req.headers['x-request-id'] || randomUUID();
     next();
   });
 

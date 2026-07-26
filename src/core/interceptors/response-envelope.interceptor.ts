@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { ApiResponse, ApiMeta } from '../../common/types';
 
 /**
@@ -42,7 +42,7 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
         }
 
         const requestId =
-          (request.headers['x-request-id'] as string) || uuidv4();
+          (request.headers['x-request-id'] as string) || randomUUID();
         const meta: ApiMeta = {
           requestId,
           timestamp: new Date().toISOString(),

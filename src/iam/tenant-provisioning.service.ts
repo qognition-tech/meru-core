@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Tenant, TenantStatus, TenantPlan } from './entities/tenant.entity';
 import { User } from './entities/user.entity';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import * as AWS from 'aws-sdk';
 
 export interface CreateTenantDto {
@@ -84,7 +84,7 @@ export class TenantProvisioningService {
 
       // 2. Create tenant (workspace)
       const tenant = queryRunner.manager.create(Tenant, {
-        id: uuidv4(),
+        id: randomUUID(),
         name: dto.name,
         slug: dto.slug,
         vertical: dto.vertical as any,
@@ -104,7 +104,7 @@ export class TenantProvisioningService {
       const hashedPassword = await this.hashPassword(dto.password);
 
       const user = queryRunner.manager.create(User, {
-        id: uuidv4(),
+        id: randomUUID(),
         email: dto.email,
         password: hashedPassword,
         tenantId: tenant.id,
@@ -122,7 +122,7 @@ export class TenantProvisioningService {
 
       // 4. Create default tenant settings
       const defaultSettings = queryRunner.manager.create(TenantSetting, {
-        id: uuidv4(),
+        id: randomUUID(),
         tenantId: tenant.id,
         tenant,
         settings: {

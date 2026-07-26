@@ -12,7 +12,7 @@ import * as crypto from 'crypto';
 import * as zlib from 'zlib';
 import { Tenant } from '../entities/tenant.entity';
 import { User, UserStatus, AuthProvider } from '../entities/user.entity';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -79,8 +79,8 @@ export class SamlService {
       );
     }
 
-    const requestId = `_${uuidv4().replace(/-/g, '')}`;
-    const relayState = uuidv4();
+    const requestId = `_${randomUUID().replace(/-/g, '')}`;
+    const relayState = randomUUID();
     const issueInstant = new Date().toISOString();
 
     pendingRequests.set(requestId, { tenantId: tenant.id, issuedAt: new Date() });
@@ -223,7 +223,7 @@ export class SamlService {
 
     // Just-in-time provisioning
     const newUser = this.userRepo.create({
-      id: uuidv4(),
+      id: randomUUID(),
       email: attributes.email,
       tenantId: tenant.id,
       provider: AuthProvider.SAML,

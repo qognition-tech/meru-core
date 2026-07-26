@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { S3 } from 'aws-sdk';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import {
@@ -100,7 +100,7 @@ export class DocumentsService {
       );
 
       const document = queryRunner.manager.create(Document, {
-        id: uuidv4(),
+        id: randomUUID(),
         tenantId,
         name: dto.name,
         slug: documentSlug,
@@ -124,7 +124,7 @@ export class DocumentsService {
       });
 
       const version = queryRunner.manager.create(DocumentVersion, {
-        id: uuidv4(),
+        id: randomUUID(),
         documentId: document.id,
         versionNumber: 1,
         status: VersionStatus.ACTIVE,
@@ -189,7 +189,7 @@ export class DocumentsService {
     const documentSlug = this.generateSlug(dto.name, tenantId);
 
     const document = this.documentRepo.create({
-      id: uuidv4(),
+      id: randomUUID(),
       tenantId,
       name: dto.name,
       slug: documentSlug,
@@ -261,7 +261,7 @@ export class DocumentsService {
       );
 
       const version = queryRunner.manager.create(DocumentVersion, {
-        id: uuidv4(),
+        id: randomUUID(),
         documentId: document.id,
         versionNumber: newVersionNumber,
         status: VersionStatus.ACTIVE,
