@@ -24,22 +24,18 @@ export const validationSchema = Joi.object({
   AWS_REGION: Joi.string().default('ap-south-1'),
   AWS_RDS_SECRET_NAME: Joi.string().optional().allow(''),
 
-  // Database (loaded from Secrets Manager)
+  // Database — DATABASE_URL (Neon) takes precedence over the discrete vars.
+  DATABASE_URL: Joi.string().optional(),
   DATABASE_HOST: Joi.string().optional(),
   DATABASE_PORT: Joi.number().default(5432),
   DATABASE_USERNAME: Joi.string().optional(),
   DATABASE_PASSWORD: Joi.string().optional(),
-  DATABASE_NAME: Joi.string().required(),
-
-  // Supabase
-  SUPABASE_URL: Joi.string().required(),
-  SUPABASE_SERVICE_ROLE_KEY: Joi.string().required(),
-  SUPABASE_ANON_KEY: Joi.string().optional(),
-  SUPABASE_JWT_SECRET: Joi.string().optional(),
+  DATABASE_NAME: Joi.string().optional(),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
   JWT_EXPIRATION: Joi.string().default('1h'),
+  CRON_SECRET: Joi.string().optional(),
 
   // Cache (Redis URL optional, falls back to memory)
   REDIS_HOST: Joi.string().optional(),
@@ -61,17 +57,17 @@ export const configuration = () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   vertical: process.env.VERTICAL || 'core',
   database: {
+    // Runtime connects as the non-BYPASSRLS `meru_app` role so tenant policies
+    // are actually enforced; DATABASE_URL (owner) is reserved for migrations and
+    // is only used at runtime as a fallback when the app role is not provisioned.
+    // See scripts/provision-rls-role.js.
+    url: process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
+    migrationUrl: process.env.DATABASE_URL,
     host: process.env.DATABASE_HOST || 'localhost',
     port: parseInt(process.env.DATABASE_PORT || '5432', 10),
     username: process.env.DATABASE_USERNAME || 'postgres',
     password: process.env.DATABASE_PASSWORD || '',
     name: process.env.DATABASE_NAME,
-  },
-  supabase: {
-    url: process.env.SUPABASE_URL,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    anonKey: process.env.SUPABASE_ANON_KEY,
-    jwtSecret: process.env.SUPABASE_JWT_SECRET,
   },
   aws: {
     region: process.env.AWS_REGION || 'ap-south-1',

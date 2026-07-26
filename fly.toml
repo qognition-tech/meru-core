@@ -1,0 +1,36 @@
+# Fly.io config for Meru Core (api.meru.com)
+# Persistent VM — keeps BullMQ workers + cron alive.
+# Deploy:  fly launch --no-deploy   (first time, creates the app)
+#          fly secrets set DATABASE_HOST=... DATABASE_PASSWORD=... SUPABASE_URL=... (etc)
+#          fly deploy
+app = "meru-core-api"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8000"
+  VERTICAL = "core"
+  DATABASE_PORT = "6543"
+  DATABASE_NAME = "postgres"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.checks]
+    [[http_service.checks.http]]
+      method = "GET"
+      path = "/api/v1/health"
+      interval = "15s"
+      timeout = "3s"
+      grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

@@ -14,6 +14,7 @@ import { Role } from './entities/role.entity';
 import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
 import { UserPayload, CreateUserInput } from '../common/types';
+import { TenantContext } from '../core/tenancy/tenant-context';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { generateSecret, generateURI, verify as totpVerify } from 'otplib';
@@ -39,11 +40,26 @@ export class IamService {
     email: string,
     password: string,
   ): Promise<UserPayload | null> {
-    const user = await this.userRepo.findOne({
-      where: { email },
-      relations: ['tenant'],
-      select: ['id', 'email', 'password', 'tenantId', 'status', 'mfaEnabled'],
-    });
+    // Bootstrap lookup: the tenant is what this query *discovers*, so there is
+    // no tenant bound yet and RLS would filter the row away. See
+    // TenantContext.runAsSystem — scoped to this one query on purpose.
+    const user = await TenantContext.runAsSystem(
+      'resolve user by email during login',
+      () =>
+        this.userRepo.findOne({
+          where: { email },
+          relations: ['tenant'],
+          select: [
+            'id',
+            'email',
+            'password',
+            'tenantId',
+            'status',
+            'mfaEnabled',
+            'roles',
+          ],
+        }),
+    );
 
     if (
       !user ||
@@ -56,17 +72,11 @@ export class IamService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return null;
 
-    // Load roles for this tenant
-    const roles = await this.roleRepo.find({
-      where: { tenantId: user.tenantId },
-    });
-    const userRoles = roles.filter((r) => r.isSystem).map((r) => r.name);
-
     return {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: userRoles,
+      roles: user.roles ?? [],
       mfaEnabled: user.mfaEnabled,
     };
   }
@@ -84,6 +94,12 @@ export class IamService {
       };
     }
 
+    // Login is a public route, so TenantBindingInterceptor has nothing to bind
+    // from: the tenant only becomes known once validateUser() has run. Bind it
+    // here so the session writes below execute against the right tenant instead
+    // of an unbound (zero-row) connection.
+    TenantContext.setTenantId(user.tenantId);
+
     // Revoke existing active sessions (active = revokedAt is null)
     const activeSessions = await this.sessionRepo.find({
       where: { userId: user.id, revokedAt: null as any },
@@ -97,7 +113,54 @@ export class IamService {
 
     const tokens = await this.generateTokens(user);
     await this.createSession(user, tokens.refresh_token);
-    return tokens;
+
+    // Enrich the response with the user profile + tenant so front-end portals
+    // (Meru Dashboard / ImmiStack / GovernanceX) can hydrate their auth store
+    // without a second round-trip.
+    return {
+      ...tokens,
+      tenant_id: user.tenantId,
+      user: await this.buildAuthUser(user),
+    };
+  }
+
+  /**
+   * Builds the client-facing user object returned by login. Maps the internal
+   * User entity / UserPayload onto the shape the front-end auth stores expect
+   * ({ id, tenant_id, email, role, permissions, profile }).
+   */
+  private async buildAuthUser(payload: UserPayload) {
+    const user = await this.userRepo.findOne({
+      where: { id: payload.id },
+    });
+
+    const roles = payload.roles ?? [];
+
+    return {
+      id: payload.id,
+      tenant_id: payload.tenantId,
+      email: payload.email,
+      role: this.resolvePrimaryRole(roles),
+      permissions: roles,
+      profile: {
+        first_name: user?.firstName ?? '',
+        last_name: user?.lastName ?? '',
+        avatar_url: user?.avatarUrl ?? undefined,
+        title: undefined,
+      },
+    };
+  }
+
+  /**
+   * Collapses the user's role list into the single primary role the portals
+   * switch on. Prefers the most-privileged known platform role when present.
+   */
+  private resolvePrimaryRole(roles: string[]): string {
+    const precedence = ['platform_admin', 'firm_admin', 'staff', 'client'];
+    for (const role of precedence) {
+      if (roles.includes(role)) return role;
+    }
+    return roles[0] ?? 'staff';
   }
 
   async refreshTokens(refreshToken: string) {
@@ -106,33 +169,76 @@ export class IamService {
       .update(refreshToken)
       .digest('hex');
 
-    const session = await this.sessionRepo.findOne({
-      where: { refreshTokenHash, revokedAt: null as any },
-      relations: ['user'],
-    });
+    // Bootstrap lookup: an opaque refresh token carries no tenant, so this
+    // query is what establishes identity. Scoped to the lookup only — the
+    // session/token writes below run tenant-bound.
+    const session = await TenantContext.runAsSystem(
+      'resolve session by refresh token',
+      () =>
+        this.sessionRepo.findOne({
+          where: { refreshTokenHash, revokedAt: null as any },
+          relations: ['user'],
+        }),
+    );
 
     if (!session || new Date() > session.expiresAt) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
+    const user = session.user;
+
+    // As in login(): the tenant is only known once the token has been resolved,
+    // so bind it before the session rotation writes below.
+    TenantContext.setTenantId(user.tenantId);
+
     // Revoke old session
     session.revokedAt = new Date();
     await this.sessionRepo.save(session);
 
-    const user = session.user;
-    const roles = await this.roleRepo.find({
-      where: { tenantId: user.tenantId },
-    });
     const payload: UserPayload = {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
+      roles: user.roles ?? [],
     };
 
     const tokens = await this.generateTokens(payload);
     await this.createSession(payload, tokens.refresh_token);
-    return tokens;
+
+    // Mirror the login() payload so the front-end can re-hydrate its auth
+    // store from a silent refresh without a second round-trip.
+    return {
+      ...tokens,
+      tenant_id: payload.tenantId,
+      user: await this.buildAuthUser(payload),
+    };
+  }
+
+  /**
+   * Revokes the single session identified by an opaque refresh token.
+   * Idempotent — an unknown or already-revoked token is a no-op, so a client
+   * clearing stale credentials never sees an error.
+   */
+  async logoutSession(refreshToken: string) {
+    const refreshTokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
+
+    // Same bootstrap case as refreshTokens(): logout is reachable with only an
+    // opaque token, so the row has to be found before any tenant is known.
+    await TenantContext.runAsSystem('revoke session by refresh token', async () => {
+      const session = await this.sessionRepo.findOne({
+        where: { refreshTokenHash, revokedAt: null as any },
+      });
+
+      if (session) {
+        session.revokedAt = new Date();
+        await this.sessionRepo.save(session);
+      }
+    });
+
+    return { success: true };
   }
 
   async logout(userId: string) {
@@ -196,7 +302,7 @@ export class IamService {
   async verifyMfaLogin(userId: string, token: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      select: ['id', 'email', 'tenantId', 'mfaSecret', 'mfaEnabled'],
+      select: ['id', 'email', 'tenantId', 'mfaSecret', 'mfaEnabled', 'roles'],
     });
 
     if (!user || !user.mfaSecret || !user.mfaEnabled) {
@@ -209,14 +315,11 @@ export class IamService {
     });
     if (!isValid) throw new UnauthorizedException('Invalid MFA token');
 
-    const roles = await this.roleRepo.find({
-      where: { tenantId: user.tenantId },
-    });
     const payload: UserPayload = {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
+      roles: user.roles ?? [],
     };
 
     const tokens = await this.generateTokens(payload);
@@ -240,14 +343,20 @@ export class IamService {
   // ─── Registration ─────────────────────────────────────────────────
 
   async register(dto: CreateUserInput) {
-    const tenant = await this.tenantRepo.findOne({
-      where: { slug: dto.tenantSlug },
-    });
-    if (!tenant) throw new NotFoundException('Invalid tenant slug');
+    // Registration runs unauthenticated: the tenant slug is the only identity
+    // signal, so resolving it and checking for a duplicate email both precede
+    // any tenant binding.
+    const { tenant, existing } = await TenantContext.runAsSystem(
+      'resolve tenant by slug during registration',
+      async () => ({
+        tenant: await this.tenantRepo.findOne({
+          where: { slug: dto.tenantSlug },
+        }),
+        existing: await this.userRepo.findOne({ where: { email: dto.email } }),
+      }),
+    );
 
-    const existing = await this.userRepo.findOne({
-      where: { email: dto.email },
-    });
+    if (!tenant) throw new NotFoundException('Invalid tenant slug');
     if (existing) throw new ConflictException('Email already registered');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -370,29 +479,33 @@ export class IamService {
       .update(keyMaterial)
       .digest('hex');
 
-    const apiKey = await this.apiKeyRepo.findOne({
-      where: { keyHash, revokedAt: null as any },
-      relations: ['creator'],
-    });
+    // Bootstrap lookup: an API key is presented before any tenant is known —
+    // validating it is what determines the tenant.
+    const apiKey = await TenantContext.runAsSystem(
+      'validate API key hash',
+      () =>
+        this.apiKeyRepo.findOne({
+          where: { keyHash, revokedAt: null as any },
+          relations: ['creator'],
+        }),
+    );
 
     if (!apiKey) return null;
     if (apiKey.expiresAt && new Date() > apiKey.expiresAt) return null;
 
-    // Update last used
-    await this.apiKeyRepo.update(apiKey.id, { lastUsedAt: new Date() });
+    // Still pre-authentication, so this write also needs the system context.
+    await TenantContext.runAsSystem('stamp API key last-used', () =>
+      this.apiKeyRepo.update(apiKey.id, { lastUsedAt: new Date() }),
+    );
 
     const user = apiKey.creator;
     if (!user) return null;
-
-    const roles = await this.roleRepo.find({
-      where: { tenantId: user.tenantId },
-    });
 
     return {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      roles: roles.filter((r) => r.isSystem).map((r) => r.name),
+      roles: user.roles ?? [],
       apiKeyId: apiKey.id,
     };
   }

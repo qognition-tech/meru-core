@@ -16,6 +16,7 @@ import {
   QueueScheduledJob,
   QueueWorker,
 } from './entities/job.entity';
+import { IamModule } from '../iam/iam.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import {
       QueueScheduledJob,
       QueueWorker,
     ]),
+    IamModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

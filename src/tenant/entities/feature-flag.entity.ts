@@ -26,7 +26,7 @@ export class FeatureFlag {
   @Column()
   flagKey: string;
 
-  @Column({ type: 'jsonb', default: true })
+  @Column({ type: 'jsonb', default: () => "'true'::jsonb" })
   flagValue: any;
 
   @Column({ type: 'text', nullable: true })

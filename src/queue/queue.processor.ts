@@ -22,7 +22,14 @@ export class JobProcessor implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Start the job processor loop
+    // The processor loop never returns. On Vercel that means it runs on every
+    // cold boot, keeps the event loop non-empty, and burns the invocation's
+    // wall clock until timeout. Serverless drains the queue via the Vercel Cron
+    // route instead — see api/index.ts and docs/DEPLOY.md.
+    if (process.env.VERCEL) {
+      this.logger.log('Serverless runtime detected — processor loop disabled.');
+      return;
+    }
     this.startProcessorLoop();
   }
 

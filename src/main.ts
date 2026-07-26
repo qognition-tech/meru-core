@@ -162,7 +162,7 @@ async function bootstrap() {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         name: 'JWT',
-        description: 'Enter your Supabase JWT token',
+        description: 'Enter the access token returned by POST /auth/login',
         in: 'header',
       },
       'JWT-auth',

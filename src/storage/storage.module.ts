@@ -15,10 +15,12 @@ import {
   MultipartUpload,
 } from './entities/storage-file.entity';
 import { S3StorageProvider } from './providers/s3.provider';
+import { IamModule } from '../iam/iam.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([StorageFile, FileVersion, MultipartUpload]),
+    IamModule,
   ],
   providers: [StorageService, S3StorageProvider],
   controllers: [StorageController],

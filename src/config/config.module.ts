@@ -1,11 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { configuration, validationSchema } from './configuration';
-import { SupabaseConfigService } from './supabase-config.service';
 
-// App-boot configuration only — env validation, Supabase client, AWS secrets.
-// Tenant-level config (config packs, feature flags, tenant settings) lives in
-// the TCM module at src/tenant/.
+// App-boot configuration only — env validation and AWS secrets. Tenant-level
+// config (config packs, feature flags, tenant settings) lives in the TCM module
+// at src/tenant/.
 @Global()
 @Module({
   imports: [
@@ -16,7 +15,5 @@ import { SupabaseConfigService } from './supabase-config.service';
       validationOptions: { abortEarly: true },
     }),
   ],
-  providers: [SupabaseConfigService],
-  exports: [SupabaseConfigService],
 })
 export class AppConfigModule {}

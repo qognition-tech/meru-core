@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install --include=dev",
+  "framework": null,
+  "outputDirectory": "public",
+  "regions": ["sin1"],
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "crons": [
+    { "path": "/api/v1/jobs/sla-watchdog", "schedule": "0 2 * * *" },
+    { "path": "/api/v1/jobs/daily-billing", "schedule": "0 3 * * *" }
+  ]
+}

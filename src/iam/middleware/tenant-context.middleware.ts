@@ -93,8 +93,13 @@ export class TenantContextMiddleware implements NestMiddleware {
       req.environment = context.environment;
       req.vertical = context.vertical;
 
-      // Set RLS context in PostgreSQL for vertical isolation
-      await this.setRLSContext(context.vertical, context.environment);
+      // Tenant isolation is no longer this middleware's job. It previously
+      // called `app.set_context()` — a function that no migration ever created,
+      // so every authenticated request logged an error — and it did so on a
+      // throwaway QueryRunner that was released straight back to the pool, which
+      // meant the setting never reached the connection serving the request.
+      // Connection binding now happens in core/tenancy/rls.datasource.ts, at the
+      // one point every query passes through.
 
       // Log context for debugging (production: disable)
       if (process.env.NODE_ENV === 'development') {
@@ -180,29 +185,6 @@ export class TenantContextMiddleware implements NestMiddleware {
     }
 
     return null;
-  }
-
-  private async setRLSContext(
-    vertical: VerticalType,
-    environment: string,
-  ): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-
-    try {
-      await queryRunner.connect();
-
-      // Set PostgreSQL RLS context for vertical AND environment
-      await queryRunner.query(`SELECT app.set_context($1, $2)`, [
-        vertical,
-        environment,
-      ]);
-
-      this.logger.debug(`RLS context set: ${vertical} (${environment})`);
-    } catch (error) {
-      this.logger.error(`Failed to set RLS context: ${error.message}`);
-    } finally {
-      await queryRunner.release();
-    }
   }
 
   private isPublicEndpoint(path: string): boolean {

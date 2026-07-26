@@ -7,6 +7,7 @@ import {
   ElasticsearchDocument,
   ElasticsearchSearchLog,
 } from './entities/search-index.entity';
+import { IamModule } from '../../iam/iam.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import {
       ElasticsearchDocument,
       ElasticsearchSearchLog,
     ]),
+    IamModule,
   ],
   providers: [ElasticsearchService],
   controllers: [ElasticsearchController],

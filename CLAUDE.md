@@ -201,8 +201,17 @@ Examples: `"Show my pending cases"`, `"Draft a 482 visa application for John"`, 
 
 ### 6.4 Strict Multi-Tenancy
 - **Row-Level Security (RLS)** is mandatory at the Postgres layer.
-- Every table includes `tenant_id`; no query may cross tenants without an explicit "god mode" audit log entry.
+- Every tenant-scoped table has a `"tenantId"` column (camelCase — note it is `uuid` on some tables and `varchar` on others); no query may cross tenants without an explicit "god mode" audit log entry.
 - Storage (S3) is bucketed/prefixed per tenant with separate KMS keys for regulated data.
+
+**How it is actually enforced** (`src/core/tenancy/`, migration `AddTenantRowLevelSecurity`):
+- The app connects as **`meru_app`**, a role *without* `BYPASSRLS`. This is the whole ballgame: an owner role with `BYPASSRLS` (Neon/Supabase/RDS defaults) ignores every policy while still reporting them as enabled. `DATABASE_URL` (owner) is for migrations; `DATABASE_APP_URL` is for runtime.
+- Every table is `ENABLE` **and** `FORCE ROW LEVEL SECURITY` — without `FORCE`, the table owner is exempt.
+- `TenantAlsMiddleware` opens an AsyncLocalStorage context; `TenantBindingInterceptor` fills in the tenant after the guards run; `applyRlsToDataSource` sets `app.current_tenant_id` on the *same pooled connection* the query will use.
+- Policies **fail closed**: an unbound connection matches zero rows rather than everything.
+- Bootstrap lookups that *establish* identity (login by email, refresh token, API key) run inside `TenantContext.runAsSystem`. Cross-tenant operator access goes through `TenancyService.runAsGod`, which writes a `CRITICAL` audit entry first.
+
+**Never trust "RLS is on" without running `npm run rls:verify`.** It attempts real cross-tenant reads and writes and exits non-zero if any succeed.
 
 ### 6.5 Audit Everything
 - Every state-changing action writes to **AUD** with hash-chained tamper-evident logs.
@@ -378,5 +387,5 @@ When working in this repo:
 
 ---
 
-*Last updated: 2026-05-31 — Phase A/B/C complete: dead code removed, engines wired, 3 frontend portals live in separate `meru-core-fe` repo, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk (ae/banking.json, au/immigration.json), backend on PORT=8000*
+*Last updated: 2026-07-26 — Tenant isolation (§6.4) implemented and verified end-to-end: `meru_app` non-BYPASSRLS role, ENABLE+FORCE RLS on all 51 tables, connection-level tenant binding, `npm run rls:verify` passing 10/10 against Neon. Previously: Phase A/B/C complete — dead code removed, engines wired, 3 frontend portals live in separate `meru-core-fe` repo, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk (ae/banking.json, au/immigration.json), backend on PORT=8000*
 *Document owner: Meru Platform Team*

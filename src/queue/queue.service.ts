@@ -175,37 +175,44 @@ export class QueueService implements OnModuleInit {
     workerTypes: JobType[],
     tenantId?: string,
   ): Promise<QueueJob | null> {
-    const queryBuilder = this.jobRepo.createQueryBuilder('job');
+    // A pessimistic lock requires an open transaction. We claim the next pending
+    // job with FOR UPDATE SKIP LOCKED (pessimistic_partial_write) so concurrent
+    // workers never block each other or grab the same job.
+    const job = await this.jobRepo.manager.transaction(async (manager) => {
+      const queryBuilder = manager
+        .createQueryBuilder(QueueJob, 'job')
+        .where('job.status = :status', { status: JobStatus.PENDING });
 
-    queryBuilder.where('job.status = :status', { status: JobStatus.PENDING });
+      if (tenantId) {
+        queryBuilder.andWhere('job.tenantId = :tenantId', { tenantId });
+      }
 
-    if (tenantId) {
-      queryBuilder.andWhere('job.tenantId = :tenantId', { tenantId });
-    }
+      queryBuilder.andWhere('job.type IN (:...types)', { types: workerTypes });
+      queryBuilder.andWhere(
+        '(job.scheduledFor IS NULL OR job.scheduledFor <= :now)',
+        { now: new Date() },
+      );
 
-    queryBuilder.andWhere('job.type IN (:...types)', { types: workerTypes });
-    queryBuilder.andWhere(
-      '(job.scheduledFor IS NULL OR job.scheduledFor <= :now)',
-      { now: new Date() },
-    );
+      queryBuilder.orderBy('job.priority', 'ASC');
+      queryBuilder.addOrderBy('job.createdAt', 'ASC');
 
-    queryBuilder.orderBy('job.priority', 'ASC');
-    queryBuilder.addOrderBy('job.createdAt', 'ASC');
+      queryBuilder.setLock('pessimistic_partial_write');
 
-    queryBuilder.setLock('pessimistic_write');
+      const claimed = await queryBuilder.getOne();
 
-    const job = await queryBuilder.getOne();
+      if (claimed) {
+        // Mark as processing inside the same transaction so the claim is atomic.
+        claimed.status = JobStatus.PROCESSING;
+        claimed.processedAt = new Date();
+        claimed.attempts += 1;
+        await manager.save(claimed);
+      }
+
+      return claimed;
+    });
 
     if (job) {
-      // Mark as processing
-      job.status = JobStatus.PROCESSING;
-      job.processedAt = new Date();
-      job.attempts += 1;
-      await this.jobRepo.save(job);
-
-      // Log start
       await this.logJobEvent(job.id, 'started', { attempt: job.attempts });
-
       this.logger.log(`Job processing: ${job.id} (${job.type})`);
     }
 

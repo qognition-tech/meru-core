@@ -1,0 +1,27 @@
+# Keep the lambda small — it must fit well under Vercel's size limit alongside
+# aws-sdk, @elastic/elasticsearch and openai.
+.git
+.github
+# Stale (May 2025) and out of sync with package.json — its presence makes Vercel
+# choose pnpm over npm, which then fails the lockfile specifier check.
+# package-lock.json is the maintained one (see Dockerfile).
+pnpm-lock.yaml
+docs
+infra
+test
+scripts
+coverage
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose*.yml
+fly.toml
+render.yaml
+**/*.spec.ts
+**/*.e2e-spec.ts
+**/*.test.ts
+.next
+node_modules/.cache

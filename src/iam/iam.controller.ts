@@ -24,6 +24,9 @@ import { IamService } from './iam.service';
 import { SamlService } from './services/saml.service';
 import { PolicyGuard } from './guards/policy.guard';
 import { Roles } from './decorators/roles.decorator';
+import { Public } from './decorators/public.decorator';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { LogoutDto } from './dto/logout.dto';
 import type { CreateUserInput } from '../common/types';
 
 @Controller('auth')
@@ -35,7 +38,7 @@ export class IamController {
   ) {}
 
   @Post('login')
-  @UseGuards(AuthGuard('local')) // Requires local.strategy.ts (omitted for brevity, standard impl)
+  @UseGuards(AuthGuard('local')) // See ./strategies/local.strategy.ts
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({
     schema: {
@@ -81,6 +84,59 @@ export class IamController {
   @ApiResponse({ status: 400, description: 'Bad request' })
   async register(@Body() createUserDto: CreateUserInput) {
     return this.iamService.register(createUserDto);
+  }
+
+  // ── Session lifecycle ─────────────────────────────────────────────────────
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange an opaque refresh token for a new token pair',
+    description:
+      'Validates the refresh token against its active session, revokes that ' +
+      'session (rotation), and issues a fresh access/refresh pair. Returns ' +
+      'the same payload shape as POST /auth/login.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        refresh_token: { type: 'string', example: 'e3b0c44298fc1c14…' },
+      },
+      required: ['refresh_token'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Tokens refreshed successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
+  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.iamService.refreshTokens(refreshTokenDto.refresh_token);
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Revoke the session behind a refresh token',
+    description:
+      'Revokes the single session identified by the supplied refresh token. ' +
+      'Idempotent — an unknown or already-revoked token still returns 200 so ' +
+      'clients can always clear stale credentials.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        refresh_token: { type: 'string', example: 'e3b0c44298fc1c14…' },
+      },
+      required: ['refresh_token'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  async logout(@Body() logoutDto: LogoutDto) {
+    return this.iamService.logoutSession(logoutDto.refresh_token);
   }
 
   // ── SAML SSO endpoints ────────────────────────────────────────────────────

@@ -110,7 +110,7 @@ export class StorageFile {
   @Column({ type: 'int', default: 0 })
   accessCount: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   folder: string | null;
 
   @OneToMany(() => FileVersion, (version) => version.file, { cascade: true })

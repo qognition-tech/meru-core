@@ -38,7 +38,7 @@ export class InitialSchema1738470000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "users" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying NOT NULL,
+        "tenantId" uuid NOT NULL,
         "email" character varying NOT NULL,
         "password" character varying NOT NULL,
         "provider" "auth_provider_enum" NOT NULL DEFAULT 'local',
@@ -62,7 +62,7 @@ export class InitialSchema1738470000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "tenant_settings" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying NOT NULL,
+        "tenantId" uuid NOT NULL,
         "verticalConfig" jsonb NOT NULL,
         "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
@@ -78,7 +78,7 @@ export class InitialSchema1738470000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "universal_entities" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying NOT NULL,
+        "tenantId" uuid NOT NULL,
         "type" "entity_type_enum" NOT NULL,
         "firstName" character varying,
         "lastName" character varying,

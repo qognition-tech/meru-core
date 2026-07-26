@@ -19,7 +19,7 @@ export class AddSearchAndAiTables1738479999998 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "search_index" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying NOT NULL,
+        "tenantId" uuid NOT NULL,
         "searchableType" "searchable_type_enum" NOT NULL,
         "searchableId" character varying NOT NULL,
         "title" text NOT NULL,
@@ -42,7 +42,7 @@ export class AddSearchAndAiTables1738479999998 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "ai_prompts" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying,
+        "tenantId" uuid,
         "category" "prompt_category_enum" NOT NULL,
         "key" character varying NOT NULL,
         "prompt" text NOT NULL,
@@ -61,7 +61,7 @@ export class AddSearchAndAiTables1738479999998 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "ai_embeddings" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "tenantId" character varying NOT NULL,
+        "tenantId" uuid NOT NULL,
         "vectorId" character varying NOT NULL,
         "type" character varying NOT NULL,
         "resourceId" character varying NOT NULL,

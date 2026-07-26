@@ -12,8 +12,10 @@ import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
 import { TenantConfigPin } from './entities/tenant-config-pin.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { LocalStrategy } from './strategies/local.strategy';
 import { TenantContextMiddleware } from './middleware/tenant-context.middleware';
 import { PolicyGuard } from './guards/policy.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { VerticalPolicyService } from '../core/verticals/vertical-policy.service';
 import { CoreModule } from '../core/core.module';
 import { TenantProvisioningService } from './tenant-provisioning.service';
@@ -46,8 +48,8 @@ import { SamlService } from './services/saml.service';
     AuditModule,
   ],
   controllers: [IamController, TenantProvisioningController],
-  providers: [IamService, JwtStrategy, PolicyGuard, TenantProvisioningService, SamlService],
-  exports: [IamService, PolicyGuard, JwtStrategy, SamlService],
+  providers: [IamService, JwtStrategy, LocalStrategy, PolicyGuard, JwtAuthGuard, TenantProvisioningService, SamlService],
+  exports: [IamService, PolicyGuard, JwtAuthGuard, JwtStrategy, SamlService, JwtModule],
 })
 export class IamModule {
   configure(consumer: any) {

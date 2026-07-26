@@ -1,6 +1,10 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { TenancyModule } from './core/tenancy/tenancy.module';
+import { TenantAlsMiddleware } from './core/tenancy/tenant-als.middleware';
+import { TenantBindingInterceptor } from './core/tenancy/tenant-binding.interceptor';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
@@ -23,6 +27,8 @@ import { StorageModule } from './storage/storage.module';
 import { QueueModule } from './queue/queue.module';
 import { ElasticsearchModule } from './search/elasticsearch/elasticsearch.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
 
 import { User } from './iam/entities/user.entity';
 import { Tenant } from './iam/entities/tenant.entity';
@@ -125,14 +131,24 @@ import {
       imports: [AppConfigModule],
       useFactory: (configService: ConfigService): any => {
         const isDevelopment = configService.get('NODE_ENV') === 'development';
+        const isServerless = !!process.env.VERCEL;
+
+        // Neon hands out a single connection string; prefer it when present and
+        // fall back to the discrete vars for local/legacy setups.
+        const databaseUrl = configService.get('database.url');
+        const connection = databaseUrl
+          ? { url: databaseUrl }
+          : {
+              host: configService.get('database.host'),
+              port: configService.get('database.port'),
+              username: configService.get('database.username'),
+              password: configService.get('database.password'),
+              database: configService.get('database.name'),
+            };
 
         return {
           type: 'postgres' as const,
-          host: configService.get('database.host'),
-          port: configService.get('database.port'),
-          username: configService.get('database.username'),
-          password: configService.get('database.password'),
-          database: configService.get('database.name'),
+          ...connection,
 
           // CRITICAL: All entities from all modules must be listed here
           // so TypeORM can manage them and create tables (if synchronize: true)
@@ -207,6 +223,13 @@ import {
           retryAttempts: isDevelopment ? 3 : 10,
           retryDelay: 3000,
           ssl: { rejectUnauthorized: false },
+
+          // Serverless: every lambda instance gets its own pool, so cap it at 1
+          // connection. Without this each cold start opens pg's default pool of
+          // 10 and exhausts Neon's connection limit under any real concurrency.
+          extra: isServerless
+            ? { max: 1, connectionTimeoutMillis: 10000 }
+            : { max: 10 },
         };
       },
       inject: [ConfigService],
@@ -230,6 +253,22 @@ import {
     QueueModule,
     ElasticsearchModule,
     IntegrationsModule,
+    HealthModule,
+    JobsModule,
+    TenancyModule,
+  ],
+  providers: [
+    // Binds the authenticated tenant into the ALS context for every request.
+    // Global (rather than per-controller) because a route that silently misses
+    // this would run against an unbound connection — CLAUDE.md §6.4 admits no
+    // opt-in surface for tenant isolation.
+    { provide: APP_INTERCEPTOR, useClass: TenantBindingInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Must be the outermost middleware: it opens the AsyncLocalStorage context
+    // that everything downstream — guards, interceptors, repositories — reads.
+    consumer.apply(TenantAlsMiddleware).forRoutes('*');
+  }
+}
