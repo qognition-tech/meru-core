@@ -24,7 +24,9 @@
     "migration:run": "npm run build && npm run typeorm -- migration:run",
     "migration:revert": "npm run build && npm run typeorm -- migration:revert",
     "rls:provision": "node scripts/provision-rls-role.js",
-    "rls:verify": "node scripts/verify-tenant-isolation.js"
+    "rls:verify": "node scripts/verify-tenant-isolation.js",
+    "smoke:routes": "bash scripts/smoke/api-routes.sh",
+    "smoke:tenancy": "bash scripts/smoke/cross-tenant.sh"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.3.1",

@@ -27,7 +27,7 @@ import { Roles } from './decorators/roles.decorator';
 import { Public } from './decorators/public.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import type { CreateUserInput } from '../common/types';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @Controller('auth')
 @ApiTags('auth')
@@ -82,7 +82,12 @@ export class IamController {
   })
   @ApiResponse({ status: 201, description: 'User registered successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  async register(@Body() createUserDto: CreateUserInput) {
+  // Typed against the DTO class, not the CreateUserInput interface. Interfaces
+  // are erased at runtime, so ValidationPipe had no metadata to validate and an
+  // empty body passed straight through to the service — where TypeORM silently
+  // drops `where: { email: undefined }` and matched the first user in the table,
+  // reporting "Email already registered" for a request containing nothing.
+  async register(@Body() createUserDto: CreateUserDto) {
     return this.iamService.register(createUserDto);
   }
 

@@ -7,14 +7,18 @@ import {
   Patch,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBody,
   ApiParam,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
+import { PolicyGuard } from './guards/policy.guard';
 import {
   TenantProvisioningService,
   type CreateTenantDto,
@@ -65,7 +69,15 @@ export class TenantProvisioningController {
     };
   }
 
+  // Guarded explicitly. There is no global APP_GUARD in this app — every
+  // controller opts in — and this one had opted out entirely, leaving a
+  // billing-mutating endpoint reachable unauthenticated by anyone who could
+  // guess or observe a tenant id. `signup` and `check-slug` above stay public
+  // by design; everything that touches an existing tenant does not.
   @Patch(':id/upgrade')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth()
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiOperation({ summary: 'Upgrade tenant plan' })
   @ApiResponse({ status: 200, description: 'Plan upgraded successfully' })
   @ApiResponse({ status: 404, description: 'Tenant not found' })
@@ -93,6 +105,9 @@ export class TenantProvisioningController {
   }
 
   @Get(':id/stats')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth()
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiOperation({ summary: 'Get tenant statistics' })
   @ApiResponse({
     status: 200,

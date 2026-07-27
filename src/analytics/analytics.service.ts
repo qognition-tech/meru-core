@@ -212,7 +212,7 @@ export class AnalyticsService {
       query += '*';
     }
 
-    query += ' FROM universal_entities WHERE tenant_id = $1';
+    query += ' FROM universal_entities WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (config.filters) {
@@ -242,11 +242,11 @@ export class AnalyticsService {
     params: any[],
     parameters?: Record<string, any>,
   ): string {
-    let query = 'SELECT * FROM workflow_instances WHERE tenant_id = $1';
+    let query = 'SELECT * FROM workflow_instances WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.workflowId) {
-      query += ` AND workflow_id = $${params.length + 1}`;
+      query += ` AND "workflowId" = $${params.length + 1}`;
       params.push(parameters.workflowId);
     }
 
@@ -258,7 +258,7 @@ export class AnalyticsService {
     params: any[],
     parameters?: Record<string, any>,
   ): string {
-    let query = 'SELECT * FROM documents WHERE tenant_id = $1';
+    let query = 'SELECT * FROM documents WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.entityType) {
@@ -274,7 +274,7 @@ export class AnalyticsService {
     params: any[],
     parameters?: Record<string, any>,
   ): string {
-    let query = 'SELECT * FROM tasks WHERE tenant_id = $1';
+    let query = 'SELECT * FROM tasks WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.assignedTo) {
@@ -290,7 +290,7 @@ export class AnalyticsService {
     params: any[],
     parameters?: Record<string, any>,
   ): string {
-    const query = 'SELECT * FROM form_submissions WHERE tenant_id = $1';
+    const query = 'SELECT * FROM form_submissions WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
     return query;
   }
@@ -300,7 +300,7 @@ export class AnalyticsService {
     params: any[],
     parameters?: Record<string, any>,
   ): string {
-    let query = 'SELECT * FROM invoices WHERE tenant_id = $1';
+    let query = 'SELECT * FROM invoices WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.startDate && parameters?.endDate) {
@@ -397,7 +397,7 @@ export class AnalyticsService {
       }
 
       const results = await queryRunner.query(
-        `SELECT ${query.fields.join(', ')} FROM ${query.table} WHERE tenant_id = $1 LIMIT 100`,
+        `SELECT ${query.fields.join(', ')} FROM ${query.table} WHERE "tenantId" = $1 LIMIT 100`,
         params,
       );
 

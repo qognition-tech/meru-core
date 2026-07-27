@@ -1,12 +1,4 @@
-import {
-  Processor,
-  Process,
-  OnQueueActive,
-  OnQueueCompleted,
-  OnQueueFailed,
-} from '@nestjs/bull';
 import { Logger, Injectable, OnModuleInit } from '@nestjs/common';
-import type { Job } from 'bull';
 import { QueueService } from './queue.service';
 import { QueueJob } from './entities/job.entity';
 import { JobType, JobResult, JobStatus } from './interfaces/job.interface';
@@ -103,21 +95,10 @@ export class JobProcessor implements OnModuleInit {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Bull queue decorators for external Bull queue support (optional)
-  @OnQueueActive()
-  onActive(job: Job) {
-    this.logger.log(`Processing job ${job.id} of type ${job.name}`);
-  }
-
-  @OnQueueCompleted()
-  onCompleted(job: Job, result: any) {
-    this.logger.log(`Job ${job.id} completed with result:`, result);
-  }
-
-  @OnQueueFailed()
-  onFailed(job: Job, err: Error) {
-    this.logger.error(`Job ${job.id} failed with error:`, err.message);
-  }
+  // The @OnQueueActive/@OnQueueCompleted/@OnQueueFailed handlers that used to
+  // live here were removed with BullModule: they are Bull event hooks, and with
+  // no Bull queue registered they could never fire. The Postgres-backed loop
+  // above already logs each transition. See queue.module.ts.
 }
 
 // Job handlers - These would be implemented in respective modules

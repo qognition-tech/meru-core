@@ -12,6 +12,7 @@ import { User } from './entities/user.entity';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { randomUUID } from 'node:crypto';
 import * as AWS from 'aws-sdk';
+import { TenantContext } from '../core/tenancy/tenant-context';
 
 export interface CreateTenantDto {
   name: string;
@@ -66,6 +67,22 @@ export class TenantProvisioningService {
   }
 
   async createTenant(dto: CreateTenantDto): Promise<TenantWorkspaceResponse> {
+    // Signup is the one operation that *creates* the tenant it would otherwise
+    // need to be scoped to. With no tenant bound, the WITH CHECK on `tenants`
+    // (and on users/roles/tenant_settings) correctly rejects every insert:
+    //   "new row violates row-level security policy for table tenants"
+    // So the whole transaction runs in a system context, exactly like the other
+    // identity-establishing paths in IamService. The bypass ends when this
+    // callback returns — it does not leak to the rest of the request.
+    return TenantContext.runAsSystem(
+      `provision tenant workspace ${dto.slug}`,
+      () => this.createTenantInternal(dto),
+    );
+  }
+
+  private async createTenantInternal(
+    dto: CreateTenantDto,
+  ): Promise<TenantWorkspaceResponse> {
     this.logger.log(`Creating new tenant workspace: ${dto.slug}`);
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -150,8 +167,9 @@ export class TenantProvisioningService {
 
       await queryRunner.manager.save(defaultSettings);
 
-      // 5. Set up tenant RLS context (for any operations)
-      await queryRunner.query(`SELECT app.set_tenant_context($1)`, [tenant.id]);
+      // (Removed: `SELECT app.set_tenant_context($1)` — that function was never
+      // created by any migration, so this call threw and rolled the signup
+      // transaction back. Tenant binding is handled by applyRlsToDataSource.)
 
       await queryRunner.commitTransaction();
 
@@ -260,18 +278,22 @@ export class TenantProvisioningService {
     try {
       await queryRunner.connect();
 
-      // Set tenant context
-      await queryRunner.query(`SELECT app.set_tenant_context($1)`, [tenantId]);
+      // No manual tenant-context call here. This used to be
+      // `SELECT app.set_tenant_context($1)` — a function no migration ever
+      // created, so every request to this endpoint died with a 500. The
+      // connection is now bound to the caller's tenant automatically by
+      // applyRlsToDataSource (core/tenancy), which covers query runners too.
 
-      // Get statistics
+      // Columns are camelCase ("tenantId"); the previous snake_case `tenant_id`
+      // predicates would have thrown even once the function call was fixed.
       const [userCount, entityCount, documentCount] = await Promise.all([
         queryRunner.manager.count(User, { where: { tenantId } }),
         queryRunner.manager.query(
-          `SELECT COUNT(*) FROM universal_entities WHERE tenant_id = $1`,
+          `SELECT COUNT(*) FROM universal_entities WHERE "tenantId" = $1`,
           [tenantId],
         ),
         queryRunner.manager.query(
-          `SELECT COUNT(*) FROM documents WHERE tenant_id = $1`,
+          `SELECT COUNT(*) FROM documents WHERE "tenantId" = $1`,
           [tenantId],
         ),
       ]);
@@ -288,7 +310,14 @@ export class TenantProvisioningService {
   }
 
   async checkSlugAvailability(slug: string): Promise<{ available: boolean }> {
-    const existing = await this.tenantRepo.findOne({ where: { slug } });
+    // Runs unauthenticated, so no tenant is bound and RLS would hide every row
+    // in `tenants` — making this report "available" for slugs that are already
+    // taken, then failing at signup. It fails silently rather than loudly,
+    // which is why it needs the system context even though it only reads.
+    const existing = await TenantContext.runAsSystem(
+      'check tenant slug availability',
+      () => this.tenantRepo.findOne({ where: { slug } }),
+    );
     return { available: !existing };
   }
 
@@ -383,7 +412,7 @@ export class TenantProvisioningService {
     queryRunner: QueryRunner,
   ): Promise<number> {
     const result = await queryRunner.manager.query(
-      `SELECT COALESCE(SUM(file_size), 0) as total FROM documents WHERE tenant_id = $1`,
+      `SELECT COALESCE(SUM("fileSize"), 0) as total FROM documents WHERE "tenantId" = $1`,
       [tenantId],
     );
 

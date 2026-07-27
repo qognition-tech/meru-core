@@ -31,7 +31,12 @@ export class CrmService {
     try {
       const settings = await this.tenantSettingsService.getSettings(tenantId);
 
-      for (const field of settings.fields) {
+      // `fields` is the vertical's required-attribute list, supplied by a config
+      // pack. A tenant provisioned through signup starts with only
+      // `{ limits, features }`, so this was `undefined` and every create failed
+      // with "settings.fields is not iterable". No configured fields simply
+      // means there is nothing extra to require.
+      for (const field of settings?.fields ?? []) {
         if (field.required && !dto.verticalAttributes?.[field.key]) {
           throw new BadRequestException(
             `Missing required vertical attribute: ${field.label} (${field.key})`,

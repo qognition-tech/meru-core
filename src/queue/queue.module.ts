@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bull';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
 import {
@@ -27,29 +25,13 @@ import { IamModule } from '../iam/iam.module';
       QueueWorker,
     ]),
     IamModule,
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        redis: {
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD'),
-        },
-        defaultJobOptions: {
-          removeOnComplete: 100,
-          removeOnFail: 50,
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-        },
-      }),
-      inject: [ConfigService],
-    }),
-    BullModule.registerQueue({
-      name: 'default',
-    }),
+    // No BullModule here on purpose. This queue is Postgres-backed — jobs live
+    // in `queue_jobs` and JobProcessor polls them via QueueService.getNextJob().
+    // Nothing in the codebase injects a Bull queue or declares a @Processor, so
+    // registering Bull only opened an ioredis connection to localhost:6379 that
+    // no code used. When Redis was absent (any dev machine without it, and
+    // Vercel) ioredis retried forever during module init, so the app blocked in
+    // bootstrap and never reached app.listen() — silently, with no output.
   ],
   providers: [
     QueueService,
