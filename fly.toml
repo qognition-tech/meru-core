@@ -1,7 +1,7 @@
 # Fly.io config for Meru Core (api.meru.com)
 # Persistent VM — keeps BullMQ workers + cron alive.
 # Deploy:  fly launch --no-deploy   (first time, creates the app)
-#          fly secrets set DATABASE_HOST=... DATABASE_PASSWORD=... SUPABASE_URL=... (etc)
+#          fly secrets set DATABASE_URL=... DATABASE_APP_URL=... JWT_SECRET=... (etc)
 #          fly deploy
 app = "meru-core-api"
 primary_region = "sin"

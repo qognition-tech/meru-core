@@ -20,26 +20,19 @@ services:
         value: 8000
       - key: VERTICAL
         value: core
-      # --- Supabase Postgres (transaction pooler) ---
-      - key: DATABASE_HOST
+      # --- Neon Postgres: two roles, on purpose (see DEPLOY.md / DATABASE.md) ---
+      # Owner role — migrations / DDL only.
+      - key: DATABASE_URL
         sync: false
-      - key: DATABASE_PORT
-        value: 6543
-      - key: DATABASE_USERNAME
+      # meru_app (NOBYPASSRLS) — application runtime. REQUIRED: the app refuses
+      # to start in production without it, because RLS is inert for an owner role.
+      - key: DATABASE_APP_URL
         sync: false
-      - key: DATABASE_PASSWORD
+      # --- Queue (BullMQ) — required, the app blocks at boot without Redis ---
+      - key: REDIS_HOST
         sync: false
-      - key: DATABASE_NAME
-        value: postgres
-      # --- Supabase API ---
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_JWT_SECRET
-        sync: false
+      - key: REDIS_PORT
+        value: 6379
       # --- Auth / app secrets ---
       - key: JWT_SECRET
         generateValue: true

@@ -136,7 +136,14 @@ const ComplianceRulesSchema = z.object({
 // ── Top-level config pack schema ──────────────────────────────────────────
 
 export const ConfigPackSchema = z.object({
-  code: z.string().regex(/^[a-z]{2}\/[a-z_]+$/, 'must be country/vertical like au/immigration'),
+  // `<iso2>-<vertical>`, e.g. au-immigration. Matches the pattern in
+  // config-pack.schema.json and the codes the packs on disk actually declare —
+  // a previous slash-separated regex here rejected every pack at boot, leaving
+  // config_packs empty. The slash form is the *directory* layout (au/immigration.json),
+  // not the pack code.
+  code: z
+    .string()
+    .regex(/^[a-z]{2}-[a-z_]+$/, 'must be country-vertical like au-immigration'),
   name: z.string().min(3),
   description: z.string().optional(),
   version: SemVer,

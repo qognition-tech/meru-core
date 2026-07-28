@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["code", "name", "version", "vertical"],
   "properties": {
-    "code": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+$", "description": "Country-vertical code, e.g. au-immigration" },
+    "code": { "type": "string", "pattern": "^[a-z]{2}-[a-z_]+$", "description": "Country-vertical code, e.g. au-immigration. Must stay in sync with ConfigPackSchema.code in pack.schema.ts" },
     "name": { "type": "string", "description": "Human-readable pack name" },
     "description": { "type": "string" },
     "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },

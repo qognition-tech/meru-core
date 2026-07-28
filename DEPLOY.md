@@ -2,7 +2,7 @@
 
 Meru Core is a **NestJS** server with **BullMQ background workers** (`@nestjs/bull`)
 and **cron jobs** (`@nestjs/schedule`), plus a persistent TypeORM connection pool to
-Supabase Postgres. It must run as a **long-lived process**, not as serverless
+Neon Postgres. It must run as a **long-lived process**, not as serverless
 functions.
 
 > ⚠️ **Vercel caveat:** Vercel runs the API as serverless functions that freeze
@@ -10,17 +10,19 @@ functions.
 > crons, and the config-pack loader's background work will not run reliably.** Use
 > Vercel only for a quick API demo. For a correct deployment use Render or Fly.io.
 
-## Supabase connection
+## Database connection
 
-The app talks to Supabase two ways:
-1. **Postgres** via TypeORM — uses the **transaction pooler** host
-   (`aws-0-<region>.pooler.supabase.com:6543`, user `postgres.<ref>`). Direct port
-   5432 is blocked on this project. SSL is enabled (`rejectUnauthorized: false`).
-2. **Supabase API** (`@supabase/supabase-js`) via `SUPABASE_URL` +
-   `SUPABASE_SERVICE_ROLE_KEY` for auth/storage helpers.
+Postgres via TypeORM against **Neon**, over the pooled connection string Neon
+issues (`postgresql://<user>:<pw>@<host>.neon.tech/<db>?sslmode=require`). SSL is
+enabled with `rejectUnauthorized: false` because the pooler presents a cert that
+isn't in the local trust store.
 
-Required env vars are listed in `.env.example`. Secrets currently live in `.env`
-(git-ignored).
+Two connection strings are required — see the two-role setup below. Every variable
+is documented in `.env.example`; secrets live in `.env` (git-ignored). Background
+on the schema and its history is in [DATABASE.md](DATABASE.md).
+
+Redis is required for BullMQ. Without it the app blocks during bootstrap and never
+reaches the HTTP listener.
 
 ## Run the database migrations (once)
 
@@ -87,7 +89,7 @@ A `render.yaml` Blueprint is included.
 1. Push this repo to GitHub (already on GitHub).
 2. Render Dashboard → **New → Blueprint** → select the repo.
 3. Render reads `render.yaml`, builds the Dockerfile, and prompts for the
-   `sync:false` secrets (`DATABASE_HOST`, `DATABASE_PASSWORD`, `SUPABASE_*`, etc.).
+   `sync:false` secrets (`DATABASE_URL`, `DATABASE_APP_URL`, `JWT_SECRET`, etc.).
    Paste the values from `.env`.
 4. Deploy. Health check: `GET /api/v1/health`.
 
@@ -101,9 +103,9 @@ A `fly.toml` is included.
 fly auth login
 fly launch --no-deploy           # creates the app from fly.toml
 fly secrets set \
-  DATABASE_HOST="..." DATABASE_USERNAME="..." DATABASE_PASSWORD="..." \
-  SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." SUPABASE_ANON_KEY="..." \
-  SUPABASE_JWT_SECRET="..." JWT_SECRET="..." DOCUMENT_ENCRYPTION_KEY="..."
+  DATABASE_URL="..." DATABASE_APP_URL="..." \
+  JWT_SECRET="..." CRON_SECRET="..." DOCUMENT_ENCRYPTION_KEY="..." \
+  REDIS_HOST="..." REDIS_PORT="6379"
 fly deploy
 ```
 
@@ -114,7 +116,7 @@ workers/cron will NOT run.
 
 ```bash
 vercel link
-vercel env add DATABASE_HOST   # repeat for each var in .env.example
+vercel env add DATABASE_APP_URL   # repeat for each var in .env.example
 vercel --prod
 ```
 

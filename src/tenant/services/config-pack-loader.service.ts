@@ -8,6 +8,7 @@ import {
   type ConfigPackDefinition,
 } from '../../../packages/config-packs/_schema/pack.schema';
 import { ConfigPack } from '../entities/config-pack.entity';
+import { TenantContext } from '../../core/tenancy/tenant-context';
 
 // Reads all JSON files from packages/config-packs/**/*.json at startup,
 // validates them with the Zod schema, and upserts into config_packs table.
@@ -37,6 +38,17 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
     }
 
     this.logger.log(`Loading config packs from ${this.packsDir}`);
+
+    // `config_packs` is a platform-global table: readable by every tenant but
+    // writable only under an RLS bypass (see AddTenantRowLevelSecurity's
+    // platform_global_write policy). Boot-time seeding has no tenant, so the
+    // whole pass runs as system or every INSERT is rejected by the policy.
+    await TenantContext.runAsSystem('seed config packs from disk at boot', () =>
+      this.loadAll(),
+    );
+  }
+
+  private async loadAll(): Promise<void> {
     const files = this.findPackFiles(this.packsDir);
     this.logger.log(`Found ${files.length} config pack file(s)`);
 
