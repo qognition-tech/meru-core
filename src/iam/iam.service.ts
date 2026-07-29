@@ -17,7 +17,12 @@ import { UserPayload, CreateUserInput } from '../common/types';
 import { TenantContext } from '../core/tenancy/tenant-context';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { generateSecret, generateURI, verify as totpVerify } from 'otplib';
+// otplib is pinned to v12 deliberately. v13 pulls in @scure/base and
+// @noble/hashes, which are ESM-only; Vercel's serverless loader cannot
+// require() an ES module at all, so merely importing this file crashed the
+// function on every request with ERR_REQUIRE_ESM. v12's tree (thirty-two +
+// node:crypto) is plain CommonJS. See scripts/check-cjs-deps.js.
+import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 
 @Injectable()
@@ -265,15 +270,15 @@ export class IamService {
       throw new BadRequestException('MFA is already enabled');
     }
 
-    const secret = generateSecret();
+    const secret = authenticator.generateSecret();
     user.mfaSecret = secret;
     await this.userRepo.save(user);
 
-    const otpauthUrl = generateURI({
-      label: user.email,
-      issuer: 'Meru Platform',
+    const otpauthUrl = authenticator.keyuri(
+      user.email,
+      'Meru Platform',
       secret,
-    });
+    );
     const qrCode = await QRCode.toDataURL(otpauthUrl);
 
     return { secret, qrCode, otpauthUrl };
@@ -288,10 +293,7 @@ export class IamService {
     if (!user || !user.mfaSecret)
       throw new NotFoundException('MFA not initialized');
 
-    const { valid: isValid } = await totpVerify({
-      token,
-      secret: user.mfaSecret,
-    });
+    const isValid = authenticator.check(token, user.mfaSecret);
     if (!isValid) throw new BadRequestException('Invalid verification code');
 
     user.mfaEnabled = true;
@@ -309,10 +311,7 @@ export class IamService {
       throw new BadRequestException('MFA not configured');
     }
 
-    const { valid: isValid } = await totpVerify({
-      token,
-      secret: user.mfaSecret,
-    });
+    const isValid = authenticator.check(token, user.mfaSecret);
     if (!isValid) throw new UnauthorizedException('Invalid MFA token');
 
     const payload: UserPayload = {
