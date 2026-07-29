@@ -1,5 +1,8 @@
 import type { Request } from 'express';
-import { EntityType } from '../crm/entities/universal-entity.entity';
+import {
+  EntityStatus,
+  EntityType,
+} from '../crm/entities/universal-entity.entity';
 
 // ============================================================
 // API Response Envelope (per ARCHITECTURE.md & DESIGN_GUIDELINES.md)
@@ -200,6 +203,10 @@ export interface CreateEntityInput {
   email?: string;
   phoneNumber?: string;
   verticalAttributes?: Record<string, any>;
+  /** Lifecycle. Defaults to `open` for workable types, null for the rest. */
+  status?: EntityStatus;
+  dueDate?: string;
+  assignedTo?: string;
 }
 
 // ============================================================
