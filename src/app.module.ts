@@ -8,6 +8,8 @@ import { TenantBindingInterceptor } from './core/tenancy/tenant-binding.intercep
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { IamModule } from './iam/iam.module';
 import { TenantModule } from './tenant/tenant.module';
 import { CrmModule } from './crm/crm.module';
@@ -257,7 +259,12 @@ import {
     JobsModule,
     TenancyModule,
   ],
+  // AppController serves GET /api/v1/ (the root status route). It existed but
+  // was never registered in any module, so the route 404'd and was missing from
+  // the OpenAPI document despite carrying @ApiTags('app').
+  controllers: [AppController],
   providers: [
+    AppService,
     // Binds the authenticated tenant into the ALS context for every request.
     // Global (rather than per-controller) because a route that silently misses
     // this would run against an unbound connection — CLAUDE.md §6.4 admits no

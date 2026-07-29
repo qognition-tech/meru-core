@@ -25,6 +25,32 @@ export class JobProcessor implements OnModuleInit {
     this.startProcessorLoop();
   }
 
+  /**
+   * Bounded queue drain for the serverless runtime, where startProcessorLoop()
+   * can never run (an infinite loop just burns the invocation to timeout).
+   * A cron entrypoint calls this instead — see src/jobs/jobs.controller.ts.
+   *
+   * Bounded on both counts and wall clock so it always returns well inside the
+   * function's maxDuration, leaving any remainder for the next invocation.
+   */
+  async drainQueue(maxJobs = 25, budgetMs = 30_000): Promise<number> {
+    const deadline = Date.now() + budgetMs;
+    let processed = 0;
+
+    while (processed < maxJobs && Date.now() < deadline) {
+      const job = await this.queueService.getNextJob(Object.values(JobType));
+      if (!job) break;
+
+      await this.processJobInternal(job);
+      processed++;
+    }
+
+    if (processed > 0) {
+      this.logger.log(`Drained ${processed} job(s) from the queue`);
+    }
+    return processed;
+  }
+
   private async startProcessorLoop(): Promise<void> {
     while (true) {
       try {

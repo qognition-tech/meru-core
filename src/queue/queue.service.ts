@@ -50,7 +50,7 @@ export class QueueService implements OnModuleInit {
     // Resume any pending jobs on startup
     await this.resumePendingJobs();
     // Start scheduled job processor
-    this.startScheduledJobProcessor();
+    this.processScheduledJobs();
   }
 
   // ==================== JOB CREATION ====================
@@ -515,7 +515,7 @@ export class QueueService implements OnModuleInit {
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
-  private async startScheduledJobProcessor(): Promise<void> {
+  async processScheduledJobs(): Promise<void> {
     const scheduledJobs = await this.scheduledRepo.find({
       where: {
         isActive: true,

@@ -28,6 +28,7 @@ const {
 const {
   ResponseEnvelopeInterceptor,
 } = require('../dist/src/core/interceptors/response-envelope.interceptor');
+const { setupSwagger } = require('../dist/src/swagger');
 
 const server = express();
 let ready = null;
@@ -77,6 +78,12 @@ async function bootstrap() {
   // platform WAF or a shared store (Upstash/Vercel KV) instead.
 
   app.setGlobalPrefix('api/v1');
+
+  // Swagger UI at /api, raw OpenAPI document at /api-json. Shared with
+  // src/main.ts via src/swagger.ts so the two bootstrap paths cannot drift —
+  // this entrypoint previously omitted Swagger entirely, so the deployed API
+  // served no docs at all.
+  setupSwagger(app);
 
   app.useGlobalPipes(
     new ValidationPipe({

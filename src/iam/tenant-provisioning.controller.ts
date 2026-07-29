@@ -76,7 +76,7 @@ export class TenantProvisioningController {
   // by design; everything that touches an existing tenant does not.
   @Patch(':id/upgrade')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiOperation({ summary: 'Upgrade tenant plan' })
   @ApiResponse({ status: 200, description: 'Plan upgraded successfully' })
@@ -106,7 +106,7 @@ export class TenantProvisioningController {
 
   @Get(':id/stats')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiOperation({ summary: 'Get tenant statistics' })
   @ApiResponse({

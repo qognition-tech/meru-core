@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { setupSwagger } from './swagger';
 import { AllExceptionsFilter } from './core/filters/http-exception.filter';
 import { ResponseEnvelopeInterceptor } from './core/interceptors/response-envelope.interceptor';
 import helmet from 'helmet';
@@ -118,73 +118,8 @@ async function bootstrap() {
   // 5. Global Prefix
   app.setGlobalPrefix('api/v1');
 
-  // 6. Swagger Documentation
-  const config = new DocumentBuilder()
-    .setTitle('Meru Core API — RegOS Engine')
-    .setDescription(
-      [
-        '**Meru Core** — The Regulated Operating System (RegOS) Engine.',
-        '',
-        'Multi-vertical, multi-tenant platform powering:',
-        '- **ImmiStack** — Immigration case management',
-        '- **GovernanceX** — Banking GRC & compliance',
-        '',
-        '### Common Headers',
-        '| Header | Description |',
-        '|---|---|',
-        '| `X-Request-ID` | Unique request identifier for tracing |',
-        '| `X-Tenant-ID` | Tenant UUID for multi-tenant context |',
-        '| `X-Vertical` | Vertical context: `immigration`, `grc` |',
-        '| `X-Environment` | Environment: `development`, `staging`, `production` |',
-        '',
-        '### Response Envelope',
-        'All responses follow: `{ data, meta: { requestId, timestamp, version }, error }`',
-      ].join('\n'),
-    )
-    .setVersion('1.0')
-    .addServer('http://localhost:3000', 'Development')
-    .addServer('https://api.immistack.com', 'ImmiStack Production')
-    .addServer('https://api.governancex.com', 'GovernanceX Production')
-    .addTag('app', 'Application health & status')
-    .addTag('iam', 'Identity & Access Management — auth, tenants, roles')
-    .addTag('crm', 'Customer Relationship Management — entities, cases, notes')
-    .addTag('documents', 'Document Hub — upload, OCR, storage')
-    .addTag('workflow', 'Workflow Engine — BPMN-like task orchestration')
-    .addTag('forms', 'Dynamic Form Builder')
-    .addTag('ai', 'AI Gateway — doc-intel, screening, comms, decision engines')
-    .addTag('analytics', 'Analytics — dashboards, reports')
-    .addTag('billing', 'Billing — subscriptions, invoices, usage')
-    .addTag('search', 'Universal Search (MeiliSearch)')
-    .addTag('config', 'Configuration Packs — vertical/country JSON packs')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter the access token returned by POST /auth/login',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .addApiKey(
-      {
-        type: 'apiKey',
-        name: 'x-api-key',
-        in: 'header',
-        description: 'API Key for service-to-service authentication',
-      },
-      'API-Key',
-    )
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-  });
+  // 6. Swagger Documentation — shared with api/index.js (see src/swagger.ts)
+  setupSwagger(app);
 
   // 7. Global Validation Pipe (Auto-transform DTOs)
   app.useGlobalPipes(

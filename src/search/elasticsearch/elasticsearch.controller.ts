@@ -50,7 +50,7 @@ import {
 } from './interfaces/search.interface';
 
 @ApiTags('Elasticsearch')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('elasticsearch')
 export class ElasticsearchController {

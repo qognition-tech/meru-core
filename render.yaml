@@ -28,11 +28,8 @@ services:
       # to start in production without it, because RLS is inert for an owner role.
       - key: DATABASE_APP_URL
         sync: false
-      # --- Queue (BullMQ) — required, the app blocks at boot without Redis ---
-      - key: REDIS_HOST
-        sync: false
-      - key: REDIS_PORT
-        value: 6379
+      # --- Cache (optional) — the job queue is Postgres-backed, not Redis.
+      # Unset means in-memory caching; add REDIS_HOST/REDIS_PORT to use Redis.
       # --- Auth / app secrets ---
       - key: JWT_SECRET
         generateValue: true

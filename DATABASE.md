@@ -80,6 +80,8 @@ silently failed to load.
 
 - Elasticsearch is optional and not configured; the connection warning at boot is
   harmless and search falls back to Postgres.
-- Redis **is** required for BullMQ. Without it the app blocks during bootstrap and
-  never reaches the HTTP listener, so a local `node dist/src/main.js` with no Redis
-  will appear to hang silently.
+- Redis is **not** required. The job queue is Postgres-backed (`queue_jobs` +
+  `QueueService.getNextJob`); `REDIS_HOST` only selects the cache store and falls
+  back to in-memory. An earlier `BullModule` registration opened an ioredis
+  connection that retried forever during module init, silently blocking bootstrap
+  on any machine without Redis — that has been removed.

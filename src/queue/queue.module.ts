@@ -41,6 +41,8 @@ import { IamModule } from '../iam/iam.module';
     AIJobHandler,
   ],
   controllers: [QueueController],
-  exports: [QueueService],
+  // JobProcessor is exported so the cron entrypoints in src/jobs can drain the
+  // queue on the serverless runtime, where its polling loop is disabled.
+  exports: [QueueService, JobProcessor],
 })
 export class QueueModule {}

@@ -46,7 +46,7 @@ import {
 } from './interfaces/job.interface';
 
 @ApiTags('Queue')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('queue')
 export class QueueController {

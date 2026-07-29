@@ -19,10 +19,21 @@ import { TenantContext } from '../../core/tenancy/tenant-context';
 @Injectable()
 export class ConfigPackLoaderService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ConfigPackLoaderService.name);
-  private readonly packsDir = path.resolve(
-    __dirname,
-    '../../../../packages/config-packs',
-  );
+  private readonly packsDir = ConfigPackLoaderService.resolvePacksDir();
+
+  // `__dirname` is dist/src/tenant/services when running from `nest build`
+  // output, but Vercel bundles the function with esbuild and the relative hop
+  // lands nowhere — the loader then found zero packs and silently seeded
+  // nothing. Fall back to the process working directory (Vercel sets it to the
+  // deployment root, where vercel.json's `includeFiles` puts packages/).
+  private static resolvePacksDir(): string {
+    const candidates = [
+      path.resolve(__dirname, '../../../../packages/config-packs'),
+      path.resolve(process.cwd(), 'packages/config-packs'),
+      path.resolve(process.cwd(), '../packages/config-packs'),
+    ];
+    return candidates.find((dir) => fs.existsSync(dir)) ?? candidates[0];
+  }
 
   constructor(
     @InjectRepository(ConfigPack)

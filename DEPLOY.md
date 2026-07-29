@@ -21,8 +21,8 @@ Two connection strings are required — see the two-role setup below. Every vari
 is documented in `.env.example`; secrets live in `.env` (git-ignored). Background
 on the schema and its history is in [DATABASE.md](DATABASE.md).
 
-Redis is required for BullMQ. Without it the app blocks during bootstrap and never
-reaches the HTTP listener.
+Redis is optional — the job queue is Postgres-backed (`queue_jobs`), so `REDIS_HOST`
+only selects the cache store and defaults to in-memory when unset.
 
 ## Run the database migrations (once)
 

@@ -50,7 +50,7 @@ import {
 } from './interfaces/storage.interface';
 
 @ApiTags('Storage')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('storage')
 export class StorageController {
