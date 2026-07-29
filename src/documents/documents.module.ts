@@ -12,6 +12,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
@@ -36,8 +37,16 @@ import { AuditModule } from '../audit/audit.module';
     ]),
     MulterModule.registerAsync({
       imports: [ConfigModule],
+      // memoryStorage, not `dest`. Two reasons, either one sufficient:
+      //  1. `dest` makes multer mkdir the directory at module-init time. The
+      //     serverless filesystem is read-only outside /tmp, so bootstrap died
+      //     with ENOENT on './uploads' before a single route was registered.
+      //  2. DocumentsService reads `file.buffer` (documents.service.ts:91),
+      //     which diskStorage never populates — it sets `file.path` instead.
+      //     Uploads could not have worked on disk storage anyway.
+      // Bounded by MAX_FILE_SIZE; contents go straight to S3, never to disk.
       useFactory: async (configService: ConfigService) => ({
-        dest: './uploads',
+        storage: memoryStorage(),
         limits: {
           fileSize: configService.get('MAX_FILE_SIZE', 50 * 1024 * 1024),
         },
