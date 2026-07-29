@@ -20,6 +20,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import type { Response } from 'express';
+import { paginated } from '../common/paginated';
 
 @ApiTags('audit')
 @Controller('audit')
@@ -40,6 +41,9 @@ export class AuditController {
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'offset', required: false })
   async queryLogs(@Request() req, @Query() query: any) {
+    const limit = query.limit ? parseInt(query.limit, 10) : 100;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+
     const result = await this.auditService.queryLogs({
       tenantId: req.user.tenantId,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
@@ -49,10 +53,18 @@ export class AuditController {
       entityType: query.entityType,
       entityId: query.entityId,
       severity: query.severity,
-      limit: query.limit ? parseInt(query.limit) : 100,
-      offset: query.offset ? parseInt(query.offset) : 0,
+      limit,
+      offset,
     });
-    return { success: true, data: result.logs, meta: { total: result.total } };
+
+    // The total used to ride along inside the payload, where the envelope
+    // buried it; it now lands in `meta.pagination` as the contract specifies.
+    return paginated(
+      result.logs,
+      result.total,
+      Math.floor(offset / (limit || 1)) + 1,
+      limit,
+    );
   }
 
   @Get('logs/entity/:entityType/:entityId')
@@ -67,7 +79,7 @@ export class AuditController {
       entityType,
       entityId,
     );
-    return { success: true, data: logs };
+    return logs;
   }
 
   @Get('logs/user/:userId')
@@ -86,14 +98,14 @@ export class AuditController {
       new Date(startDate),
       new Date(endDate),
     );
-    return { success: true, data: logs };
+    return logs;
   }
 
   @Post('logs/verify')
   @ApiOperation({ summary: 'Verify per-row checksums for all tenant logs' })
   async verifyIntegrity(@Request() req) {
     const result = await this.auditService.verifyTenantLogs(req.user.tenantId);
-    return { success: true, data: result };
+    return result;
   }
 
   @Get('logs/verify-chain')
@@ -107,19 +119,16 @@ export class AuditController {
     description: 'Chain verification result',
     schema: {
       example: {
-        success: true,
-        data: {
-          status: 'valid',
-          total: 142,
-          valid: 142,
-          details: 'Chain intact (142 logs verified)',
-        },
+        status: 'valid',
+        total: 142,
+        valid: 142,
+        details: 'Chain intact (142 logs verified)',
       },
     },
   })
   async verifyChain(@Request() req) {
     const result = await this.auditService.verifyChain(req.user.tenantId);
-    return { success: result.status === 'valid', data: result };
+    return result;
   }
 
   @Post('logs/export')
@@ -165,6 +174,6 @@ export class AuditController {
       new Date(startDate),
       new Date(endDate),
     );
-    return { success: true, data: report };
+    return report;
   }
 }

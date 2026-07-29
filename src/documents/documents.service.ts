@@ -33,7 +33,9 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { OrchestrationService } from '../orchestration/orchestration.service';
 
-interface UploadResult {
+// Exported because the controller now returns it directly (it used to be
+// re-boxed into an inline `{ success, data }` literal, which hid the type).
+export interface UploadResult {
   document: Document;
   version: DocumentVersion;
   url?: string;

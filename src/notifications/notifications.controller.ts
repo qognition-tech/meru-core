@@ -33,6 +33,7 @@ import {
   MarkAsReadDto,
 } from './dto/notification.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { paginated } from '../common/paginated';
 
 @ApiTags('Notifications')
 @Controller('notifications')
@@ -54,16 +55,13 @@ export class NotificationsController {
     description: 'Notification created successfully',
     schema: {
       example: {
-        success: true,
-        data: {
-          id: 'notif-123',
-          type: 'email',
-          status: 'pending',
-          recipientId: 'user-456',
-          subject: 'New Task Assigned',
-          content: 'You have been assigned a new task',
-          createdAt: '2024-01-15T10:30:00Z',
-        },
+        id: 'notif-123',
+        type: 'email',
+        status: 'pending',
+        recipientId: 'user-456',
+        subject: 'New Task Assigned',
+        content: 'You have been assigned a new task',
+        createdAt: '2024-01-15T10:30:00Z',
       },
     },
   })
@@ -74,7 +72,7 @@ export class NotificationsController {
       ...dto,
       tenantId: req.user.tenantId,
     });
-    return { success: true, data: notification };
+    return notification;
   }
 
   @Post('bulk')
@@ -88,15 +86,12 @@ export class NotificationsController {
     description: 'Bulk notifications sent successfully',
     schema: {
       example: {
-        success: true,
-        data: {
-          sent: 100,
-          failed: 2,
-          notifications: [
-            { id: 'notif-1', status: 'pending' },
-            { id: 'notif-2', status: 'pending' },
-          ],
-        },
+        sent: 100,
+        failed: 2,
+        notifications: [
+          { id: 'notif-1', status: 'pending' },
+          { id: 'notif-2', status: 'pending' },
+        ],
       },
     },
   })
@@ -108,13 +103,7 @@ export class NotificationsController {
       req.user.tenantId,
       dto.notifications.map((n) => ({ ...n, tenantId: req.user.tenantId })),
     );
-    return {
-      success: true,
-      data: {
-        sent: notifications.length,
-        notifications,
-      },
-    };
+    return { sent: notifications.length, notifications };
   }
 
   @Post('template/:templateKey')
@@ -152,7 +141,7 @@ export class NotificationsController {
       body.recipientId,
       body.variables,
     );
-    return { success: true, data: notification };
+    return notification;
   }
 
   // ==================== NOTIFICATION QUERY ====================
@@ -190,26 +179,17 @@ export class NotificationsController {
     status: 200,
     description: 'Notifications retrieved successfully',
     schema: {
-      example: {
-        success: true,
-        data: [
-          {
-            id: 'notif-123',
-            type: 'email',
-            status: 'sent',
-            subject: 'New Task Assigned',
-            content: 'You have a new task to review',
-            createdAt: '2024-01-15T10:30:00Z',
-            readAt: null,
-          },
-        ],
-        meta: {
-          total: 45,
-          page: 1,
-          limit: 20,
-          unreadCount: 12,
+      example: [
+        {
+          id: 'notif-123',
+          type: 'email',
+          status: 'sent',
+          subject: 'New Task Assigned',
+          content: 'You have a new task to review',
+          createdAt: '2024-01-15T10:30:00Z',
+          readAt: null,
         },
-      },
+      ],
     },
   })
   async getNotifications(@Request() req, @Query() query: NotificationQueryDto) {
@@ -227,21 +207,10 @@ export class NotificationsController {
         },
       );
 
-    const unreadCount = await this.notificationsService.getUnreadCount(
-      req.user.tenantId,
-      req.user.id,
-    );
-
-    return {
-      success: true,
-      data: notifications,
-      meta: {
-        total,
-        page: query.page || 1,
-        limit: query.limit || 20,
-        unreadCount,
-      },
-    };
+    // The unread count used to be fetched here and returned in an inner `meta`,
+    // which the envelope then buried where no client could reach it — the extra
+    // query was pure cost. `GET /notifications/unread-count` serves it directly.
+    return paginated(notifications, total, query.page || 1, query.limit || 20);
   }
 
   @Get('unread-count')
@@ -254,10 +223,7 @@ export class NotificationsController {
     status: 200,
     description: 'Unread count retrieved',
     schema: {
-      example: {
-        success: true,
-        data: { count: 12 },
-      },
+      example: { count: 12 },
     },
   })
   async getUnreadCount(@Request() req) {
@@ -265,7 +231,7 @@ export class NotificationsController {
       req.user.tenantId,
       req.user.id,
     );
-    return { success: true, data: { count } };
+    return { count };
   }
 
   // ==================== NOTIFICATION ACTIONS ====================
@@ -282,7 +248,7 @@ export class NotificationsController {
       dto.notificationIds,
       req.user.id,
     );
-    return { success: true, message: 'Notifications marked as read' };
+    return { markedAsRead: dto.notificationIds.length };
   }
 
   @Post('mark-all-as-read')
@@ -297,7 +263,7 @@ export class NotificationsController {
       req.user.tenantId,
       req.user.id,
     );
-    return { success: true, message: 'All notifications marked as read' };
+    return { markedAllAsRead: true };
   }
 
   @Delete(':id')
@@ -314,7 +280,7 @@ export class NotificationsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.notificationsService.deleteNotification(id, req.user.id);
-    return { success: true, message: 'Notification deleted' };
+    return { deleted: true };
   }
 
   // ==================== PREFERENCES ====================
@@ -330,23 +296,20 @@ export class NotificationsController {
     description: 'Preferences retrieved',
     schema: {
       example: {
-        success: true,
-        data: {
-          channels: {
-            email: {
-              enabled: true,
-              address: 'user@example.com',
-              verified: true,
-            },
-            push: { enabled: true, deviceTokens: ['token1'] },
+        channels: {
+          email: {
+            enabled: true,
+            address: 'user@example.com',
+            verified: true,
           },
-          categoryPreferences: {
-            workflow: { enabled: true, channels: ['email', 'in_app'] },
-            billing: { enabled: true, channels: ['email'] },
-          },
-          quietHours: { enabled: false },
-          digestSettings: { enabled: true, frequency: 'daily' },
+          push: { enabled: true, deviceTokens: ['token1'] },
         },
+        categoryPreferences: {
+          workflow: { enabled: true, channels: ['email', 'in_app'] },
+          billing: { enabled: true, channels: ['email'] },
+        },
+        quietHours: { enabled: false },
+        digestSettings: { enabled: true, frequency: 'daily' },
       },
     },
   })
@@ -355,7 +318,7 @@ export class NotificationsController {
       req.user.tenantId,
       req.user.id,
     );
-    return { success: true, data: preferences };
+    return preferences;
   }
 
   @Put('preferences')
@@ -374,7 +337,7 @@ export class NotificationsController {
       req.user.id,
       dto,
     );
-    return { success: true, data: preferences };
+    return preferences;
   }
 
   // ==================== TEMPLATES ====================
@@ -390,15 +353,12 @@ export class NotificationsController {
     description: 'Template created successfully',
     schema: {
       example: {
-        success: true,
-        data: {
-          id: 'template-123',
-          name: 'Welcome Email',
-          key: 'welcome-email',
-          type: 'email',
-          subject: 'Welcome {{name}}!',
-          content: 'Hello {{name}}, welcome to {{company}}!',
-        },
+        id: 'template-123',
+        name: 'Welcome Email',
+        key: 'welcome-email',
+        type: 'email',
+        subject: 'Welcome {{name}}!',
+        content: 'Hello {{name}}, welcome to {{company}}!',
       },
     },
   })
@@ -407,7 +367,7 @@ export class NotificationsController {
       req.user.tenantId,
       dto,
     );
-    return { success: true, data: template };
+    return template;
   }
 
   @Get('templates')
@@ -423,6 +383,6 @@ export class NotificationsController {
       req.user.tenantId,
       type,
     );
-    return { success: true, data: templates };
+    return templates;
   }
 }

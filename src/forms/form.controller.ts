@@ -39,10 +39,7 @@ export class FormController {
       dto,
       req.user.id,
     );
-    return {
-      success: true,
-      data: form,
-    };
+    return form;
   }
 
   @Get()
@@ -60,10 +57,44 @@ export class FormController {
       entityType,
       status as any,
     );
-    return {
-      success: true,
-      data: forms,
-    };
+    return forms;
+  }
+
+  // ── Submission reads ──────────────────────────────────────────────────────
+  //
+  // These MUST stay above `@Get(':id')`. Nest matches in declaration order, so
+  // with `:id` first the literal path `/forms/submissions` was swallowed by it
+  // and resolved as `getForm('submissions')` — which, thanks to ParseUUIDPipe,
+  // surfaced as a 400 about a malformed UUID rather than anything resembling
+  // the real problem.
+
+  @Get('submissions')
+  @ApiOperation({ summary: 'List form submissions' })
+  @ApiQuery({ name: 'formSchemaId', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'entityId', required: false })
+  @ApiResponse({ status: 200, description: 'Submissions retrieved' })
+  async listSubmissions(
+    @Request() req,
+    @Query('formSchemaId') formSchemaId?: string,
+    @Query('status') status?: string,
+    @Query('entityId') entityId?: string,
+  ) {
+    return this.formService.listSubmissions(
+      req.user.tenantId,
+      formSchemaId,
+      status as any,
+      entityId,
+    );
+  }
+
+  @Get('submissions/:submissionId')
+  @ApiOperation({ summary: 'Get submission by ID' })
+  @ApiResponse({ status: 200, description: 'Submission retrieved' })
+  async getSubmission(
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+  ) {
+    return this.formService.getSubmission(submissionId);
   }
 
   @Get(':id')
@@ -72,10 +103,7 @@ export class FormController {
   @ApiResponse({ status: 404, description: 'Not found' })
   async getForm(@Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.getForm(id);
-    return {
-      success: true,
-      data: form,
-    };
+    return form;
   }
 
   @Get(':id/render')
@@ -83,10 +111,7 @@ export class FormController {
   @ApiResponse({ status: 200, description: 'Form rendered' })
   async renderForm(@Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.renderForm(id);
-    return {
-      success: true,
-      data: form,
-    };
+    return form;
   }
 
   @Post(':id/publish')
@@ -94,10 +119,7 @@ export class FormController {
   @ApiResponse({ status: 200, description: 'Form published' })
   async publishForm(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.publishForm(id, req.user.tenantId);
-    return {
-      success: true,
-      data: form,
-    };
+    return form;
   }
 
   @Post(':id/version')
@@ -112,10 +134,7 @@ export class FormController {
       req.user.tenantId,
       req.user.id,
     );
-    return {
-      success: true,
-      data: form,
-    };
+    return form;
   }
 
   // ==================== FORM SUBMISSIONS ====================
@@ -135,47 +154,7 @@ export class FormController {
       dto.data,
       dto.entityId,
     );
-    return {
-      success: true,
-      data: submission,
-    };
-  }
-
-  @Get('submissions')
-  @ApiOperation({ summary: 'List form submissions' })
-  @ApiQuery({ name: 'formSchemaId', required: false })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'entityId', required: false })
-  @ApiResponse({ status: 200, description: 'Submissions retrieved' })
-  async listSubmissions(
-    @Request() req,
-    @Query('formSchemaId') formSchemaId?: string,
-    @Query('status') status?: string,
-    @Query('entityId') entityId?: string,
-  ) {
-    const submissions = await this.formService.listSubmissions(
-      req.user.tenantId,
-      formSchemaId,
-      status as any,
-      entityId,
-    );
-    return {
-      success: true,
-      data: submissions,
-    };
-  }
-
-  @Get('submissions/:submissionId')
-  @ApiOperation({ summary: 'Get submission by ID' })
-  @ApiResponse({ status: 200, description: 'Submission retrieved' })
-  async getSubmission(
-    @Param('submissionId', ParseUUIDPipe) submissionId: string,
-  ) {
-    const submission = await this.formService.getSubmission(submissionId);
-    return {
-      success: true,
-      data: submission,
-    };
+    return submission;
   }
 
   @Put('submissions/:submissionId')
@@ -192,10 +171,7 @@ export class FormController {
       req.user.id,
       dto.data,
     );
-    return {
-      success: true,
-      data: submission,
-    };
+    return submission;
   }
 
   @Post('submissions/:submissionId/submit')
@@ -210,10 +186,7 @@ export class FormController {
       req.user.tenantId,
       req.user.id,
     );
-    return {
-      success: true,
-      data: submission,
-    };
+    return submission;
   }
 
   @Post('submissions/:submissionId/review')
@@ -231,9 +204,6 @@ export class FormController {
       dto.status,
       dto.notes,
     );
-    return {
-      success: true,
-      data: submission,
-    };
+    return submission;
   }
 }

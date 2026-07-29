@@ -31,6 +31,7 @@ import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import type { AuthenticatedRequest } from '../common/types';
+import { paginated } from '../common/paginated';
 
 @ApiTags('documents')
 @Controller('documents')
@@ -62,14 +63,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: {
-        document: result.document,
-        version: result.version,
-        url: result.url,
-      },
-    };
+    return result;
   }
 
   @Post()
@@ -86,10 +80,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: document,
-    };
+    return document;
   }
 
   @Post(':id/versions')
@@ -120,14 +111,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: {
-        document: result.document,
-        version: result.version,
-        url: result.url,
-      },
-    };
+    return result;
   }
 
   @Get()
@@ -145,16 +129,7 @@ export class DocumentsController {
       searchDto,
     );
 
-    return {
-      success: true,
-      data: result.documents,
-      meta: {
-        total: result.total,
-        page: result.page,
-        limit: result.limit,
-        totalPages: Math.ceil(result.total / result.limit),
-      },
-    };
+    return paginated(result.documents, result.total, result.page, result.limit);
   }
 
   @Get('entity/:entityType/:entityId')
@@ -170,13 +145,7 @@ export class DocumentsController {
       linkedEntityId: entityId,
     });
 
-    return {
-      success: true,
-      data: result.documents,
-      meta: {
-        total: result.total,
-      },
-    };
+    return paginated(result.documents, result.total);
   }
 
   @Get(':id')
@@ -193,10 +162,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: document,
-    };
+    return document;
   }
 
   @Get(':id/versions')
@@ -215,10 +181,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: versions,
-    };
+    return versions;
   }
 
   @Get(':id/versions/:versionId')
@@ -239,10 +202,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: version,
-    };
+    return version;
   }
 
   @Get(':id/download')
@@ -263,10 +223,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: { url },
-    };
+    return { url };
   }
 
   @Patch(':id')
@@ -286,10 +243,7 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      data: document,
-    };
+    return document;
   }
 
   @Delete(':id')
@@ -303,10 +257,7 @@ export class DocumentsController {
   ) {
     await this.documentsService.remove(id, req.user.tenantId, req.user.id);
 
-    return {
-      success: true,
-      message: 'Document deleted successfully',
-    };
+    return { deleted: true };
   }
 
   @Post(':id/analyze')
@@ -325,9 +276,6 @@ export class DocumentsController {
       req.user.id,
     );
 
-    return {
-      success: true,
-      message: 'AI analysis triggered successfully',
-    };
+    return { triggered: true };
   }
 }

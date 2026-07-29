@@ -8,6 +8,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { randomUUID } from 'node:crypto';
 import { ApiResponse, ApiMeta } from '../../common/types';
+import { isPaginated } from '../../common/paginated';
 
 /**
  * Wraps all successful responses in the Meru API Response Envelope:
@@ -49,10 +50,14 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
           version: 'v1',
         };
 
-        // Attach pagination if present in data
-        if (data && typeof data === 'object' && 'pagination' in data) {
+        // A page of results: the array becomes `data`, the counts become
+        // `meta.pagination`. Handlers opt in by returning `paginated(...)`.
+        if (isPaginated(data)) {
           meta.pagination = data.pagination;
-          // Remove pagination from data payload
+          data = data.items;
+        } else if (data && typeof data === 'object' && 'pagination' in data) {
+          // Legacy shape: a plain `pagination` key alongside the payload.
+          meta.pagination = data.pagination;
           const { pagination, ...payload } = data;
           data = payload;
         }

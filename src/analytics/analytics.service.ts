@@ -86,6 +86,52 @@ export class AnalyticsService {
     return this.reportRepo.find({ where });
   }
 
+  /**
+   * Past report runs, newest first — the "generated reports" list.
+   *
+   * `results` is deliberately excluded: it holds the full result set of every
+   * run, so selecting it here would stream the entire reporting history of a
+   * tenant on what the UI treats as an index page. Fetch a single execution's
+   * payload through the report itself when it is actually needed.
+   */
+  async getGeneratedReports(
+    tenantId: string,
+    limit = 50,
+  ): Promise<Array<ReportExecution & { reportName: string | null }>> {
+    const executions = await this.executionRepo.find({
+      where: { tenantId },
+      order: { executedAt: 'DESC' },
+      take: Math.min(limit, 200),
+      select: [
+        'id',
+        'reportId',
+        'executedAt',
+        'executedBy',
+        'rowCount',
+        'executionTimeMs',
+        'status',
+        'errorMessage',
+        'fileUrl',
+        'createdAt',
+      ],
+    });
+
+    if (executions.length === 0) return [];
+
+    // One extra query rather than N: the UI lists the report's name next to
+    // each run, and there is no FK relation defined between these entities.
+    const reports = await this.reportRepo.find({
+      where: { tenantId },
+      select: ['id', 'name'],
+    });
+    const nameById = new Map(reports.map((r) => [r.id, r.name]));
+
+    return executions.map((execution) => ({
+      ...execution,
+      reportName: nameById.get(execution.reportId) ?? null,
+    })) as Array<ReportExecution & { reportName: string | null }>;
+  }
+
   async getReport(id: string, tenantId: string): Promise<Report> {
     const report = await this.reportRepo.findOne({
       where: { id, tenantId },

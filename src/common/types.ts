@@ -164,6 +164,30 @@ export interface CreateUserInput {
   lastName?: string;
 }
 
+/**
+ * A user as rendered in a tenant's user directory.
+ *
+ * Deliberately not the `User` entity: it never carries `password`, `mfaSecret`
+ * or the raw `attributes` bag, and it collapses `roles` into the single
+ * `role` the portals switch on while still exposing the full list.
+ */
+export interface DirectoryUser {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  /** Display name — full name when known, otherwise the email. */
+  name: string;
+  /** Primary role, by precedence. See IamService.resolvePrimaryRole. */
+  role: string;
+  roles: string[];
+  department: string | null;
+  status: string;
+  lastActiveAt: Date | null;
+  createdAt: Date;
+  avatarUrl: string | null;
+}
+
 export interface LoginInput {
   email: string;
   password: string;

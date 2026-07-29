@@ -36,7 +36,7 @@ export class AnalyticsController {
       req.user.id,
       dto,
     );
-    return { success: true, data: report };
+    return report;
   }
 
   @Get('reports')
@@ -47,14 +47,34 @@ export class AnalyticsController {
       req.user.tenantId,
       dataSource as any,
     );
-    return { success: true, data: reports };
+    return reports;
+  }
+
+  // Must precede `reports/:id`. Nest matches in declaration order, so this
+  // literal path was previously swallowed by the parameterised one and ran as
+  // `getReport('generated')` — a 500 from Postgres
+  // (`invalid input syntax for type uuid: "generated"`) rather than a result.
+  @Get('reports/generated')
+  @ApiOperation({
+    summary: 'List past report runs, newest first',
+    description:
+      'Execution history for this tenant. Excludes each run’s stored result ' +
+      'payload — request the report itself for that.',
+  })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  @ApiResponse({ status: 200, description: 'Generated reports retrieved' })
+  async getGeneratedReports(@Request() req, @Query('limit') limit?: string) {
+    const parsed = Number.parseInt(limit ?? '', 10);
+    return this.analyticsService.getGeneratedReports(
+      req.user.tenantId,
+      Number.isNaN(parsed) ? undefined : parsed,
+    );
   }
 
   @Get('reports/:id')
   @ApiOperation({ summary: 'Get report by ID' })
   async getReport(@Request() req, @Param('id') id: string) {
-    const report = await this.analyticsService.getReport(id, req.user.tenantId);
-    return { success: true, data: report };
+    return this.analyticsService.getReport(id, req.user.tenantId);
   }
 
   @Post('reports/:id/execute')
@@ -85,14 +105,14 @@ export class AnalyticsController {
       req.user.tenantId,
       dto,
     );
-    return { success: true, data: widget };
+    return widget;
   }
 
   @Get('widgets')
   @ApiOperation({ summary: 'Get all dashboard widgets' })
   async getWidgets(@Request() req) {
     const widgets = await this.analyticsService.getWidgets(req.user.tenantId);
-    return { success: true, data: widgets };
+    return widgets;
   }
 
   @Get('widgets/:id/execute')
@@ -119,6 +139,6 @@ export class AnalyticsController {
       id,
       body.format,
     );
-    return { success: true, data: result };
+    return result;
   }
 }

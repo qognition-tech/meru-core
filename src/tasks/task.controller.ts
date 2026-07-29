@@ -21,6 +21,10 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { TaskService } from './task.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import {
+  CalendarEventsQueryDto,
+  ListTasksQueryDto,
+} from './dto/task-query.dto';
 
 @ApiTags('tasks')
 @Controller('tasks')
@@ -39,36 +43,15 @@ export class TaskController {
       ...dto,
       assignedBy: req.user.id,
     });
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   @Get()
   @ApiOperation({ summary: 'List tasks' })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'assignedTo', required: false })
-  @ApiQuery({ name: 'priority', required: false })
-  @ApiQuery({ name: 'type', required: false })
   @ApiResponse({ status: 200, description: 'Tasks retrieved' })
-  async listTasks(
-    @Request() req,
-    @Query('status') status?: string,
-    @Query('assignedTo') assignedTo?: string,
-    @Query('priority') priority?: string,
-    @Query('type') type?: string,
-  ) {
-    const tasks = await this.taskService.listTasks(req.user.tenantId, {
-      status: status as any,
-      assignedTo,
-      priority: priority as any,
-      type: type as any,
-    });
-    return {
-      success: true,
-      data: tasks,
-    };
+  @ApiResponse({ status: 400, description: 'Unknown or malformed query param' })
+  async listTasks(@Request() req, @Query() query: ListTasksQueryDto) {
+    return this.taskService.listTasks(req.user.tenantId, query);
   }
 
   @Get('my-work')
@@ -86,10 +69,38 @@ export class TaskController {
         includeCompleted: includeCompleted === 'true',
       },
     );
-    return {
-      success: true,
-      data: work,
-    };
+    return work;
+  }
+
+  // ── Literal paths, declared before `:id` ──────────────────────────────────
+  //
+  // Nest matches routes in declaration order. Both of these used to sit further
+  // down the file, below `@Get(':id')`, so `/tasks/recurring-jobs` and
+  // `/tasks/calendar/events` never reached their handlers — they resolved as
+  // `getTask('recurring-jobs')` and 400'd on ParseUUIDPipe. Keep them here.
+
+  @Get('recurring-jobs')
+  @ApiOperation({ summary: 'List recurring jobs' })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiResponse({ status: 200, description: 'Jobs retrieved' })
+  async listRecurringJobs(@Request() req, @Query('status') status?: string) {
+    return this.taskService.listRecurringJobs(req.user.tenantId, status as any);
+  }
+
+  @Get('calendar/events')
+  @ApiOperation({ summary: 'Get calendar events' })
+  @ApiResponse({ status: 200, description: 'Events retrieved' })
+  @ApiResponse({ status: 400, description: 'Missing or malformed date range' })
+  async getCalendarEvents(
+    @Request() req,
+    @Query() query: CalendarEventsQueryDto,
+  ) {
+    return this.taskService.getCalendarEvents(
+      req.user.tenantId,
+      req.user.id,
+      new Date(query.startDate),
+      new Date(query.endDate),
+    );
   }
 
   @Get(':id')
@@ -98,10 +109,7 @@ export class TaskController {
   @ApiResponse({ status: 404, description: 'Not found' })
   async getTask(@Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.getTask(id);
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   @Put(':id')
@@ -113,10 +121,7 @@ export class TaskController {
     @Body() dto: any,
   ) {
     const task = await this.taskService.updateTask(id, req.user.tenantId, dto);
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   @Post(':id/start')
@@ -128,10 +133,7 @@ export class TaskController {
       req.user.tenantId,
       req.user.id,
     );
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   @Post(':id/complete')
@@ -143,10 +145,7 @@ export class TaskController {
       req.user.tenantId,
       req.user.id,
     );
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   @Post(':id/cancel')
@@ -162,10 +161,7 @@ export class TaskController {
       req.user.tenantId,
       dto.reason,
     );
-    return {
-      success: true,
-      data: task,
-    };
+    return task;
   }
 
   // ==================== TASK COMMENTS ====================
@@ -184,10 +180,7 @@ export class TaskController {
       req.user.id,
       dto.content,
     );
-    return {
-      success: true,
-      data: comment,
-    };
+    return comment;
   }
 
   // ==================== RECURRING JOBS ====================
@@ -200,25 +193,7 @@ export class TaskController {
       req.user.tenantId,
       dto,
     );
-    return {
-      success: true,
-      data: job,
-    };
-  }
-
-  @Get('recurring-jobs')
-  @ApiOperation({ summary: 'List recurring jobs' })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiResponse({ status: 200, description: 'Jobs retrieved' })
-  async listRecurringJobs(@Request() req, @Query('status') status?: string) {
-    const jobs = await this.taskService.listRecurringJobs(
-      req.user.tenantId,
-      status as any,
-    );
-    return {
-      success: true,
-      data: jobs,
-    };
+    return job;
   }
 
   @Post('recurring-jobs/:id/pause')
@@ -229,10 +204,7 @@ export class TaskController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const job = await this.taskService.pauseRecurringJob(id, req.user.tenantId);
-    return {
-      success: true,
-      data: job,
-    };
+    return job;
   }
 
   @Post('recurring-jobs/:id/resume')
@@ -246,35 +218,12 @@ export class TaskController {
       id,
       req.user.tenantId,
     );
-    return {
-      success: true,
-      data: job,
-    };
+    return job;
   }
 
   // ==================== CALENDAR ====================
-
-  @Get('calendar/events')
-  @ApiOperation({ summary: 'Get calendar events' })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
-  @ApiResponse({ status: 200, description: 'Events retrieved' })
-  async getCalendarEvents(
-    @Request() req,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-  ) {
-    const events = await this.taskService.getCalendarEvents(
-      req.user.tenantId,
-      req.user.id,
-      new Date(startDate),
-      new Date(endDate),
-    );
-    return {
-      success: true,
-      data: events,
-    };
-  }
+  // GET calendar/events lives near the top of this file — see the note there
+  // about literal paths having to precede `@Get(':id')`.
 
   @Post('calendar/sync/:provider')
   @ApiOperation({ summary: 'Sync with external calendar' })
@@ -288,9 +237,6 @@ export class TaskController {
       req.user.id,
       provider,
     );
-    return {
-      success: result.success,
-      data: result,
-    };
+    return result;
   }
 }

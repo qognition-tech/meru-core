@@ -32,7 +32,7 @@ export class BillingController {
   @ApiOperation({ summary: 'Create a billing plan' })
   async createPlan(@Request() req, @Body() dto: any) {
     const plan = await this.billingService.createPlan(req.user.tenantId, dto);
-    return { success: true, data: plan };
+    return plan;
   }
 
   @Get('plans')
@@ -43,7 +43,7 @@ export class BillingController {
       req.user.tenantId,
       billingModel as any,
     );
-    return { success: true, data: plans };
+    return plans;
   }
 
   // ==================== SUBSCRIPTIONS ====================
@@ -55,7 +55,7 @@ export class BillingController {
       req.user.tenantId,
       dto,
     );
-    return { success: true, data: subscription };
+    return subscription;
   }
 
   @Get('subscriptions/:id')
@@ -65,7 +65,7 @@ export class BillingController {
       id,
       req.user.tenantId,
     );
-    return { success: true, data: subscription };
+    return subscription;
   }
 
   // ==================== USAGE ====================
@@ -74,7 +74,7 @@ export class BillingController {
   @ApiOperation({ summary: 'Record metered usage' })
   async recordUsage(@Request() req, @Body() dto: any) {
     const usage = await this.billingService.recordUsage(req.user.tenantId, dto);
-    return { success: true, data: usage };
+    return usage;
   }
 
   // ==================== CREDITS ====================
@@ -83,14 +83,14 @@ export class BillingController {
   @ApiOperation({ summary: 'Add credits to subscription' })
   async addCredits(@Request() req, @Body() dto: any) {
     const credit = await this.billingService.addCredits(req.user.tenantId, dto);
-    return { success: true, data: credit };
+    return credit;
   }
 
   @Get('subscriptions/:id/credits/balance')
   @ApiOperation({ summary: 'Get credit balance' })
   async getCreditBalance(@Request() req, @Param('id') id: string) {
     const balance = await this.billingService.getCreditBalance(id);
-    return { success: true, data: { balance } };
+    return { balance };
   }
 
   // ==================== INVOICES ====================
@@ -106,7 +106,7 @@ export class BillingController {
       new Date(dto.periodStart),
       new Date(dto.periodEnd),
     );
-    return { success: true, data: invoice };
+    return invoice;
   }
 
   // ==================== ANALYTICS ====================
@@ -125,6 +125,6 @@ export class BillingController {
       new Date(startDate),
       new Date(endDate),
     );
-    return { success: true, data: metrics };
+    return metrics;
   }
 }

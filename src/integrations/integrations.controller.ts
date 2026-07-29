@@ -6,6 +6,8 @@ import {
   Body,
   UseGuards,
   Query,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,6 +18,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { IntegrationsService } from './integrations.service';
+import type { AdapterResponse } from './interfaces/government-adapter.interface';
+import { ScreenEntityDto } from './dto/screen-entity.dto';
 import { AuHomeAffairsAdapter } from './adapters/au-home-affairs.adapter';
 import { UaeCentralBankAdapter } from './adapters/uae-central-bank.adapter';
 import { SaSamaAdapter } from './adapters/sa-sama.adapter';
@@ -42,37 +46,47 @@ export class IntegrationsController {
     private readonly inzAdapter: NzImmigrationAdapter,
   ) {}
 
-  private static envelope(result: {
-    success: boolean;
-    data?: unknown;
-    sandbox: boolean;
-    latencyMs: number;
-    requestId: string;
-    error?: unknown;
-  }) {
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+  /**
+   * Unwrap a government adapter's response, or fail the request.
+   *
+   * An unreachable or erroring upstream used to come back as **HTTP 200** with
+   * a populated `error` and `data: null`. A client that reads `data` — which is
+   * every client — then rendered an empty page with no indication anything had
+   * gone wrong. A failed call is a gateway failure and gets a 5xx.
+   *
+   * `retryable` picks the code: 503 invites a retry, 502 does not.
+   */
+  private static unwrap<T>(result: AdapterResponse<T>): T | undefined {
+    if (!result.success) {
+      throw new HttpException(
+        {
+          code: result.error?.code ?? 'ADAPTER_ERROR',
+          message:
+            result.error?.message ?? 'The government adapter call failed',
+          retryable: result.error?.retryable ?? false,
+          requestId: result.requestId,
+          sandbox: result.sandbox,
+        },
+        result.error?.retryable
+          ? HttpStatus.SERVICE_UNAVAILABLE
+          : HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    return result.data;
   }
 
   @Get('adapters')
   @ApiOperation({ summary: 'List all registered government API adapters' })
   listAdapters() {
-    return { success: true, data: this.integrationsService.listAdapters() };
+    return this.integrationsService.listAdapters();
   }
 
   @Get('adapters/health')
   @ApiOperation({ summary: 'Health check all registered adapters' })
   async healthCheckAll() {
     const results = await this.integrationsService.healthCheckAll();
-    return { success: true, data: results };
+    return results;
   }
 
   // ── AU HomeAffairs ────────────────────────────────────────────────────────
@@ -88,32 +102,14 @@ export class IntegrationsController {
       visaNumber,
       passportNumber,
     );
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('au/application-status/:applicationId')
   @ApiOperation({ summary: 'AU — Check application status via DHA' })
   async auApplicationStatus(@Param('applicationId') applicationId: string) {
     const result = await this.auAdapter.getApplicationStatus(applicationId);
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('au/sponsor-validation')
@@ -121,16 +117,7 @@ export class IntegrationsController {
   @ApiQuery({ name: 'abn', required: true })
   async auSponsorValidation(@Query('abn') abn: string) {
     const result = await this.auAdapter.validateSponsor(abn);
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('au/vevo-check')
@@ -140,44 +127,19 @@ export class IntegrationsController {
       body.visaNumber,
       body.dateOfBirth,
     );
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   // ── UAE Central Bank ──────────────────────────────────────────────────────
 
   @Post('ae/screening')
   @ApiOperation({ summary: 'AE — Sanctions screening via CBUAE' })
-  async aeScreening(
-    @Body()
-    body: {
-      entityName: string;
-      nationality?: string;
-      idNumber?: string;
-    },
-  ) {
+  async aeScreening(@Body() body: ScreenEntityDto) {
     const result = await this.cbuaeAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
     });
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('ae/str')
@@ -198,16 +160,7 @@ export class IntegrationsController {
     },
   ) {
     const result = await this.cbuaeAdapter.fileSTR(body);
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('ae/regulatory-updates')
@@ -222,51 +175,26 @@ export class IntegrationsController {
       category,
       since,
     });
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('ae/verify-entity/:licenseNumber')
   @ApiOperation({ summary: 'AE — Verify trade license via CBUAE' })
   async aeVerifyEntity(@Param('licenseNumber') licenseNumber: string) {
     const result = await this.cbuaeAdapter.verifyEntity(licenseNumber);
-    return {
-      success: result.success,
-      data: result.data,
-      meta: {
-        sandbox: result.sandbox,
-        latencyMs: result.latencyMs,
-        requestId: result.requestId,
-      },
-      error: result.error,
-    };
+    return IntegrationsController.unwrap(result);
   }
 
   // ── Saudi SAMA ────────────────────────────────────────────────────────────
 
   @Post('sa/screening')
   @ApiOperation({ summary: 'SA — Sanctions screening via SAMA' })
-  async saScreening(
-    @Body()
-    body: {
-      entityName: string;
-      nationality?: string;
-      idNumber?: string;
-    },
-  ) {
+  async saScreening(@Body() body: ScreenEntityDto) {
     const result = await this.samaAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('sa/str')
@@ -285,7 +213,7 @@ export class IntegrationsController {
     },
   ) {
     const result = await this.samaAdapter.fileSTR(body);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('sa/regulatory-updates')
@@ -300,33 +228,26 @@ export class IntegrationsController {
       category,
       since,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('sa/verify-entity/:crn')
   @ApiOperation({ summary: 'SA — Verify commercial registration via SAMA' })
   async saVerifyEntity(@Param('crn') crn: string) {
     const result = await this.samaAdapter.verifyEntity(crn);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   // ── Qatar QCB ─────────────────────────────────────────────────────────────
 
   @Post('qa/screening')
   @ApiOperation({ summary: 'QA — Sanctions screening via QCB' })
-  async qaScreening(
-    @Body()
-    body: {
-      entityName: string;
-      nationality?: string;
-      idNumber?: string;
-    },
-  ) {
+  async qaScreening(@Body() body: ScreenEntityDto) {
     const result = await this.qcbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('qa/str')
@@ -345,7 +266,7 @@ export class IntegrationsController {
     },
   ) {
     const result = await this.qcbAdapter.fileSTR(body);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('qa/regulatory-updates')
@@ -360,33 +281,26 @@ export class IntegrationsController {
       category,
       since,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('qa/verify-entity/:crn')
   @ApiOperation({ summary: 'QA — Verify commercial registration via QCB' })
   async qaVerifyEntity(@Param('crn') crn: string) {
     const result = await this.qcbAdapter.verifyEntity(crn);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   // ── Bahrain CBB ───────────────────────────────────────────────────────────
 
   @Post('bh/screening')
   @ApiOperation({ summary: 'BH — Sanctions screening via CBB' })
-  async bhScreening(
-    @Body()
-    body: {
-      entityName: string;
-      nationality?: string;
-      idNumber?: string;
-    },
-  ) {
+  async bhScreening(@Body() body: ScreenEntityDto) {
     const result = await this.cbbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('bh/str')
@@ -405,7 +319,7 @@ export class IntegrationsController {
     },
   ) {
     const result = await this.cbbAdapter.fileSTR(body);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('bh/regulatory-updates')
@@ -420,14 +334,14 @@ export class IntegrationsController {
       category,
       since,
     });
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('bh/verify-entity/:crn')
   @ApiOperation({ summary: 'BH — Verify commercial registration via CBB' })
   async bhVerifyEntity(@Param('crn') crn: string) {
     const result = await this.cbbAdapter.verifyEntity(crn);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   // ── Canada IRCC ───────────────────────────────────────────────────────────
@@ -443,14 +357,14 @@ export class IntegrationsController {
       documentNumber,
       passportNumber,
     );
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('ca/application-status/:applicationId')
   @ApiOperation({ summary: 'CA — Check application status via IRCC' })
   async caApplicationStatus(@Param('applicationId') applicationId: string) {
     const result = await this.irccAdapter.getApplicationStatus(applicationId);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('ca/employer-validation')
@@ -458,7 +372,7 @@ export class IntegrationsController {
   @ApiQuery({ name: 'businessNumber', required: true })
   async caEmployerValidation(@Query('businessNumber') businessNumber: string) {
     const result = await this.irccAdapter.validateEmployer(businessNumber);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   // ── UK Home Office / UKVI ─────────────────────────────────────────────────
@@ -474,21 +388,21 @@ export class IntegrationsController {
       visaReference,
       passportNumber,
     );
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('uk/application-status/:applicationId')
   @ApiOperation({ summary: 'UK — Check application status via UKVI' })
   async ukApplicationStatus(@Param('applicationId') applicationId: string) {
     const result = await this.ukviAdapter.getApplicationStatus(applicationId);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('uk/sponsor-validation/:licenceNumber')
   @ApiOperation({ summary: 'UK — Validate sponsor licence via UKVI' })
   async ukSponsorValidation(@Param('licenceNumber') licenceNumber: string) {
     const result = await this.ukviAdapter.validateSponsor(licenceNumber);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('uk/right-to-work')
@@ -500,7 +414,7 @@ export class IntegrationsController {
       body.shareCode,
       body.dateOfBirth,
     );
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   // ── New Zealand INZ ───────────────────────────────────────────────────────
@@ -516,14 +430,14 @@ export class IntegrationsController {
       visaNumber,
       passportNumber,
     );
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('nz/application-status/:applicationId')
   @ApiOperation({ summary: 'NZ — Check application status via INZ' })
   async nzApplicationStatus(@Param('applicationId') applicationId: string) {
     const result = await this.inzAdapter.getApplicationStatus(applicationId);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Get('nz/employer-validation')
@@ -531,7 +445,7 @@ export class IntegrationsController {
   @ApiQuery({ name: 'nzbn', required: true })
   async nzEmployerValidation(@Query('nzbn') nzbn: string) {
     const result = await this.inzAdapter.validateEmployer(nzbn);
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 
   @Post('nz/visa-view')
@@ -541,6 +455,6 @@ export class IntegrationsController {
       body.visaNumber,
       body.dateOfBirth,
     );
-    return IntegrationsController.envelope(result);
+    return IntegrationsController.unwrap(result);
   }
 }

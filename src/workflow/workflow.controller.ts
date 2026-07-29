@@ -42,10 +42,7 @@ export class WorkflowController {
       dto,
       req.user.id,
     );
-    return {
-      success: true,
-      data: workflow,
-    };
+    return workflow;
   }
 
   @Get()
@@ -60,10 +57,7 @@ export class WorkflowController {
       req.user.tenantId,
       entityType,
     );
-    return {
-      success: true,
-      data: workflows,
-    };
+    return workflows;
   }
 
   @Get(':id')
@@ -72,10 +66,7 @@ export class WorkflowController {
   @ApiResponse({ status: 404, description: 'Not found' })
   async getWorkflow(@Param('id', ParseUUIDPipe) id: string) {
     const workflow = await this.workflowService.getWorkflow(id);
-    return {
-      success: true,
-      data: workflow,
-    };
+    return workflow;
   }
 
   // ==================== WORKFLOW INSTANCES ====================
@@ -92,10 +83,7 @@ export class WorkflowController {
       req.user.id,
       dto.context,
     );
-    return {
-      success: true,
-      data: instance,
-    };
+    return instance;
   }
 
   @Get('instances')
@@ -113,10 +101,7 @@ export class WorkflowController {
       status as any,
       entityId,
     );
-    return {
-      success: true,
-      data: instances,
-    };
+    return instances;
   }
 
   @Get('instances/:id')
@@ -125,10 +110,7 @@ export class WorkflowController {
   @ApiResponse({ status: 404, description: 'Not found' })
   async getInstance(@Param('id', ParseUUIDPipe) id: string) {
     const instance = await this.workflowService.getInstance(id);
-    return {
-      success: true,
-      data: instance,
-    };
+    return instance;
   }
 
   @Get('instances/:id/transitions')
@@ -136,10 +118,7 @@ export class WorkflowController {
   @ApiResponse({ status: 200, description: 'Transitions retrieved' })
   async getAvailableTransitions(@Param('id', ParseUUIDPipe) id: string) {
     const transitions = await this.workflowService.getAvailableTransitions(id);
-    return {
-      success: true,
-      data: transitions,
-    };
+    return transitions;
   }
 
   @Post('instances/:id/transition')
@@ -156,9 +135,6 @@ export class WorkflowController {
       userId: req.user.id,
       context: dto.context,
     });
-    return {
-      success: true,
-      data: instance,
-    };
+    return instance;
   }
 }
