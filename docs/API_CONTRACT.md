@@ -185,7 +185,7 @@ All paths below are relative to `/api/v1`.
 
 | Frontend calls | Reality | Action |
 |---|---|---|
-| `/workflow` | Backend serves **`/workflows`** (plural) | Rename in `obligations`, `breaches`, `regulatory` services |
+| `/workflow` | Backend serves **`/workflows`** (plural), but that is workflow *definition* CRUD — it is not what obligations/breaches want | Use `/crm/entities` (below), not `/workflows` |
 | `/iam/users` | **Now exists** ✅ — `GET /iam/users`, `GET /iam/users/:id`, `POST /iam/users/invite`, `PATCH` (and `PUT`) `/iam/users/:id`. Requires `platform_admin` or `firm_admin` | Wire the Users/Staff pages |
 | `/orchestration/agents` | Not implemented | Keep on mock |
 | `/orchestration/events` | Not implemented | Keep on mock |
@@ -196,6 +196,35 @@ All paths below are relative to `/api/v1`.
 | `/auth/mfa/verify` | **Now exists** ✅ — plus `mfa/setup`, `mfa/setup/verify`, `mfa/disable`. Post `{ temporaryToken, token }`, not a bare user id | Complete the MFA branch |
 | `GET /tenants` | **Now exists** ✅ — platform-wide list, `platform_admin` only, audited as god-mode | Wire Tenants + God View |
 | `GET /analytics/reports/generated` | **Now exists** ✅ — was shadowed by `reports/:id` and 500'd | Repoint off the mock |
+
+### Obligations, breaches and cases — all `/crm/entities`
+
+These are one shape (a record with a state, an owner and a deadline) so they
+share one resource, distinguished by `type`. Vertical labels and status
+vocabularies come from the config pack — core stays neutral (CLAUDE.md §11.3).
+
+| Need | Call |
+|---|---|
+| Obligation register | `GET /crm/entities?type=obligation` |
+| Breach register | `GET /crm/entities?type=breach` |
+| Case kanban | `GET /crm/entities?type=case` |
+| My open work | `GET /crm/entities?assignedTo=<userId>&status=open` |
+| Due this quarter | `GET /crm/entities?dueAfter=2026-07-01&dueBefore=2026-09-30` |
+| Create | `POST /crm/entities` `{ type, firstName, dueDate?, assignedTo?, verticalAttributes? }` |
+| Transition / reassign / kanban move | `PATCH /crm/entities/:id` `{ status?, assignedTo?, dueDate? }` (`PUT` also accepted) |
+| Detail | `GET /crm/entities/:id` |
+
+`status` is one of `open`, `in_progress`, `blocked`, `resolved`, `closed`,
+`cancelled`. Workable types default to `open`; reference types (tag, note,
+person) have `status: null`.
+
+`verticalAttributes` **merges** on PATCH — send only what changed; keys you omit
+survive. Everything vertical-specific (regulator, severity, case number,
+kanban column labels) belongs in that bag or in the pack, not in a core column.
+
+Filters are validated: an unknown query param or a bad enum returns **400**,
+not a silent full-table read. The list is paginated — `data` is the array,
+counts are in `meta.pagination`.
 
 ---
 
