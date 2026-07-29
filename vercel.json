@@ -9,7 +9,7 @@
     "api/index.js": {
       "memory": 1024,
       "maxDuration": 60,
-      "includeFiles": "packages/config-packs/**"
+      "includeFiles": "{packages/config-packs/**,node_modules/swagger-ui-dist/**}"
     }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
