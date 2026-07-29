@@ -1,20 +1,29 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ConflictException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+// IsNull() is mandatory for "column IS NULL" in find options. A bare
+// `revokedAt: null` is NOT an error and NOT a null comparison — TypeORM 0.3
+// treats it like `undefined` and drops the condition from the WHERE clause
+// entirely. Every revocation check in this file was written that way (and cast
+// with `as any`, which hid the type error that would have caught it), so
+// `revokedAt` was never actually tested: revoked sessions still refreshed and
+// revoked API keys still authenticated. Verified against the generated SQL.
+import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User, AuthProvider, UserStatus } from './entities/user.entity';
 import { Tenant } from './entities/tenant.entity';
 import { Role } from './entities/role.entity';
 import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
-import { UserPayload, CreateUserInput } from '../common/types';
+import { UserPayload, CreateUserInput, DirectoryUser } from '../common/types';
 import { TenantContext } from '../core/tenancy/tenant-context';
+import { PlatformRole, ROLE_PRECEDENCE } from './enums/platform-role.enum';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 // otplib is pinned to v12 deliberately. v13 pulls in @scure/base and
@@ -27,6 +36,7 @@ import * as QRCode from 'qrcode';
 
 @Injectable()
 export class IamService {
+  private readonly logger = new Logger(IamService.name);
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
   private readonly API_KEY_PREFIX = 'meru_';
 
@@ -105,16 +115,17 @@ export class IamService {
     // of an unbound (zero-row) connection.
     TenantContext.setTenantId(user.tenantId);
 
-    // Revoke existing active sessions (active = revokedAt is null)
-    const activeSessions = await this.sessionRepo.find({
-      where: { userId: user.id, revokedAt: null as any },
-    });
-    for (const s of activeSessions) {
-      s.revokedAt = new Date();
-    }
-    if (activeSessions.length > 0) {
-      await this.sessionRepo.save(activeSessions);
-    }
+    // Concurrent sessions are allowed. This used to revoke every other active
+    // session on each login, but the `revokedAt` predicate was silently dropped
+    // (see the IsNull import note) so it never actually took effect. Now that
+    // the predicate works, reinstating it would mean signing into ImmiStack
+    // silently signs you out of the Meru Dashboard and GovernanceX — one user
+    // legitimately uses several portals against this one API at the same time,
+    // and on separate devices.
+    //
+    // Explicit revocation is still available and now genuinely works:
+    // `logoutSession(refreshToken)` drops one session, `logout(userId)` drops
+    // all of them, and refresh tokens are single-use (see refreshTokens).
 
     const tokens = await this.generateTokens(user);
     await this.createSession(user, tokens.refresh_token);
@@ -161,11 +172,13 @@ export class IamService {
    * switch on. Prefers the most-privileged known platform role when present.
    */
   private resolvePrimaryRole(roles: string[]): string {
-    const precedence = ['platform_admin', 'firm_admin', 'staff', 'client'];
-    for (const role of precedence) {
+    for (const role of ROLE_PRECEDENCE) {
       if (roles.includes(role)) return role;
     }
-    return roles[0] ?? 'staff';
+    // A user holding only unknown roles gets the least-privileged default
+    // rather than their first arbitrary role — the portals switch on this
+    // value, and an unrecognised one routes nowhere.
+    return PlatformRole.STAFF;
   }
 
   async refreshTokens(refreshToken: string) {
@@ -181,7 +194,7 @@ export class IamService {
       'resolve session by refresh token',
       () =>
         this.sessionRepo.findOne({
-          where: { refreshTokenHash, revokedAt: null as any },
+          where: { refreshTokenHash, revokedAt: IsNull() },
           relations: ['user'],
         }),
     );
@@ -196,9 +209,19 @@ export class IamService {
     // so bind it before the session rotation writes below.
     TenantContext.setTenantId(user.tenantId);
 
-    // Revoke old session
-    session.revokedAt = new Date();
-    await this.sessionRepo.save(session);
+    // Retire the old session with a conditional UPDATE rather than a read-then-
+    // save. `revokedAt IS NULL` in the WHERE makes the rotation atomic: if two
+    // requests present the same refresh token concurrently, exactly one gets
+    // affected=1 and the loser is rejected instead of both being issued a fresh
+    // token pair. A refresh token is single-use, and this is what enforces it.
+    const revoked = await this.sessionRepo.update(
+      { id: session.id, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+
+    if (!revoked.affected) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
     const payload: UserPayload = {
       id: user.id,
@@ -232,16 +255,19 @@ export class IamService {
 
     // Same bootstrap case as refreshTokens(): logout is reachable with only an
     // opaque token, so the row has to be found before any tenant is known.
-    await TenantContext.runAsSystem('revoke session by refresh token', async () => {
-      const session = await this.sessionRepo.findOne({
-        where: { refreshTokenHash, revokedAt: null as any },
-      });
+    await TenantContext.runAsSystem(
+      'revoke session by refresh token',
+      async () => {
+        const session = await this.sessionRepo.findOne({
+          where: { refreshTokenHash, revokedAt: IsNull() },
+        });
 
-      if (session) {
-        session.revokedAt = new Date();
-        await this.sessionRepo.save(session);
-      }
-    });
+        if (session) {
+          session.revokedAt = new Date();
+          await this.sessionRepo.save(session);
+        }
+      },
+    );
 
     return { success: true };
   }
@@ -249,7 +275,7 @@ export class IamService {
   async logout(userId: string) {
     // Revoke all active sessions
     const activeSessions = await this.sessionRepo.find({
-      where: { userId, revokedAt: null as any },
+      where: { userId, revokedAt: IsNull() },
     });
     for (const s of activeSessions) {
       s.revokedAt = new Date();
@@ -301,11 +327,46 @@ export class IamService {
     return { success: true };
   }
 
-  async verifyMfaLogin(userId: string, token: string) {
-    const user = await this.userRepo.findOne({
-      where: { id: userId },
-      select: ['id', 'email', 'tenantId', 'mfaSecret', 'mfaEnabled', 'roles'],
-    });
+  /**
+   * Second leg of an MFA login.
+   *
+   * Takes the `temporaryToken` issued by `login()`, **not** a bare user id. The
+   * temporary token is what proves the password leg already succeeded; keying
+   * this off an id supplied by the caller would let anyone skip the password
+   * entirely and brute-force a six-digit code against any account they could
+   * name. The token is single-purpose (`mfaPending`) and expires in 5 minutes.
+   */
+  async verifyMfaLogin(temporaryToken: string, token: string) {
+    let challenge: { sub?: string; mfaPending?: boolean };
+    try {
+      challenge = this.jwtService.verify(temporaryToken);
+    } catch {
+      throw new UnauthorizedException('MFA challenge is invalid or expired');
+    }
+
+    // An ordinary access token must not be accepted here — it would turn this
+    // route into a way to mint a full session from a half-scoped credential.
+    if (!challenge?.mfaPending || !challenge.sub) {
+      throw new UnauthorizedException('MFA challenge is invalid or expired');
+    }
+
+    // Bootstrap lookup, same as login(): the tenant is what this resolves, so
+    // there is nothing bound yet and RLS would filter the row away.
+    const user = await TenantContext.runAsSystem(
+      'resolve user for MFA challenge',
+      () =>
+        this.userRepo.findOne({
+          where: { id: challenge.sub },
+          select: [
+            'id',
+            'email',
+            'tenantId',
+            'mfaSecret',
+            'mfaEnabled',
+            'roles',
+          ],
+        }),
+    );
 
     if (!user || !user.mfaSecret || !user.mfaEnabled) {
       throw new BadRequestException('MFA not configured');
@@ -321,14 +382,22 @@ export class IamService {
       roles: user.roles ?? [],
     };
 
+    // Bind before the session/stat writes below, as login() does.
+    TenantContext.setTenantId(user.tenantId);
+
     const tokens = await this.generateTokens(payload);
     await this.createSession(payload, tokens.refresh_token);
 
-    // Update login stats
     await this.userRepo.increment({ id: user.id }, 'loginCount', 1);
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
 
-    return tokens;
+    // Same envelope as login() so the portals hydrate their auth store
+    // identically whichever leg completed the sign-in.
+    return {
+      ...tokens,
+      tenant_id: payload.tenantId,
+      user: await this.buildAuthUser(payload),
+    };
   }
 
   async disableMfa(userId: string) {
@@ -449,7 +518,7 @@ export class IamService {
 
   async listApiKeys(tenantId: string) {
     return this.apiKeyRepo.find({
-      where: { tenantId, revokedAt: null as any },
+      where: { tenantId, revokedAt: IsNull() },
       select: [
         'id',
         'name',
@@ -484,7 +553,7 @@ export class IamService {
       'validate API key hash',
       () =>
         this.apiKeyRepo.findOne({
-          where: { keyHash, revokedAt: null as any },
+          where: { keyHash, revokedAt: IsNull() },
           relations: ['creator'],
         }),
     );
@@ -559,7 +628,7 @@ export class IamService {
 
     // Revoke all existing sessions for security
     const activeSessions = await this.sessionRepo.find({
-      where: { userId, revokedAt: null as any },
+      where: { userId, revokedAt: IsNull() },
     });
     for (const s of activeSessions) {
       s.revokedAt = new Date();
@@ -573,40 +642,143 @@ export class IamService {
 
   // ─── Tenant User Management ──────────────────────────────────────
 
-  async listUsers(tenantId: string) {
-    return this.userRepo.find({
+  /**
+   * The tenant's user directory.
+   *
+   * Returns a stable shape rather than raw entities: the portals render a
+   * single primary role, and `roles` is a simple-array column that would
+   * otherwise leak as a comma-joined string.
+   */
+  async listUsers(tenantId: string): Promise<DirectoryUser[]> {
+    const users = await this.userRepo.find({
       where: { tenantId },
-      select: [
-        'id',
-        'email',
-        'firstName',
-        'lastName',
-        'status',
-        'lastLoginAt',
-        'createdAt',
-        'avatarUrl',
-      ],
+      order: { createdAt: 'DESC' },
     });
+
+    return users.map((u) => this.toDirectoryUser(u));
   }
 
-  async inviteUser(tenantId: string, email: string, _role: string) {
-    const existing = await this.userRepo.findOne({ where: { email } });
-    if (existing) throw new ConflictException('User already exists');
+  async getUser(tenantId: string, userId: string): Promise<DirectoryUser> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return this.toDirectoryUser(user);
+  }
 
-    const tempPassword = crypto.randomBytes(16).toString('hex');
-    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+  /**
+   * Invite a user into the tenant.
+   *
+   * The generated password is a placeholder so the row satisfies the NOT NULL
+   * password column — it is never returned. This previously handed the
+   * plaintext temp password back to any caller, which meant anyone who could
+   * invite could also immediately authenticate as the invitee. The invitee
+   * gets in via a password reset, or via SSO once that is wired.
+   *
+   * Note on uniqueness: `users.email` is globally unique by design, not per
+   * tenant, because `validateUser()` resolves a login by email alone with no
+   * tenant hint. Scoping this check per tenant would make logins ambiguous, so
+   * the global check stays — only the error message is clearer.
+   */
+  async inviteUser(
+    tenantId: string,
+    dto: {
+      email: string;
+      role?: string;
+      firstName?: string;
+      lastName?: string;
+      department?: string;
+    },
+  ): Promise<DirectoryUser> {
+    const existing = await TenantContext.runAsSystem(
+      'check global email uniqueness before invite',
+      () => this.userRepo.findOne({ where: { email: dto.email } }),
+    );
+
+    if (existing) {
+      throw new ConflictException(
+        existing.tenantId === tenantId
+          ? 'A user with that email already exists in this tenant'
+          : 'That email is already registered on the platform',
+      );
+    }
+
+    // Unusable by construction: never returned, never sent anywhere. It exists
+    // only because `password` is NOT NULL.
+    const placeholderPassword = await bcrypt.hash(
+      crypto.randomBytes(32).toString('hex'),
+      10,
+    );
 
     const user = this.userRepo.create({
-      email,
-      password: hashedPassword,
+      email: dto.email,
+      password: placeholderPassword,
       tenantId,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       status: UserStatus.INVITED,
       provider: AuthProvider.LOCAL,
+      roles: [dto.role ?? PlatformRole.STAFF],
+      attributes: dto.department ? { department: dto.department } : {},
     });
 
     await this.userRepo.save(user);
-    // In production: send invitation email with temp password + link
-    return { userId: user.id, tempPassword }; // Remove tempPassword return in production
+    this.logger.log(`Invited ${dto.email} to tenant ${tenantId}`);
+
+    return this.toDirectoryUser(user);
+  }
+
+  /**
+   * Update a directory user. Deliberately narrow — this cannot touch password,
+   * email, tenantId or MFA state, so it can never be used for takeover.
+   */
+  async updateUser(
+    tenantId: string,
+    userId: string,
+    updates: {
+      firstName?: string;
+      lastName?: string;
+      role?: string;
+      department?: string;
+      status?: UserStatus;
+    },
+  ): Promise<DirectoryUser> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (updates.firstName !== undefined) user.firstName = updates.firstName;
+    if (updates.lastName !== undefined) user.lastName = updates.lastName;
+    if (updates.status !== undefined) user.status = updates.status;
+    if (updates.role !== undefined) user.roles = [updates.role];
+    if (updates.department !== undefined) {
+      user.attributes = { ...user.attributes, department: updates.department };
+    }
+
+    await this.userRepo.save(user);
+    return this.toDirectoryUser(user);
+  }
+
+  private toDirectoryUser(user: User): DirectoryUser {
+    const roles = user.roles ?? [];
+    const name =
+      [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      name,
+      role: this.resolvePrimaryRole(roles),
+      roles,
+      department: (user.attributes?.department as string) ?? null,
+      status: user.status,
+      lastActiveAt: user.lastLoginAt ?? null,
+      createdAt: user.createdAt,
+      avatarUrl: user.avatarUrl ?? null,
+    };
   }
 
   // ─── Private Helpers ─────────────────────────────────────────────
