@@ -15,9 +15,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * so every God-View request 500'd. Verified by `GET /tenants` returning that
  * exact constraint error.
  */
-export class FixAuditLogNullableState1753600000000
-  implements MigrationInterface
-{
+export class FixAuditLogNullableState1753600000000 implements MigrationInterface {
   name = 'FixAuditLogNullableState1753600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

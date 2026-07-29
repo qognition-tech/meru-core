@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+// Geodesy from `geolib` — spheroid distances and radius containment — rather
+// than a bespoke haversine. CommonJS, per scripts/check-cjs-deps.js.
+import { getDistance, isPointWithinRadius } from 'geolib';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -12,8 +15,8 @@ export interface VesselLookupRequest {
 export interface AisPosition {
   lat: number;
   lon: number;
-  speed: number;       // knots
-  course: number;      // degrees
+  speed: number; // knots
+  course: number; // degrees
   heading: number;
   navStatus: string;
   timestamp: Date;
@@ -56,7 +59,7 @@ export interface SanctionedPort {
 export interface VesselRiskScore {
   mmsi: string;
   overallRisk: 'none' | 'low' | 'medium' | 'high' | 'critical';
-  score: number;          // 0–100
+  score: number; // 0–100
   signals: RiskSignal[];
   assessedAt: Date;
   sanctionedPortCalls: SanctionedPortCall[];
@@ -89,26 +92,138 @@ export interface SanctionedPortCall {
 
 const SANCTIONED_PORTS: SanctionedPort[] = [
   // Iran
-  { code: 'IRBND', name: 'Bandar Abbas', country: 'IR', lat: 27.18, lon: 56.28, radiusKm: 25, sanctionBasis: 'OFAC/EU/UN' },
-  { code: 'IRKHO', name: 'Kharg Island', country: 'IR', lat: 29.24, lon: 50.33, radiusKm: 15, sanctionBasis: 'OFAC/EU' },
-  { code: 'IRIMK', name: 'Imam Khomeini Port', country: 'IR', lat: 30.45, lon: 49.08, radiusKm: 20, sanctionBasis: 'OFAC/EU/UN' },
+  {
+    code: 'IRBND',
+    name: 'Bandar Abbas',
+    country: 'IR',
+    lat: 27.18,
+    lon: 56.28,
+    radiusKm: 25,
+    sanctionBasis: 'OFAC/EU/UN',
+  },
+  {
+    code: 'IRKHO',
+    name: 'Kharg Island',
+    country: 'IR',
+    lat: 29.24,
+    lon: 50.33,
+    radiusKm: 15,
+    sanctionBasis: 'OFAC/EU',
+  },
+  {
+    code: 'IRIMK',
+    name: 'Imam Khomeini Port',
+    country: 'IR',
+    lat: 30.45,
+    lon: 49.08,
+    radiusKm: 20,
+    sanctionBasis: 'OFAC/EU/UN',
+  },
   // North Korea
-  { code: 'KPNAM', name: 'Nampo', country: 'KP', lat: 38.73, lon: 125.40, radiusKm: 20, sanctionBasis: 'OFAC/EU/UN' },
-  { code: 'KPCJN', name: 'Chongjin', country: 'KP', lat: 41.78, lon: 129.78, radiusKm: 15, sanctionBasis: 'OFAC/EU/UN' },
+  {
+    code: 'KPNAM',
+    name: 'Nampo',
+    country: 'KP',
+    lat: 38.73,
+    lon: 125.4,
+    radiusKm: 20,
+    sanctionBasis: 'OFAC/EU/UN',
+  },
+  {
+    code: 'KPCJN',
+    name: 'Chongjin',
+    country: 'KP',
+    lat: 41.78,
+    lon: 129.78,
+    radiusKm: 15,
+    sanctionBasis: 'OFAC/EU/UN',
+  },
   // Syria
-  { code: 'SYLAT', name: 'Latakia', country: 'SY', lat: 35.52, lon: 35.78, radiusKm: 15, sanctionBasis: 'EU/UK' },
-  { code: 'SYTAR', name: 'Tartus', country: 'SY', lat: 34.89, lon: 35.88, radiusKm: 10, sanctionBasis: 'EU/UK' },
+  {
+    code: 'SYLAT',
+    name: 'Latakia',
+    country: 'SY',
+    lat: 35.52,
+    lon: 35.78,
+    radiusKm: 15,
+    sanctionBasis: 'EU/UK',
+  },
+  {
+    code: 'SYTAR',
+    name: 'Tartus',
+    country: 'SY',
+    lat: 34.89,
+    lon: 35.88,
+    radiusKm: 10,
+    sanctionBasis: 'EU/UK',
+  },
   // Russia (post-2022 maritime sanctions)
-  { code: 'RUNSB', name: 'Novorossiysk', country: 'RU', lat: 44.73, lon: 37.77, radiusKm: 20, sanctionBasis: 'EU/UK/US' },
-  { code: 'RUVNN', name: 'Vladivostok', country: 'RU', lat: 43.11, lon: 131.87, radiusKm: 20, sanctionBasis: 'EU/UK' },
-  { code: 'RUSES', name: 'Saint Petersburg (sea terminals)', country: 'RU', lat: 59.94, lon: 30.19, radiusKm: 25, sanctionBasis: 'EU/UK' },
+  {
+    code: 'RUNSB',
+    name: 'Novorossiysk',
+    country: 'RU',
+    lat: 44.73,
+    lon: 37.77,
+    radiusKm: 20,
+    sanctionBasis: 'EU/UK/US',
+  },
+  {
+    code: 'RUVNN',
+    name: 'Vladivostok',
+    country: 'RU',
+    lat: 43.11,
+    lon: 131.87,
+    radiusKm: 20,
+    sanctionBasis: 'EU/UK',
+  },
+  {
+    code: 'RUSES',
+    name: 'Saint Petersburg (sea terminals)',
+    country: 'RU',
+    lat: 59.94,
+    lon: 30.19,
+    radiusKm: 25,
+    sanctionBasis: 'EU/UK',
+  },
   // Venezuela
-  { code: 'VEPBL', name: 'Puerto Cabello', country: 'VE', lat: 10.48, lon: -68.01, radiusKm: 15, sanctionBasis: 'OFAC' },
-  { code: 'VECCS', name: 'La Guaira', country: 'VE', lat: 10.60, lon: -66.93, radiusKm: 10, sanctionBasis: 'OFAC' },
+  {
+    code: 'VEPBL',
+    name: 'Puerto Cabello',
+    country: 'VE',
+    lat: 10.48,
+    lon: -68.01,
+    radiusKm: 15,
+    sanctionBasis: 'OFAC',
+  },
+  {
+    code: 'VECCS',
+    name: 'La Guaira',
+    country: 'VE',
+    lat: 10.6,
+    lon: -66.93,
+    radiusKm: 10,
+    sanctionBasis: 'OFAC',
+  },
   // Myanmar
-  { code: 'MMRGN', name: 'Yangon', country: 'MM', lat: 16.77, lon: 96.17, radiusKm: 15, sanctionBasis: 'EU/UK/US' },
+  {
+    code: 'MMRGN',
+    name: 'Yangon',
+    country: 'MM',
+    lat: 16.77,
+    lon: 96.17,
+    radiusKm: 15,
+    sanctionBasis: 'EU/UK/US',
+  },
   // Belarus transhipment hubs
-  { code: 'BYKLP', name: 'Klaipeda (Belarus transshipment)', country: 'LT', lat: 55.71, lon: 21.13, radiusKm: 10, sanctionBasis: 'EU' },
+  {
+    code: 'BYKLP',
+    name: 'Klaipeda (Belarus transshipment)',
+    country: 'LT',
+    lat: 55.71,
+    lon: 21.13,
+    radiusKm: 10,
+    sanctionBasis: 'EU',
+  },
 ];
 
 // High-risk flag states (indicative, not exhaustive)
@@ -155,8 +270,11 @@ export class VesselTrackingEngine {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  async assessVesselRisk(request: VesselLookupRequest): Promise<VesselRiskScore> {
-    const identifier = request.mmsi ?? request.imo ?? request.vesselName ?? 'unknown';
+  async assessVesselRisk(
+    request: VesselLookupRequest,
+  ): Promise<VesselRiskScore> {
+    const identifier =
+      request.mmsi ?? request.imo ?? request.vesselName ?? 'unknown';
     this.logger.log(`Vessel risk assessment requested: ${identifier}`);
 
     let vesselInfo: VesselInfo | null = null;
@@ -169,6 +287,17 @@ export class VesselTrackingEngine {
     }
 
     return this.computeRiskScore(request, vesselInfo);
+  }
+
+  /**
+   * Whether a live AIS feed is wired up.
+   *
+   * Callers must check this before interpreting a null lookup. Without it,
+   * "not configured" and "vessel not found" are indistinguishable, and a
+   * fleet page will happily render "no risk" for a fleet nobody checked.
+   */
+  isConfigured(): boolean {
+    return !!this.aisApiUrl && !!this.aisApiKey;
   }
 
   async lookupVessel(request: VesselLookupRequest): Promise<VesselInfo | null> {
@@ -199,7 +328,7 @@ export class VesselTrackingEngine {
         throw new Error(`AIS API returned ${response.status}`);
       }
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as any;
       return this.normaliseAisResponse(data);
     } finally {
       clearTimeout(timer);
@@ -209,12 +338,19 @@ export class VesselTrackingEngine {
   checkGeofence(
     lat: number,
     lon: number,
-  ): { inSanctionedZone: boolean; nearestPort: SanctionedPort | null; distanceKm: number } {
+  ): {
+    inSanctionedZone: boolean;
+    nearestPort: SanctionedPort | null;
+    distanceKm: number;
+  } {
     let minDistance = Infinity;
     let nearestPort: SanctionedPort | null = null;
 
+    // Nearest port by true distance, then an explicit radius test against that
+    // port's own geofence — ports differ in size, so a single global radius
+    // would either miss small terminals or over-flag large ones.
     for (const port of SANCTIONED_PORTS) {
-      const dist = this.haversineKm(lat, lon, port.lat, port.lon);
+      const dist = this.distanceKm(lat, lon, port.lat, port.lon);
       if (dist < minDistance) {
         minDistance = dist;
         nearestPort = port;
@@ -222,7 +358,12 @@ export class VesselTrackingEngine {
     }
 
     const inSanctionedZone =
-      nearestPort !== null && minDistance <= nearestPort.radiusKm;
+      nearestPort !== null &&
+      isPointWithinRadius(
+        { latitude: lat, longitude: lon },
+        { latitude: nearestPort.lat, longitude: nearestPort.lon },
+        nearestPort.radiusKm * 1000,
+      );
 
     return {
       inSanctionedZone,
@@ -257,10 +398,10 @@ export class VesselTrackingEngine {
           gapHours >= DARK_PERIOD_HIGH_RISK_HOURS
             ? 'high'
             : geofence.inSanctionedZone
-            ? 'high'
-            : gapHours >= 12
-            ? 'medium'
-            : 'low';
+              ? 'high'
+              : gapHours >= 12
+                ? 'medium'
+                : 'low';
 
         darkPeriods.push({
           startedAt: prev.timestamp,
@@ -315,7 +456,10 @@ export class VesselTrackingEngine {
           port: geo.nearestPort,
           distanceKm: geo.distanceKm,
         });
-      } else if (geo.nearestPort && geo.distanceKm <= geo.nearestPort.radiusKm * 3) {
+      } else if (
+        geo.nearestPort &&
+        geo.distanceKm <= geo.nearestPort.radiusKm * 3
+      ) {
         signals.push({
           type: 'sanctioned_port_proximity',
           severity: 'medium',
@@ -373,12 +517,12 @@ export class VesselTrackingEngine {
       score >= 80
         ? 'critical'
         : score >= 60
-        ? 'high'
-        : score >= 35
-        ? 'medium'
-        : score >= 10
-        ? 'low'
-        : 'none';
+          ? 'high'
+          : score >= 35
+            ? 'medium'
+            : score >= 10
+              ? 'low'
+              : 'none';
 
     return {
       mmsi,
@@ -431,7 +575,9 @@ export class VesselTrackingEngine {
                 course: Number(pos.COURSE ?? pos.course ?? 0),
                 heading: Number(pos.HEADING ?? pos.heading ?? 0),
                 navStatus: String(pos.STATUS ?? pos.navStatus ?? ''),
-                timestamp: new Date(pos.TIMESTAMP ?? pos.timestamp ?? Date.now()),
+                timestamp: new Date(
+                  pos.TIMESTAMP ?? pos.timestamp ?? Date.now(),
+                ),
                 source: 'ais',
               }
             : undefined,
@@ -444,42 +590,43 @@ export class VesselTrackingEngine {
       mmsi: String(raw.mmsi ?? raw.id ?? ''),
       name: String(raw.name ?? raw.vessel_name ?? ''),
       flag: raw.flag ?? raw.country,
-      currentPosition: raw.lat && raw.lon
-        ? {
-            lat: Number(raw.lat),
-            lon: Number(raw.lon),
-            speed: Number(raw.speed ?? 0),
-            course: Number(raw.course ?? 0),
-            heading: Number(raw.heading ?? 0),
-            navStatus: String(raw.nav_status ?? ''),
-            timestamp: new Date(raw.timestamp ?? Date.now()),
-            source: 'ais',
-          }
-        : undefined,
+      currentPosition:
+        raw.lat && raw.lon
+          ? {
+              lat: Number(raw.lat),
+              lon: Number(raw.lon),
+              speed: Number(raw.speed ?? 0),
+              course: Number(raw.course ?? 0),
+              heading: Number(raw.heading ?? 0),
+              navStatus: String(raw.nav_status ?? ''),
+              timestamp: new Date(raw.timestamp ?? Date.now()),
+              source: 'ais',
+            }
+          : undefined,
     };
   }
 
-  // ── Haversine formula ─────────────────────────────────────────────────────
+  // ── Geodesy ───────────────────────────────────────────────────────────────
+  //
+  // Distances come from `geolib` rather than a hand-written haversine. The
+  // formula is short enough to look harmless, which is the problem: it is easy
+  // to get the radius, the degree conversion or the argument order subtly
+  // wrong, and the failure mode here is a vessel silently *not* flagged inside
+  // a sanctioned-port geofence. geolib is CommonJS (see check-cjs-deps.js) and
+  // models the earth as a spheroid, so it is also more accurate than the
+  // spherical approximation this replaced.
 
-  private haversineKm(
+  private distanceKm(
     lat1: number,
     lon1: number,
     lat2: number,
     lon2: number,
   ): number {
-    const R = 6371; // Earth radius in km
-    const dLat = this.deg2rad(lat2 - lat1);
-    const dLon = this.deg2rad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.deg2rad(lat1)) *
-        Math.cos(this.deg2rad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  private deg2rad(deg: number): number {
-    return deg * (Math.PI / 180);
+    return (
+      getDistance(
+        { latitude: lat1, longitude: lon1 },
+        { latitude: lat2, longitude: lon2 },
+      ) / 1000
+    );
   }
 }

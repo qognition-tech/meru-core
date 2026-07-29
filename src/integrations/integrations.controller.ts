@@ -2,24 +2,36 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Put,
+  Delete,
   Param,
   Body,
   UseGuards,
   Query,
   HttpException,
   HttpStatus,
+  HttpCode,
+  Request,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiQuery,
+  ApiParam,
+  ApiResponse,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { IntegrationsService } from './integrations.service';
 import type { AdapterResponse } from './interfaces/government-adapter.interface';
 import { ScreenEntityDto } from './dto/screen-entity.dto';
+import { AddVesselDto, TradeInstrumentBodyDto } from './dto/vessel-trade.dto';
+import { VesselService } from './services/vessel.service';
+import { TradeService } from './services/trade.service';
+import type { AuthenticatedRequest } from '../common/types';
 import { AuHomeAffairsAdapter } from './adapters/au-home-affairs.adapter';
 import { UaeCentralBankAdapter } from './adapters/uae-central-bank.adapter';
 import { SaSamaAdapter } from './adapters/sa-sama.adapter';
@@ -44,6 +56,8 @@ export class IntegrationsController {
     private readonly irccAdapter: CaIrccAdapter,
     private readonly ukviAdapter: UkHomeOfficeAdapter,
     private readonly inzAdapter: NzImmigrationAdapter,
+    private readonly vesselService: VesselService,
+    private readonly tradeService: TradeService,
   ) {}
 
   /**
@@ -74,6 +88,134 @@ export class IntegrationsController {
     }
 
     return result.data;
+  }
+
+  // ── Vessel tracking (CLAUDE.md §3.4) ──────────────────────────────────────
+  //
+  // A watched vessel is a `UniversalEntity` of type `asset`; positions and risk
+  // are fetched live from the engine on every read, never cached, because a
+  // stale AIS position is a wrong one.
+
+  @Get('vessel')
+  @ApiOperation({
+    summary: 'This tenant’s vessel watchlist, with live position and risk',
+    description:
+      'Each vessel is enriched independently — one failed AIS lookup degrades ' +
+      'that row to `live: false` rather than failing the page. `live: false` ' +
+      'means the nulls are "unknown", not "no risk".',
+  })
+  async listVessels(@Request() req: AuthenticatedRequest) {
+    return this.vesselService.listWatchlist(req.user.tenantId);
+  }
+
+  @Get('vessel/alerts')
+  @ApiOperation({
+    summary: 'Risk alerts across the watchlist, most severe first',
+    description:
+      'Derived from live risk scoring — sanctioned-port geofence breaches, ' +
+      'AIS dark periods, flag risk.',
+  })
+  async listVesselAlerts(@Request() req: AuthenticatedRequest) {
+    return this.vesselService.listAlerts(req.user.tenantId);
+  }
+
+  @Post('vessel/watchlist')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Add a vessel to the watchlist',
+    description:
+      'Idempotent on IMO/MMSI — re-adding a watched vessel returns the ' +
+      'existing row rather than duplicating it into the alert feed.',
+  })
+  @ApiResponse({ status: 201, description: 'Vessel watched' })
+  @ApiResponse({ status: 400, description: 'Neither IMO nor MMSI supplied' })
+  async addVessel(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: AddVesselDto,
+  ) {
+    return this.vesselService.addToWatchlist(req.user.tenantId, dto);
+  }
+
+  @Delete('vessel/watchlist/:id')
+  @ApiOperation({ summary: 'Stop watching a vessel' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Vessel removed' })
+  @ApiResponse({ status: 404, description: 'Not on this tenant’s watchlist' })
+  async removeVessel(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.vesselService.removeFromWatchlist(req.user.tenantId, id);
+  }
+
+  // ── Trade finance ─────────────────────────────────────────────────────────
+  //
+  // Instruments are `UniversalEntity` rows, not a core trade table — banking
+  // schema stays out of core (CLAUDE.md §11.3). What core contributes is the
+  // horizontal part: counterparty screening via the Screening engine.
+
+  @Get('trade')
+  @ApiOperation({ summary: 'List trade finance instruments' })
+  async listTrade(@Request() req: AuthenticatedRequest) {
+    return this.tradeService.list(req.user.tenantId);
+  }
+
+  @Get('trade/:id')
+  @ApiOperation({ summary: 'Get one trade finance instrument' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 404, description: 'Not found on this tenant' })
+  async getTrade(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tradeService.get(req.user.tenantId, id);
+  }
+
+  @Post('trade')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Book a trade instrument, screening its counterparties',
+    description:
+      'Applicant and beneficiary are screened on write — an unscreened ' +
+      'instrument is the thing a bank must not book. A screening failure is ' +
+      'recorded as `screeningStatus: "ERROR"` for manual review rather than ' +
+      'rejecting the write.',
+  })
+  @ApiResponse({ status: 201, description: 'Instrument booked' })
+  async createTrade(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: TradeInstrumentBodyDto,
+  ) {
+    return this.tradeService.create(req.user.tenantId, dto);
+  }
+
+  @Patch('trade/:id')
+  @ApiOperation({
+    summary: 'Update a trade instrument',
+    description:
+      'Counterparty changes trigger a re-screen — carrying a clear result ' +
+      'forward from a different name would be worse than not screening.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  async updateTrade(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TradeInstrumentBodyDto,
+  ) {
+    return this.tradeService.update(req.user.tenantId, id, dto);
+  }
+
+  // PUT alias — separate handler, because stacking verb decorators on one
+  // method registers only the last one.
+  @Put('trade/:id')
+  @ApiOperation({ summary: 'Update a trade instrument (alias of PATCH)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  async replaceTrade(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TradeInstrumentBodyDto,
+  ) {
+    return this.tradeService.update(req.user.tenantId, id, dto);
   }
 
   @Get('adapters')

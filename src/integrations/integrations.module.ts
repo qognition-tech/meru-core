@@ -12,6 +12,10 @@ import { UkHomeOfficeAdapter } from './adapters/uk-home-office.adapter';
 import { NzImmigrationAdapter } from './adapters/nz-immigration.adapter';
 import { IntegrationsController } from './integrations.controller';
 import { IntegrationsService } from './integrations.service';
+import { VesselService } from './services/vessel.service';
+import { TradeService } from './services/trade.service';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { AiModule } from '../ai/ai.module';
 
 // INT module per CLAUDE.md §2 row 14.
 // Government API adapters — each adapter implements GovernmentAdapter interface.
@@ -21,10 +25,21 @@ import { IntegrationsService } from './integrations.service';
 // Adding a new adapter: create adapters/<country>-<regulator>.adapter.ts,
 // register as a provider here, export from IntegrationsService.
 @Module({
-  imports: [TypeOrmModule.forFeature([IntegrationAdapter]), IamModule],
+  imports: [
+    // UniversalEntity directly rather than via CrmModule: vessel watchlists and
+    // trade instruments are entity rows, but they do not want CRM's
+    // create-time vertical-field validation, so they use the repository, not
+    // CrmService.
+    TypeOrmModule.forFeature([IntegrationAdapter, UniversalEntity]),
+    IamModule,
+    // VesselTrackingEngine and ScreeningEngine (CLAUDE.md §3.2, §3.4).
+    AiModule,
+  ],
   controllers: [IntegrationsController],
   providers: [
     IntegrationsService,
+    VesselService,
+    TradeService,
     AuHomeAffairsAdapter,
     UaeCentralBankAdapter,
     SaSamaAdapter,

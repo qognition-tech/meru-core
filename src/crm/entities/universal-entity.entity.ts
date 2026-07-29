@@ -35,6 +35,13 @@ export enum EntityType {
    * these as "Breaches". Same rule: naming and workflow live in the pack.
    */
   BREACH = 'breach',
+  /**
+   * A trade finance instrument — letter of credit, guarantee, collection.
+   * Banking-shaped fields (applicant, beneficiary, amount, screening result)
+   * live in `verticalAttributes`; core only models the record and its
+   * lifecycle. See src/integrations/services/trade.service.ts.
+   */
+  TRADE_INSTRUMENT = 'trade_instrument',
 }
 
 /**

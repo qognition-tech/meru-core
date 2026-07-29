@@ -238,13 +238,12 @@ export class DocIntelEngine {
     } else {
       // No vision API or no image — apply heuristic regex extraction.
       // Confidence is capped at 0.45 to ensure human review of every result.
-      const rawTextBuffer =
-        request.fileBuffer?.toString('utf8') ?? '';
+      const rawTextBuffer = request.fileBuffer?.toString('utf8') ?? '';
       extractedFields = this.heuristicExtraction(request.kind, rawTextBuffer);
       overallConfidence =
-        extractedFields.filter((f) => f.value !== null).length /
-          Math.max(extractedFields.length, 1) *
-          0.45;
+        (extractedFields.filter((f) => f.value !== null).length /
+          Math.max(extractedFields.length, 1)) *
+        0.45;
       modelUsed = 'heuristic';
     }
 
@@ -462,7 +461,10 @@ Never invent values. Set null if a field is absent. If you suspect tampering, se
 
   // Heuristic extraction from raw text when vision API is unavailable.
   // Confidence is capped at 0.45 to flag every result for human review.
-  private heuristicExtraction(kind: DocumentKind, rawText: string): ExtractedField[] {
+  private heuristicExtraction(
+    kind: DocumentKind,
+    rawText: string,
+  ): ExtractedField[] {
     const keys = EXTRACTION_SPECS[kind] ?? [];
     if (!rawText) {
       return keys.map((key) => ({ key, value: null, confidence: 0 }));
@@ -502,12 +504,20 @@ Never invent values. Set null if a field is absent. If you suspect tampering, se
       return t.match(/\b([A-Z0-9]{6,15})\b/)?.[1] ?? null;
     }
     if (key === 'referenceNumber' || key === 'hapId' || key === 'blNumber') {
-      return t.match(/\b(?:ref|no\.?|number|#)\s*:?\s*([A-Z0-9/-]{4,20})\b/i)?.[1] ?? null;
+      return (
+        t.match(/\b(?:ref|no\.?|number|#)\s*:?\s*([A-Z0-9/-]{4,20})\b/i)?.[1] ??
+        null
+      );
     }
 
     // Name fields — two adjacent capitalised tokens
-    if (key === 'firstName' || key === 'lastName' || key === 'employeeName' ||
-        key === 'applicantName' || key === 'accountName') {
+    if (
+      key === 'firstName' ||
+      key === 'lastName' ||
+      key === 'employeeName' ||
+      key === 'applicantName' ||
+      key === 'accountName'
+    ) {
       const names = t.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/);
       if (!names) return null;
       const parts = names[1].split(' ');
@@ -526,13 +536,19 @@ Never invent values. Set null if a field is absent. If you suspect tampering, se
       key === 'value'
     ) {
       return (
-        t.match(/\b(?:USD|AUD|GBP|CAD|AED|SAR|EUR|QAR|BHD)?\s*[\d,]+(?:\.\d{1,2})?\b/)?.[0]?.trim() ?? null
+        t
+          .match(
+            /\b(?:USD|AUD|GBP|CAD|AED|SAR|EUR|QAR|BHD)?\s*[\d,]+(?:\.\d{1,2})?\b/,
+          )?.[0]
+          ?.trim() ?? null
       );
     }
 
     // Currency codes
     if (key === 'currency') {
-      return t.match(/\b(USD|AUD|GBP|CAD|AED|SAR|EUR|QAR|BHD|NZD)\b/)?.[1] ?? null;
+      return (
+        t.match(/\b(USD|AUD|GBP|CAD|AED|SAR|EUR|QAR|BHD|NZD)\b/)?.[1] ?? null
+      );
     }
 
     // Account / IBAN / BSB numbers
@@ -559,7 +575,9 @@ Never invent values. Set null if a field is absent. If you suspect tampering, se
 
     // Outcome fields
     if (key === 'outcome') {
-      const m = t.match(/\b(approved|denied|refused|granted|failed|passed|unsuitable|suitable)\b/i);
+      const m = t.match(
+        /\b(approved|denied|refused|granted|failed|passed|unsuitable|suitable)\b/i,
+      );
       return m?.[1]?.toLowerCase() ?? null;
     }
 

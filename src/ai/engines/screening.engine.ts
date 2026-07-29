@@ -1,4 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
+// Classical string metrics from `talisman` rather than hand-rolled copies.
+// CommonJS on purpose (see scripts/check-cjs-deps.js); `require` because the
+// package ships no bundled type declarations.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const jaroWinklerSimilarity: (
+  a: string,
+  b: string,
+) => number = require('talisman/metrics/jaro-winkler');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const levenshteinDistance: (
+  a: string,
+  b: string,
+) => number = require('talisman/metrics/levenshtein');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const soundexCode: (
+  s: string,
+) => string = require('talisman/phonetics/soundex');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const doubleMetaphoneCodes: (
+  s: string,
+) => [string, string] = require('talisman/phonetics/double-metaphone');
 import * as crypto from 'crypto';
 
 // ── Public types ──────────────────────────────────────────────────────────
@@ -57,6 +78,7 @@ export interface ScreeningHit {
   algorithm:
     | 'exact'
     | 'levenshtein'
+    | 'double_metaphone'
     | 'jaro_winkler'
     | 'soundex'
     | 'transliteration';
@@ -250,11 +272,22 @@ export class ScreeningEngine {
       if (lev > (best?.score ?? 0))
         best = { score: lev, algorithm: 'levenshtein', candidate };
 
-      // 4. Soundex (catches phonetic variations)
-      if (this.soundex(name) === this.soundex(candidate) && name.length > 2) {
-        const soundexScore = 0.8; // below exact but above random
-        if (soundexScore > (best?.score ?? 0))
-          best = { score: soundexScore, algorithm: 'soundex', candidate };
+      // 4. Phonetic. Double Metaphone first — it encodes an alternate
+      // pronunciation, so Mohammed / Muhammad / Mohamad all reduce to MHMT,
+      // which is the single most common family of near-misses on sanctions
+      // lists. Soundex is kept as a weaker fallback: it is English-tuned and
+      // four characters wide, so it agrees less often and is worth less when
+      // it does.
+      if (name.length > 2) {
+        if (this.phoneticallyEqual(name, candidate)) {
+          const score = 0.85;
+          if (score > (best?.score ?? 0))
+            best = { score, algorithm: 'double_metaphone', candidate };
+        } else if (this.soundex(name) === this.soundex(candidate)) {
+          const score = 0.8; // below exact but above random
+          if (score > (best?.score ?? 0))
+            best = { score, algorithm: 'soundex', candidate };
+        }
       }
 
       // 5. Transliteration — Arabic/Latin normalisation
@@ -281,123 +314,65 @@ export class ScreeningEngine {
   }
 
   // ── Fuzzy algorithms ──────────────────────────────────────────────────────
+  //
+  // These delegate to `talisman`, a maintained open-source implementation of
+  // the classical string metrics. They used to be hand-written here — roughly
+  // 120 lines of Jaro, Jaro-Winkler, Levenshtein and Soundex. Sanctions
+  // screening is exactly the wrong place to carry a bespoke edit-distance
+  // implementation: a subtle error in the match window or the prefix bonus
+  // does not crash, it silently fails to flag a sanctioned party, and nothing
+  // in the system would tell you. A widely used library is the safer default.
+  //
+  // `talisman` is CommonJS, which matters — see scripts/check-cjs-deps.js and
+  // the otplib note in iam.service.ts.
 
-  // Jaro-Winkler: state-of-the-art for proper name matching.
-  // Higher weight for common prefixes (first names).
+  /** Jaro-Winkler similarity in [0, 1]. Strong on proper names. */
   jaroWinkler(s1: string, s2: string): number {
-    const jaro = this.jaro(s1, s2);
-    const prefix = this.commonPrefixLength(s1, s2, 4);
-    return jaro + prefix * 0.1 * (1 - jaro);
+    if (!s1 || !s2) return 0;
+    return jaroWinklerSimilarity(s1, s2);
   }
 
-  private jaro(s1: string, s2: string): number {
-    if (s1 === s2) return 1;
-    if (!s1.length || !s2.length) return 0;
-
-    const matchWindow = Math.floor(Math.max(s1.length, s2.length) / 2) - 1;
-    if (matchWindow < 0) return 0;
-
-    const s1Matches = new Array(s1.length).fill(false);
-    const s2Matches = new Array(s2.length).fill(false);
-    let matches = 0;
-    let transpositions = 0;
-
-    for (let i = 0; i < s1.length; i++) {
-      const start = Math.max(0, i - matchWindow);
-      const end = Math.min(i + matchWindow + 1, s2.length);
-      for (let j = start; j < end; j++) {
-        if (s2Matches[j] || s1[i] !== s2[j]) continue;
-        s1Matches[i] = true;
-        s2Matches[j] = true;
-        matches++;
-        break;
-      }
-    }
-
-    if (!matches) return 0;
-
-    let k = 0;
-    for (let i = 0; i < s1.length; i++) {
-      if (!s1Matches[i]) continue;
-      while (!s2Matches[k]) k++;
-      if (s1[i] !== s2[k]) transpositions++;
-      k++;
-    }
-
-    return (
-      (matches / s1.length +
-        matches / s2.length +
-        (matches - transpositions / 2) / matches) /
-      3
-    );
-  }
-
-  private commonPrefixLength(s1: string, s2: string, max: number): number {
-    let i = 0;
-    while (i < Math.min(s1.length, s2.length, max) && s1[i] === s2[i]) i++;
-    return i;
-  }
-
-  // Levenshtein ratio: normalised edit distance [0, 1].
+  /** Normalised Levenshtein similarity in [0, 1]. Good for OCR noise/typos. */
   levenshteinRatio(s1: string, s2: string): number {
-    const dist = this.levenshtein(s1, s2);
     const maxLen = Math.max(s1.length, s2.length);
-    return maxLen === 0 ? 1 : 1 - dist / maxLen;
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinDistance(s1, s2) / maxLen;
   }
 
   levenshtein(s1: string, s2: string): number {
-    const m = s1.length;
-    const n = s2.length;
-    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
-    );
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        dp[i][j] =
-          s1[i - 1] === s2[j - 1]
-            ? dp[i - 1][j - 1]
-            : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
-    }
-    return dp[m][n];
+    return levenshteinDistance(s1, s2);
   }
 
-  // Soundex phonetic encoding (English).
+  /** Soundex phonetic code. Retained for the `soundex` algorithm label. */
   soundex(name: string): string {
-    const s = name.toUpperCase().replace(/[^A-Z]/g, '');
-    if (!s) return '0000';
+    const cleaned = name.toUpperCase().replace(/[^A-Z]/g, '');
+    if (!cleaned) return '0000';
+    return soundexCode(cleaned);
+  }
 
-    const codes: Record<string, string> = {
-      B: '1',
-      F: '1',
-      P: '1',
-      V: '1',
-      C: '2',
-      G: '2',
-      J: '2',
-      K: '2',
-      Q: '2',
-      S: '2',
-      X: '2',
-      Z: '2',
-      D: '3',
-      T: '3',
-      L: '4',
-      M: '5',
-      N: '5',
-      R: '6',
-    };
+  /**
+   * Double Metaphone — two codes per name, a primary and an alternate.
+   *
+   * Materially better than Soundex for this domain. Soundex is tuned for
+   * English surnames and keeps only four characters, so it both misses
+   * transliteration variants and generates noise on Arabic names. Double
+   * Metaphone encodes a plausible alternate pronunciation, which is precisely
+   * the Mohammed/Muhammad/Mohamad problem sanctions lists are full of — all
+   * three share the code MHMT.
+   */
+  doubleMetaphone(name: string): [string, string] {
+    const cleaned = name.toUpperCase().replace(/[^A-Z]/g, '');
+    if (!cleaned) return ['', ''];
+    const [primary, alternate] = doubleMetaphoneCodes(cleaned);
+    return [primary, alternate];
+  }
 
-    let code = s[0];
-    let prev = codes[s[0]] ?? '0';
-
-    for (let i = 1; i < s.length && code.length < 4; i++) {
-      const c = codes[s[i]] ?? '0';
-      if (c !== '0' && c !== prev) code += c;
-      prev = c;
-    }
-
-    return code.padEnd(4, '0');
+  /** True when two names share either metaphone code. */
+  private phoneticallyEqual(a: string, b: string): boolean {
+    const [aP, aS] = this.doubleMetaphone(a);
+    const [bP, bS] = this.doubleMetaphone(b);
+    if (!aP || !bP) return false;
+    return aP === bP || aP === bS || aS === bP || (!!aS && aS === bS);
   }
 
   // Arabic → Latin transliteration (common variants).

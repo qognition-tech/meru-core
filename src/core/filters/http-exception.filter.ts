@@ -126,7 +126,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const meruError = this.buildError(exception, status);
-    const requestId = (request.headers['x-request-id'] as string) || randomUUID();
+    const requestId =
+      (request.headers['x-request-id'] as string) || randomUUID();
 
     // Structured Logging with Meru error code
     this.logger.error(

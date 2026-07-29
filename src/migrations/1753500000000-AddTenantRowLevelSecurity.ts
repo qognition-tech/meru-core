@@ -27,9 +27,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * single hand-written expression would either fail to cast or silently disable
  * index usage on half the schema.
  */
-export class AddTenantRowLevelSecurity1753500000000
-  implements MigrationInterface
-{
+export class AddTenantRowLevelSecurity1753500000000 implements MigrationInterface {
   name = 'AddTenantRowLevelSecurity1753500000000';
 
   /**
@@ -174,9 +172,15 @@ export class AddTenantRowLevelSecurity1753500000000
 
     // --- 4. The tenants table itself -------------------------------------
     // Its own id *is* the tenant, so it needs a different predicate.
-    await queryRunner.query(`ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY`);
-    await queryRunner.query(`ALTER TABLE public.tenants FORCE ROW LEVEL SECURITY`);
-    await queryRunner.query(`DROP POLICY IF EXISTS tenant_isolation ON public.tenants`);
+    await queryRunner.query(
+      `ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE public.tenants FORCE ROW LEVEL SECURITY`,
+    );
+    await queryRunner.query(
+      `DROP POLICY IF EXISTS tenant_isolation ON public.tenants`,
+    );
     await queryRunner.query(`
       CREATE POLICY tenant_isolation ON public.tenants FOR ALL TO public
         USING (app.rls_bypassed() OR id = app.current_tenant_id()::uuid)
@@ -184,8 +188,11 @@ export class AddTenantRowLevelSecurity1753500000000
     `);
 
     // --- 5. Child tables (tenancy via FK) --------------------------------
-    for (const [child, fk, parent] of AddTenantRowLevelSecurity1753500000000
-      .CHILD_TABLES) {
+    for (const [
+      child,
+      fk,
+      parent,
+    ] of AddTenantRowLevelSecurity1753500000000.CHILD_TABLES) {
       const predicate = `EXISTS (SELECT 1 FROM public.${parent} p WHERE p.id = public.${child}."${fk}")`;
       await queryRunner.query(
         `ALTER TABLE public.${child} ENABLE ROW LEVEL SECURITY`,

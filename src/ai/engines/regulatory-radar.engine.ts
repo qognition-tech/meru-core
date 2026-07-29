@@ -216,9 +216,7 @@ export class RegulatoryRadarEngine {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  async runScan(
-    sourceFilter?: string[],
-  ): Promise<RadarScanResult> {
+  async runScan(sourceFilter?: string[]): Promise<RadarScanResult> {
     const sources = sourceFilter
       ? MONITORED_SOURCES.filter((s) => sourceFilter.includes(s.id))
       : MONITORED_SOURCES;
@@ -264,12 +262,15 @@ export class RegulatoryRadarEngine {
     return result;
   }
 
-  getChangeLog(
-    filter?: { country?: string; vertical?: string; status?: RadarChange['status'] },
-  ): RadarChange[] {
+  getChangeLog(filter?: {
+    country?: string;
+    vertical?: string;
+    status?: RadarChange['status'];
+  }): RadarChange[] {
     let log = [...this.changeLog];
     if (filter?.country) log = log.filter((c) => c.country === filter.country);
-    if (filter?.vertical) log = log.filter((c) => c.vertical === filter.vertical);
+    if (filter?.vertical)
+      log = log.filter((c) => c.vertical === filter.vertical);
     if (filter?.status) log = log.filter((c) => c.status === filter.status);
     return log.reverse(); // newest first
   }
@@ -321,10 +322,7 @@ export class RegulatoryRadarEngine {
 
   private async fetchWithTimeout(url: string): Promise<string> {
     const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      this.fetchTimeoutMs,
-    );
+    const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
 
     try {
       const response = await fetch(url, {

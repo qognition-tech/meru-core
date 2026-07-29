@@ -65,7 +65,9 @@ export class TenancyService {
     ).catch((error) => {
       // If the access cannot be recorded, it does not happen. An unlogged
       // cross-tenant read is precisely what §6.4 forbids.
-      this.logger.error(`Failed to write god-mode audit entry: ${error.message}`);
+      this.logger.error(
+        `Failed to write god-mode audit entry: ${error.message}`,
+      );
       throw error;
     });
 

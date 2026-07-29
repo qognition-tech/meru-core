@@ -5,9 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // (which referenced a non-existent `app` schema and snake_case `tenant_id`).
 // Stubbed to a no-op so the schema can build; RLS to be reimplemented correctly
 // against the real `"tenantId"` columns (CLAUDE.md §6.4). Original SQL in git history.
-export class AddVerticalAndEnvironmentRLS1743870000000
-  implements MigrationInterface
-{
+export class AddVerticalAndEnvironmentRLS1743870000000 implements MigrationInterface {
   name = 'AddVerticalAndEnvironmentRLS1743870000000';
 
   public async up(_queryRunner: QueryRunner): Promise<void> {

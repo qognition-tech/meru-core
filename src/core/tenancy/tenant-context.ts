@@ -77,10 +77,7 @@ export const TenantContext = {
    */
   runAsSystem<T>(reason: string, fn: () => Promise<T>): Promise<T> {
     const parent = storage.getStore();
-    return storage.run(
-      { ...parent, bypass: { kind: 'system', reason } },
-      fn,
-    );
+    return storage.run({ ...parent, bypass: { kind: 'system', reason } }, fn);
   },
 
   /**
@@ -88,7 +85,11 @@ export const TenantContext = {
    * entry for this; `TenancyService.runAsGod` is the wrapper that writes one.
    * Prefer that over calling this directly.
    */
-  runAsGod<T>(actorId: string, reason: string, fn: () => Promise<T>): Promise<T> {
+  runAsGod<T>(
+    actorId: string,
+    reason: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
     const parent = storage.getStore();
     return storage.run(
       { ...parent, bypass: { kind: 'god', reason, actorId } },

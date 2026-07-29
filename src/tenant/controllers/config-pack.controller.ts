@@ -66,7 +66,9 @@ export class ConfigPackController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List config packs, optionally filtered by vertical' })
+  @ApiOperation({
+    summary: 'List config packs, optionally filtered by vertical',
+  })
   @ApiQuery({
     name: 'vertical',
     required: false,
@@ -187,7 +189,10 @@ export class ConfigPackController {
       'pin) and returns the config the tenant actually runs on.',
   })
   @ApiParam({ name: 'tenantId', description: 'Tenant UUID' })
-  @ApiParam({ name: 'code', description: 'Config pack code, e.g. au-immigration' })
+  @ApiParam({
+    name: 'code',
+    description: 'Config pack code, e.g. au-immigration',
+  })
   @ApiResponse({ status: 200, description: 'Effective config returned' })
   async getTenantEffectiveConfig(
     @Param('tenantId') tenantId: string,

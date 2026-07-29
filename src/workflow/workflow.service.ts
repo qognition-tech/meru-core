@@ -443,21 +443,25 @@ export class WorkflowEngineService {
         // Notify the escalation.notify list
         if (escalation.notify?.length) {
           for (const recipientId of escalation.notify as string[]) {
-            await this.notificationsService.sendNotification({
-              tenantId: instance.tenantId,
-              type: NotificationType.IN_APP,
-              recipientId,
-              subject: `SLA Escalation Level ${escalationLevel}`,
-              content: `Workflow instance ${instance.id} has breached its SLA and has been escalated to level ${escalationLevel}.`,
-              category: NotificationCategory.WORKFLOW,
-              metadata: {
-                workflowInstanceId: instance.id,
-                escalationLevel,
-                action: escalation.action,
-              },
-            }).catch((e) =>
-              this.logger.error(`SLA notification failed for ${recipientId}: ${e}`),
-            );
+            await this.notificationsService
+              .sendNotification({
+                tenantId: instance.tenantId,
+                type: NotificationType.IN_APP,
+                recipientId,
+                subject: `SLA Escalation Level ${escalationLevel}`,
+                content: `Workflow instance ${instance.id} has breached its SLA and has been escalated to level ${escalationLevel}.`,
+                category: NotificationCategory.WORKFLOW,
+                metadata: {
+                  workflowInstanceId: instance.id,
+                  escalationLevel,
+                  action: escalation.action,
+                },
+              })
+              .catch((e) =>
+                this.logger.error(
+                  `SLA notification failed for ${recipientId}: ${e}`,
+                ),
+              );
           }
         }
       }
@@ -533,7 +537,9 @@ export class WorkflowEngineService {
             this.logger.warn(`Unknown workflow action type: ${action.type}`);
         }
       } catch (error) {
-        this.logger.error(`Failed to execute action '${action.type}': ${error}`);
+        this.logger.error(
+          `Failed to execute action '${action.type}': ${error}`,
+        );
       }
     }
   }
@@ -554,7 +560,9 @@ export class WorkflowEngineService {
         config.message ?? config.content ?? 'Your workflow has been updated.',
         instance.context,
       ),
-      category: (config.category as NotificationCategory) ?? NotificationCategory.WORKFLOW,
+      category:
+        (config.category as NotificationCategory) ??
+        NotificationCategory.WORKFLOW,
       metadata: {
         workflowInstanceId: instance.id,
         workflowId: instance.workflowId,
@@ -564,7 +572,9 @@ export class WorkflowEngineService {
     };
 
     await this.notificationsService.sendNotification(options);
-    this.logger.log(`Workflow notification sent to ${recipientId} for instance ${instance.id}`);
+    this.logger.log(
+      `Workflow notification sent to ${recipientId} for instance ${instance.id}`,
+    );
   }
 
   private async executeWebhookAction(
@@ -573,7 +583,9 @@ export class WorkflowEngineService {
   ): Promise<void> {
     const { url, method = 'POST', headers = {}, secretHeader } = config;
     if (!url) {
-      this.logger.warn(`Webhook action missing url for instance ${instance.id}`);
+      this.logger.warn(
+        `Webhook action missing url for instance ${instance.id}`,
+      );
       return;
     }
 
@@ -605,7 +617,9 @@ export class WorkflowEngineService {
     }
 
     await this.fireWebhook(url, method, requestHeaders, payload);
-    this.logger.log(`Webhook fired: ${method} ${url} for instance ${instance.id}`);
+    this.logger.log(
+      `Webhook fired: ${method} ${url} for instance ${instance.id}`,
+    );
   }
 
   private fireWebhook(
@@ -673,11 +687,16 @@ export class WorkflowEngineService {
     };
 
     await this.taskService.createTask(instance.tenantId, taskDto);
-    this.logger.log(`Task created via workflow action for instance ${instance.id}`);
+    this.logger.log(
+      `Task created via workflow action for instance ${instance.id}`,
+    );
   }
 
   // Simple {{key}} template interpolation from workflow context
-  private interpolateTemplate(template: string, context: Record<string, any>): string {
+  private interpolateTemplate(
+    template: string,
+    context: Record<string, any>,
+  ): string {
     return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
       context?.[key] !== undefined ? String(context[key]) : `{{${key}}}`,
     );

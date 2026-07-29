@@ -6,9 +6,7 @@ import { DataSource } from 'typeorm';
 @Controller('health')
 @ApiTags('health')
 export class HealthController {
-  constructor(
-    @InjectDataSource() private readonly dataSource: DataSource,
-  ) {}
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   @Get()
   @ApiOperation({ summary: 'Liveness + readiness probe (checks DB)' })
