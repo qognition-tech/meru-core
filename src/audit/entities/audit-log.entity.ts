@@ -82,10 +82,15 @@ export class AuditLog {
   @Column({ type: 'enum', enum: AuditSeverity, default: AuditSeverity.INFO })
   severity: AuditSeverity;
 
-  @Column({ type: 'jsonb' })
+  // Genuinely nullable: a READ, LOGIN or EXPORT has no before/after state. The
+  // TS type already said `| null`, but without `nullable: true` the column was
+  // generated NOT NULL, so every such event failed the insert — including the
+  // CRITICAL entry `TenancyService.runAsGod` writes before a cross-tenant read,
+  // which made god-mode access impossible rather than merely audited.
+  @Column({ type: 'jsonb', nullable: true })
   beforeState: Record<string, any> | null;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'jsonb', nullable: true })
   afterState: Record<string, any> | null;
 
   @Column({ type: 'jsonb', default: {} })
