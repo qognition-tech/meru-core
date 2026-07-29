@@ -617,6 +617,13 @@ export class IamService {
       email: user.email,
       tenantId: user.tenantId,
       roles: user.roles,
+      // `role` (singular) as well as `roles`. The portals decode this token in
+      // Next.js middleware to pick a portal and gate the /platform, /admin,
+      // /staff and /client prefixes, and they read `payload.role` — with only
+      // `roles` present that guard silently passed everything through.
+      // Authorisation on the server never uses this claim; PolicyGuard reads
+      // `roles` off the validated user.
+      role: this.resolvePrimaryRole(user.roles ?? []),
     });
 
     const refreshToken = crypto.randomBytes(48).toString('hex');
