@@ -8,12 +8,14 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiHeader,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -36,8 +38,12 @@ export interface JobResult {
 }
 
 export interface TickResult {
+  scope: TickScope;
   ran: JobResult[];
+  /** Not due yet, per the cadence table. */
   skipped: string[];
+  /** Due, but the time budget ran out — the next call picks these up. */
+  deferred: string[];
   failed: { job: string; message: string }[];
   durationMs: number;
 }
@@ -59,6 +65,31 @@ const JOB_CADENCE_MINUTES = {
 export type JobName = keyof typeof JOB_CADENCE_MINUTES;
 
 const JOB_NAMES = Object.keys(JOB_CADENCE_MINUTES) as JobName[];
+
+/**
+ * Which jobs a /tick call considers.
+ *
+ * The split is not cosmetic. `regulatory-radar` alone takes ~34s of the 60s
+ * function limit, and the cadence map below is per-instance, so a cold lambda
+ * believes nothing has run yet. Letting a one-minute pinger dispatch the daily
+ * jobs would re-run the expensive ones on every cold start and could exceed
+ * maxDuration. Frequent work is therefore driven by an external scheduler
+ * hitting scope=fast; the daily work is driven by Vercel Cron once a day.
+ */
+const TICK_SCOPES = {
+  fast: JOB_NAMES.filter((j) => JOB_CADENCE_MINUTES[j] <= 60),
+  daily: JOB_NAMES.filter((j) => JOB_CADENCE_MINUTES[j] > 60),
+  all: JOB_NAMES,
+} as const;
+
+export type TickScope = keyof typeof TICK_SCOPES;
+
+/**
+ * Stop dispatching once this much of the invocation is gone, so a slow job
+ * cannot push the response past the platform's function timeout. Whatever is
+ * left is reported as deferred and picked up by the next call.
+ */
+const TICK_BUDGET_MS = 45_000;
 
 /**
  * Cron entrypoints.
@@ -121,24 +152,29 @@ export class JobsController {
   @Get('tick')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Run every scheduled job that is currently due',
+    summary: 'Run the scheduled jobs in a scope that are currently due',
     description:
-      'Cadence-aware dispatcher. Safe to call at any frequency — each job runs ' +
-      'only once its own interval has elapsed, so a one-minute pinger will not ' +
-      'run daily billing 1,440 times a day. One failing job does not stop the ' +
-      'rest; failures are reported per job in the response.',
+      'Cadence-aware dispatcher, safe to call at any frequency — each job runs ' +
+      'only once its own interval has elapsed. `scope=fast` (the default) ' +
+      'covers the minute-to-hourly jobs and is what an external scheduler ' +
+      'should poll; `scope=daily` covers the once-a-day jobs and is what Vercel ' +
+      'Cron invokes. Dispatch stops after 45s and reports the remainder as ' +
+      'deferred, so a slow job cannot blow the function timeout. One failing ' +
+      'job does not stop the rest.',
   })
+  @ApiQuery({ name: 'scope', required: false, enum: ['fast', 'daily', 'all'] })
   @ApiResponse({ status: 200, description: 'Dispatch completed' })
-  async tickGet(): Promise<TickResult> {
-    return this.tick();
+  async tickGet(@Query('scope') scope?: string): Promise<TickResult> {
+    return this.tick(this.parseScope(scope));
   }
 
   @Post('tick')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Run every scheduled job that is currently due' })
+  @ApiOperation({ summary: 'Run the scheduled jobs in a scope that are due' })
+  @ApiQuery({ name: 'scope', required: false, enum: ['fast', 'daily', 'all'] })
   @ApiResponse({ status: 200, description: 'Dispatch completed' })
-  async tickPost(): Promise<TickResult> {
-    return this.tick();
+  async tickPost(@Query('scope') scope?: string): Promise<TickResult> {
+    return this.tick(this.parseScope(scope));
   }
 
   // ── Individual job entrypoints ────────────────────────────────────────────
@@ -172,18 +208,24 @@ export class JobsController {
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
-  private async tick(): Promise<TickResult> {
+  private async tick(scope: TickScope): Promise<TickResult> {
     const startedAt = Date.now();
     const ran: JobResult[] = [];
     const skipped: string[] = [];
+    const deferred: string[] = [];
     const failed: { job: string; message: string }[] = [];
 
-    for (const job of JOB_NAMES) {
+    for (const job of TICK_SCOPES[scope]) {
       const last = this.lastRun.get(job);
       const cadenceMs = JOB_CADENCE_MINUTES[job] * 60_000;
 
       if (last !== undefined && Date.now() - last < cadenceMs) {
         skipped.push(job);
+        continue;
+      }
+
+      if (Date.now() - startedAt > TICK_BUDGET_MS) {
+        deferred.push(job);
         continue;
       }
 
@@ -198,7 +240,22 @@ export class JobsController {
       }
     }
 
-    return { ran, skipped, failed, durationMs: Date.now() - startedAt };
+    return {
+      scope,
+      ran,
+      skipped,
+      deferred,
+      failed,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  private parseScope(scope?: string): TickScope {
+    if (!scope) return 'fast';
+    if (scope in TICK_SCOPES) return scope as TickScope;
+    throw new NotFoundException(
+      `Unknown scope "${scope}". Valid scopes: ${Object.keys(TICK_SCOPES).join(', ')}`,
+    );
   }
 
   private async runNamed(job: string): Promise<JobResult> {

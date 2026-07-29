@@ -1,8 +1,12 @@
 #!/bin/bash
 # The test that matters: two real tenants over HTTP, each with a valid token.
 # Tenant A must not be able to see or touch tenant B's data by any route.
-B=http://localhost:8000/api/v1
+#
+# Usage:  ./scripts/smoke/cross-tenant.sh                    # local
+#         BASE_URL=https://meru-core.vercel.app  ...         # deployed
+B="${BASE_URL:-http://localhost:8000}/api/v1"
 pass=0; fail=0
+echo "Target: $B"
 ok(){ printf "  PASS  %s\n" "$1"; pass=$((pass+1)); }
 no(){ printf "  FAIL  %s — %s\n" "$1" "$2"; fail=$((fail+1)); }
 jqid(){ node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log(eval('j'+process.argv[1])||'')}catch(e){console.log('')}})" "$1"; }

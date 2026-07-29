@@ -14,7 +14,7 @@
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
   "crons": [
-    { "path": "/api/v1/jobs/tick", "schedule": "0 2 * * *" },
-    { "path": "/api/v1/jobs/queue-drain", "schedule": "0 3 * * *" }
+    { "path": "/api/v1/jobs/tick?scope=daily", "schedule": "0 2 * * *" },
+    { "path": "/api/v1/jobs/tick?scope=fast", "schedule": "0 3 * * *" }
   ]
 }
