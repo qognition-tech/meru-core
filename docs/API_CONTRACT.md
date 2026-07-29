@@ -187,15 +187,40 @@ All paths below are relative to `/api/v1`.
 |---|---|---|
 | `/workflow` | Backend serves **`/workflows`** (plural), but that is workflow *definition* CRUD — it is not what obligations/breaches want | Use `/crm/entities` (below), not `/workflows` |
 | `/iam/users` | **Now exists** ✅ — `GET /iam/users`, `GET /iam/users/:id`, `POST /iam/users/invite`, `PATCH` (and `PUT`) `/iam/users/:id`. Requires `platform_admin` or `firm_admin` | Wire the Users/Staff pages |
-| `/orchestration/agents` | Not implemented | Keep on mock |
-| `/orchestration/events` | Not implemented | Keep on mock |
+| `/orchestration/agents` | **Now exists** ✅ — `GET agents`, `GET agents/:id/logs`, `POST agents/:id/run`. Reactive agents are `runnable:false` and 404 on run | Wire the Agents page |
+| `/orchestration/events` | **Now exists** ✅ — activity feed projected from the audit log, paginated | Wire the activity feed |
 | `/integrations/screen` | Use `/integrations/ae/screening` or `/sa/screening` | Repoint |
-| `/integrations/trade` | Not implemented | Keep on mock |
-| `/integrations/vessel` | Not implemented | Keep on mock |
+| `/integrations/trade` | **Now exists** ✅ — `GET`, `GET :id`, `POST`, `PATCH`/`PUT :id`. Counterparties screened on write | Wire Trade Finance |
+| `/integrations/vessel` | **Now exists** ✅ — `GET`, `GET alerts`, `POST watchlist`, `DELETE watchlist/:id`. Check `live`/`unavailableReason` before trusting a risk score | Wire Vessel Tracking |
 | `/auth/refresh` | **Now exists** ✅ | Enable refresh in all three apps |
 | `/auth/mfa/verify` | **Now exists** ✅ — plus `mfa/setup`, `mfa/setup/verify`, `mfa/disable`. Post `{ temporaryToken, token }`, not a bare user id | Complete the MFA branch |
 | `GET /tenants` | **Now exists** ✅ — platform-wide list, `platform_admin` only, audited as god-mode | Wire Tenants + God View |
 | `GET /analytics/reports/generated` | **Now exists** ✅ — was shadowed by `reports/:id` and 500'd | Repoint off the mock |
+
+### Sessions — three portals, one account
+
+Concurrent sessions are allowed **by design**: ImmiStack, the Meru Dashboard
+and GovernanceX are separate products one person holds open at once. Signing
+into one does **not** sign you out of the others.
+
+Send `X-Client-Id: immistack | meru-dashboard | governancex` on login so the
+session is labelled (Origin is used as a fallback). Then:
+
+| Need | Call |
+|---|---|
+| List my devices/apps | `GET /auth/sessions` — `current: true` marks this one |
+| Sign out one device | `DELETE /auth/sessions/:id` |
+| Sign out everywhere | `POST /auth/logout-all` |
+
+Refresh tokens are single-use: a rotated or logged-out token is rejected on
+reuse. Access tokens now carry a `sid` claim identifying their session.
+
+### Vessel tracking — read `live` before trusting a risk score
+
+`GET /integrations/vessel` returns `live: false` with `unavailableReason` of
+`ais_not_configured` (no feed wired up) or `lookup_failed` (feed did not
+answer). In both cases `riskScore`/`riskLevel` are `null` meaning **unknown**,
+never "no risk". Do not render an all-clear from a null.
 
 ### Obligations, breaches and cases — all `/crm/entities`
 
