@@ -7,23 +7,24 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Tenant, TenantStatus, TenantPlan } from './entities/tenant.entity';
+import {
+  Tenant,
+  TenantStatus,
+  TenantPlan,
+  VerticalType,
+} from './entities/tenant.entity';
 import { User } from './entities/user.entity';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { randomUUID } from 'node:crypto';
 import * as AWS from 'aws-sdk';
 import { TenantContext } from '../core/tenancy/tenant-context';
+import { CreateTenantDto } from './dto/create-tenant.dto';
+import { PlatformRole } from './enums/platform-role.enum';
 
-export interface CreateTenantDto {
-  name: string;
-  slug: string;
-  vertical: string;
-  plan?: TenantPlan;
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-}
+// Re-exported so existing importers keep working. The definition now lives in
+// ./dto/create-tenant.dto.ts as a decorated *class* — see the note there on why
+// an interface here meant signup ran with no validation at all.
+export { CreateTenantDto };
 
 export interface TenantWorkspaceResponse {
   tenant: Tenant;
@@ -49,11 +50,14 @@ export class TenantProvisioningService {
     private dataSource: DataSource,
     private configService: ConfigService,
   ) {
-    const sesEnabled = configService.get<string>('SES_ENABLED') !== 'false'
-      && !!configService.get<string>('AWS_REGION');
+    const sesEnabled =
+      configService.get<string>('SES_ENABLED') !== 'false' &&
+      !!configService.get<string>('AWS_REGION');
 
-    this.sesFrom = configService.get<string>('SES_FROM_ADDRESS') ?? 'hello@meru.com';
-    this.appUrl = configService.get<string>('APP_URL') ?? 'https://app.meru.com';
+    this.sesFrom =
+      configService.get<string>('SES_FROM_ADDRESS') ?? 'hello@meru.com';
+    this.appUrl =
+      configService.get<string>('APP_URL') ?? 'https://app.meru.com';
 
     if (sesEnabled) {
       this.ses = new AWS.SES({
@@ -62,7 +66,9 @@ export class TenantProvisioningService {
       this.logger.log(`SES email enabled — from: ${this.sesFrom}`);
     } else {
       this.ses = null;
-      this.logger.warn('SES email disabled — set SES_ENABLED=true and AWS_REGION to enable');
+      this.logger.warn(
+        'SES email disabled — set SES_ENABLED=true and AWS_REGION to enable',
+      );
     }
   }
 
@@ -104,7 +110,7 @@ export class TenantProvisioningService {
         id: randomUUID(),
         name: dto.name,
         slug: dto.slug,
-        vertical: dto.vertical as any,
+        vertical: dto.vertical,
         status: TenantStatus.TRIAL,
         plan: dto.plan || TenantPlan.FREE,
         settings: this.getDefaultSettings(dto.plan || TenantPlan.FREE),
@@ -120,16 +126,26 @@ export class TenantProvisioningService {
       // 3. Create admin user
       const hashedPassword = await this.hashPassword(dto.password);
 
+      // `firm_admin`, not `['admin','user']`. Neither of those is a real role:
+      // PolicyGuard matches role strings literally and the portals switch on
+      // the `role` JWT claim, whose only recognised values are the four in
+      // PlatformRole. A workspace owner created with 'admin' resolved to a role
+      // no portal could route on and satisfied no @Roles guard — they were
+      // locked out of their own workspace's admin surfaces.
+      //
+      // firstName/lastName go in their real columns too. They were written only
+      // into `attributes`, so the owner showed up nameless in their own user
+      // directory (see IamService.toDirectoryUser, which reads the columns).
       const user = queryRunner.manager.create(User, {
         id: randomUUID(),
         email: dto.email,
         password: hashedPassword,
         tenantId: tenant.id,
         tenant,
-        roles: ['admin', 'user'],
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        roles: [PlatformRole.FIRM_ADMIN],
         attributes: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
           isWorkspaceOwner: true,
         },
         createdAt: new Date(),
@@ -270,6 +286,56 @@ export class TenantProvisioningService {
 
       await this.tenantRepo.save(tenant);
     }
+  }
+
+  /**
+   * Every tenant on the platform — the God View list (CLAUDE.md §5).
+   *
+   * Inherently cross-tenant, so the caller must already be inside a `runAsGod`
+   * context; the RLS policy on `tenants` restricts a bound connection to the
+   * single row matching `app.current_tenant_id`, and this would otherwise
+   * return exactly one tenant (or none) rather than failing loudly.
+   */
+  async listAllTenants(): Promise<
+    Array<{
+      id: string;
+      slug: string;
+      name: string;
+      vertical: VerticalType;
+      status: TenantStatus;
+      plan: TenantPlan;
+      userCount: number;
+      createdAt: Date;
+      trialEndsAt: Date | null;
+    }>
+  > {
+    const tenants = await this.tenantRepo.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    if (tenants.length === 0) return [];
+
+    // One grouped count rather than a query per tenant.
+    const counts = await this.userRepo
+      .createQueryBuilder('u')
+      .select('u."tenantId"', 'tenantId')
+      .addSelect('COUNT(*)::int', 'count')
+      .groupBy('u."tenantId"')
+      .getRawMany<{ tenantId: string; count: number }>();
+
+    const countByTenant = new Map(counts.map((c) => [c.tenantId, c.count]));
+
+    return tenants.map((t) => ({
+      id: t.id,
+      slug: t.slug,
+      name: t.name,
+      vertical: t.vertical,
+      status: t.status,
+      plan: t.plan,
+      userCount: countByTenant.get(t.id) ?? 0,
+      createdAt: t.createdAt,
+      trialEndsAt: t.trialEndsAt ?? null,
+    }));
   }
 
   async getTenantStats(tenantId: string): Promise<any> {
@@ -471,26 +537,32 @@ export class TenantProvisioningService {
     `;
 
     try {
-      await this.ses.sendEmail({
-        Source: this.sesFrom,
-        Destination: { ToAddresses: [user.email] },
-        Message: {
-          Subject: { Data: subject, Charset: 'UTF-8' },
-          Body: {
-            Text: { Data: body, Charset: 'UTF-8' },
-            Html: { Data: htmlBody, Charset: 'UTF-8' },
+      await this.ses
+        .sendEmail({
+          Source: this.sesFrom,
+          Destination: { ToAddresses: [user.email] },
+          Message: {
+            Subject: { Data: subject, Charset: 'UTF-8' },
+            Body: {
+              Text: { Data: body, Charset: 'UTF-8' },
+              Html: { Data: htmlBody, Charset: 'UTF-8' },
+            },
           },
-        },
-        Tags: [
-          { Name: 'tenant', Value: tenant.slug },
-          { Name: 'type', Value: 'welcome' },
-        ],
-      }).promise();
+          Tags: [
+            { Name: 'tenant', Value: tenant.slug },
+            { Name: 'type', Value: 'welcome' },
+          ],
+        })
+        .promise();
 
-      this.logger.log(`Welcome email sent to ${user.email} (tenant=${tenant.slug})`);
+      this.logger.log(
+        `Welcome email sent to ${user.email} (tenant=${tenant.slug})`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to send welcome email to ${user.email}: ${msg}`);
+      this.logger.error(
+        `Failed to send welcome email to ${user.email}: ${msg}`,
+      );
     }
   }
 

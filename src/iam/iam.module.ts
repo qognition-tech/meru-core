@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { IamController } from './iam.controller';
+import { UsersController } from './users.controller';
 import { IamService } from './iam.service';
 import { User } from './entities/user.entity';
 import { Tenant } from './entities/tenant.entity';
@@ -47,9 +48,24 @@ import { SamlService } from './services/saml.service';
     CoreModule,
     AuditModule,
   ],
-  controllers: [IamController, TenantProvisioningController],
-  providers: [IamService, JwtStrategy, LocalStrategy, PolicyGuard, JwtAuthGuard, TenantProvisioningService, SamlService],
-  exports: [IamService, PolicyGuard, JwtAuthGuard, JwtStrategy, SamlService, JwtModule],
+  controllers: [IamController, UsersController, TenantProvisioningController],
+  providers: [
+    IamService,
+    JwtStrategy,
+    LocalStrategy,
+    PolicyGuard,
+    JwtAuthGuard,
+    TenantProvisioningService,
+    SamlService,
+  ],
+  exports: [
+    IamService,
+    PolicyGuard,
+    JwtAuthGuard,
+    JwtStrategy,
+    SamlService,
+    JwtModule,
+  ],
 })
 export class IamModule {
   configure(consumer: any) {

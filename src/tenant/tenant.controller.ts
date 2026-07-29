@@ -21,6 +21,7 @@ import { TenantSettingsService } from './tenant-settings.service';
 import type { VerticalConfig } from './entities/tenant-setting.entity';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 @Controller('tenant/settings')
 @ApiTags('tenant')
@@ -37,9 +38,12 @@ export class TenantController {
     return this.tenantSettingsService.getSettings(req.user.tenantId);
   }
 
+  // Was `@Roles('admin')` — a role no user holds — so saving settings 403'd for
+  // every caller including the tenant owner. Writing settings is a tenant-admin
+  // action; reading them (above) stays open to any authenticated member.
   @Post()
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  @Roles('admin')
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create/update tenant settings' })
   @ApiBody({

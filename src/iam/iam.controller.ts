@@ -23,11 +23,11 @@ import type { Response } from 'express';
 import { IamService } from './iam.service';
 import { SamlService } from './services/saml.service';
 import { PolicyGuard } from './guards/policy.guard';
-import { Roles } from './decorators/roles.decorator';
 import { Public } from './decorators/public.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
 
 @Controller('auth')
 @ApiTags('auth')
@@ -55,14 +55,17 @@ export class IamController {
     return this.iamService.login(req.user);
   }
 
+  // This is the "me" endpoint — every authenticated user must be able to read
+  // their own profile. It was `@Roles('admin')`, a role no user has ever held,
+  // so it returned 403 to everyone including admins; the portals worked around
+  // it by hydrating the user off the login response. Authentication is the only
+  // requirement here, so there is no @Roles at all.
   @Get('profile')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  @Roles('admin')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Get user profile' })
+  @ApiOperation({ summary: 'Get the authenticated user’s own profile' })
   @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
   getProfile(@Request() req) {
     return req.user;
   }
@@ -144,6 +147,69 @@ export class IamController {
     return this.iamService.logoutSession(logoutDto.refresh_token);
   }
 
+  // ── Multi-factor authentication ───────────────────────────────────────────
+  //
+  // None of these were routed. `login()` has always been able to answer
+  // `requiresMfa: true`, but with no endpoint to complete the challenge that
+  // response was a dead end — enabling MFA locked the user out permanently.
+
+  @Post('mfa/verify')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Complete an MFA login',
+    description:
+      'Second leg of the login flow. Exchanges the short-lived ' +
+      '`temporaryToken` from POST /auth/login plus a TOTP code for a full ' +
+      'token pair. Returns the same payload shape as POST /auth/login.',
+  })
+  @ApiResponse({ status: 200, description: 'MFA accepted — tokens issued' })
+  @ApiResponse({ status: 400, description: 'MFA not configured for this user' })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid code, or expired challenge',
+  })
+  async verifyMfaLogin(@Body() dto: VerifyMfaLoginDto) {
+    return this.iamService.verifyMfaLogin(dto.temporaryToken, dto.token);
+  }
+
+  @Post('mfa/setup')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Begin TOTP enrolment for the authenticated user',
+    description:
+      'Generates a secret and returns it with a QR code. MFA is not active ' +
+      'until POST /auth/mfa/setup/verify confirms a code from the authenticator.',
+  })
+  @ApiResponse({ status: 200, description: 'Secret and QR code returned' })
+  @ApiResponse({ status: 400, description: 'MFA is already enabled' })
+  async setupMfa(@Request() req) {
+    return this.iamService.setupMfa(req.user.id);
+  }
+
+  @Post('mfa/setup/verify')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Confirm TOTP enrolment and switch MFA on' })
+  @ApiResponse({ status: 200, description: 'MFA enabled' })
+  @ApiResponse({ status: 400, description: 'Invalid verification code' })
+  async verifyMfaSetup(@Request() req, @Body() dto: VerifyMfaSetupDto) {
+    return this.iamService.verifyMfaSetup(req.user.id, dto.token);
+  }
+
+  @Post('mfa/disable')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Turn MFA off for the authenticated user' })
+  @ApiResponse({ status: 200, description: 'MFA disabled' })
+  async disableMfa(@Request() req) {
+    return this.iamService.disableMfa(req.user.id);
+  }
+
   // ── SAML SSO endpoints ────────────────────────────────────────────────────
 
   @Get('saml/initiate')
@@ -177,13 +243,19 @@ export class IamController {
     schema: {
       type: 'object',
       properties: {
-        SAMLResponse: { type: 'string', description: 'Base64-encoded SAMLResponse from IdP' },
+        SAMLResponse: {
+          type: 'string',
+          description: 'Base64-encoded SAMLResponse from IdP',
+        },
         RelayState: { type: 'string' },
       },
       required: ['SAMLResponse'],
     },
   })
-  @ApiResponse({ status: 200, description: 'SAML login successful — JWT returned' })
+  @ApiResponse({
+    status: 200,
+    description: 'SAML login successful — JWT returned',
+  })
   @ApiResponse({ status: 401, description: 'Invalid SAML assertion' })
   async samlCallback(
     @Body('SAMLResponse') samlResponse: string,

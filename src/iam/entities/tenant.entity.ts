@@ -9,10 +9,25 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
+/**
+ * The verticals a tenant can actually be stored as.
+ *
+ * These must match the Postgres `vertical_type_enum` exactly — it is
+ * `('immigration','grc','labour')` as of migration `FixVerticalsAndColumns`.
+ * This enum previously listed a `meru` member that the database has never
+ * accepted (inserting it fails the column's enum constraint) and omitted the
+ * real `labour`, so signing up a labour tenant was impossible and signing up a
+ * `meru` one 500'd at the insert.
+ *
+ * Not to be confused with `../enums/vertical.enum.ts`, which is a *superset*
+ * used for policy lookup only (it adds `fintech` and `legal`, which have
+ * VerticalPolicy entries but no database representation). Anything that writes
+ * `tenants.vertical` must use this enum; see `dto/create-tenant.dto.ts`.
+ */
 export enum VerticalType {
   IMMIGRATION = 'immigration',
   GRC = 'grc',
-  MERU = 'meru',
+  LABOUR = 'labour',
 }
 
 export enum TenantStatus {
