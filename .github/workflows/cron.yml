@@ -1,0 +1,95 @@
+# Drives the scheduled jobs that the serverless runtime cannot run itself.
+#
+# `@nestjs/schedule`'s @Cron decorators never fire on Vercel and the queue
+# processor's polling loop is disabled under VERCEL, so the jobs are exposed as
+# HTTP endpoints instead (src/jobs/jobs.controller.ts). Vercel's Hobby plan
+# allows two cron jobs firing once a day, which cannot serve a queue that wants
+# draining every minute — those two slots are spent on the daily scope, and this
+# workflow covers the frequent work.
+#
+# GitHub Actions is free with unlimited minutes on public repositories, which is
+# the only reason this is a sensible place to put it. If meru-core ever goes
+# private, this starts consuming the 2,000 min/month allowance at ~1 minute per
+# run (8,640 runs/month) and must move to an external scheduler or Vercel Pro.
+#
+# `/jobs/tick` is cadence-aware and idempotent, so a missed or duplicated run is
+# harmless — each job only executes once its own interval has elapsed.
+name: Scheduled jobs
+
+on:
+  schedule:
+    # Every 5 minutes — GitHub's finest supported granularity. Runs are
+    # best-effort and can be delayed under platform load, which the cadence
+    # table absorbs.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Which jobs to dispatch'
+        required: false
+        default: fast
+        type: choice
+        options: [fast, daily, all]
+
+# Never let a slow run overlap the next tick.
+concurrency:
+  group: scheduled-jobs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    name: Dispatch due jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run due jobs
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SCOPE: ${{ inputs.scope || 'fast' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+          url="https://meru-core.vercel.app/api/v1/jobs/tick?scope=${SCOPE}"
+          echo "POST-equivalent GET $url"
+
+          # --max-time guards against a hung lambda holding the runner.
+          # Body and status are captured separately so a failure prints the
+          # API's error envelope rather than an opaque exit code.
+          status=$(curl -sS -o response.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo "000")
+
+          echo "HTTP $status"
+          cat response.json || true
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Job dispatch failed with HTTP $status"
+            exit 1
+          fi
+
+          # A 200 whose payload reports per-job failures is still a failure —
+          # /tick deliberately keeps going after one job throws so the rest run.
+          failed=$(node -e "
+            const r = require('./response.json');
+            const d = r.data ?? r;
+            process.stdout.write(String((d.failed ?? []).length));
+          ")
+
+          if [ "$failed" != "0" ]; then
+            echo "::error::$failed job(s) failed — see the response above"
+            exit 1
+          fi
+
+          node -e "
+            const d = require('./response.json').data ?? {};
+            const n = a => (a ?? []).length;
+            console.log(\`ran=\${n(d.ran)} skipped=\${n(d.skipped)} deferred=\${n(d.deferred)} in \${d.durationMs}ms\`);
+          "
