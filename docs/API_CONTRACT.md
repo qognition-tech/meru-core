@@ -33,11 +33,34 @@ Frontend env var: `NEXT_PUBLIC_MERU_API_URL`.
     "requestId": "uuid",
     "timestamp": "2026-07-26T00:00:00.000Z",
     "version": "v1",
-    "pagination": { /* only when the handler returned a `pagination` key */ }
+    "pagination": { /* only for list endpoints — see below */ }
   },
   "error": null
 }
 ```
+
+**There is exactly one envelope.** Ten controllers used to *also* hand-roll
+`{ success: true, data: X }` inside the handler; that shape has none of
+`data`/`meta`/`error` together, so the interceptor wrapped it a second time and
+clients received the payload double-boxed. Every one of those has been fixed —
+handlers now return their payload raw. Any client-side "unwrap `.data.data`"
+normalizer can be deleted.
+
+**Pagination.** List endpoints return `paginated(items, total, page, limit)`
+(`src/common/paginated.ts`). The interceptor unpacks it so `data` is the array
+itself and the counts land in `meta.pagination`:
+
+```jsonc
+{
+  "data": [ /* the rows */ ],
+  "meta": { "pagination": { "page": 1, "pageSize": 20, "totalItems": 45,
+                            "totalPages": 3, "hasNext": true, "hasPrevious": false } },
+  "error": null
+}
+```
+
+Live today on `GET /notifications`, `GET /documents`, `GET /documents/entity/:t/:id`
+and `GET /audit/logs`.
 
 Errors use the identical envelope with `data: null`, from `AllExceptionsFilter`
 (`src/core/filters/http-exception.filter.ts`):
@@ -79,7 +102,7 @@ There is **no** Supabase Auth, no OIDC, no JWKS.
 |---|---|---|---|
 | `POST /auth/login` | public | `{ email, password }` | see below |
 | `POST /auth/refresh` | public | `{ refresh_token }` | same shape as login |
-| `POST /auth/logout` | public | `{ refresh_token }` | `{ success: true }` — idempotent |
+| `POST /auth/logout` | public | `{ refresh_token }` | `{ success: true }` — idempotent. Revocation is now genuinely enforced: a rotated or logged-out refresh token is rejected on reuse (it previously kept working). |
 | `POST /auth/register` | public | `CreateUserInput` | created user |
 | `GET  /auth/profile` | Bearer | — | current user |
 
@@ -163,13 +186,16 @@ All paths below are relative to `/api/v1`.
 | Frontend calls | Reality | Action |
 |---|---|---|
 | `/workflow` | Backend serves **`/workflows`** (plural) | Rename in `obligations`, `breaches`, `regulatory` services |
-| `/iam/users` | No `iam` controller. `IamService.listUsers()` exists but is **not routed** | Keep on mock; needs a backend PR to expose |
+| `/iam/users` | **Now exists** ✅ — `GET /iam/users`, `GET /iam/users/:id`, `POST /iam/users/invite`, `PATCH` (and `PUT`) `/iam/users/:id`. Requires `platform_admin` or `firm_admin` | Wire the Users/Staff pages |
 | `/orchestration/agents` | Not implemented | Keep on mock |
 | `/orchestration/events` | Not implemented | Keep on mock |
 | `/integrations/screen` | Use `/integrations/ae/screening` or `/sa/screening` | Repoint |
 | `/integrations/trade` | Not implemented | Keep on mock |
 | `/integrations/vessel` | Not implemented | Keep on mock |
 | `/auth/refresh` | **Now exists** ✅ | Enable refresh in all three apps |
+| `/auth/mfa/verify` | **Now exists** ✅ — plus `mfa/setup`, `mfa/setup/verify`, `mfa/disable`. Post `{ temporaryToken, token }`, not a bare user id | Complete the MFA branch |
+| `GET /tenants` | **Now exists** ✅ — platform-wide list, `platform_admin` only, audited as god-mode | Wire Tenants + God View |
+| `GET /analytics/reports/generated` | **Now exists** ✅ — was shadowed by `reports/:id` and 500'd | Repoint off the mock |
 
 ---
 

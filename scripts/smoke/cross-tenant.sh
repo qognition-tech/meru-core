@@ -15,7 +15,10 @@ mktenant() { # slug-prefix -> "tenantId token"
   local slug="$1-$RANDOM" email="$1-$RANDOM@probe.test" pw="ProbePassw0rd!23"
   local s=$(curl -s -m 45 -X POST "$B/tenants/signup" -H 'Content-Type: application/json' \
     -d "{\"name\":\"$1\",\"slug\":\"$slug\",\"vertical\":\"immigration\",\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"$email\",\"password\":\"$pw\"}")
-  local tid=$(echo "$s" | jqid "?.data?.data?.tenant?.id")
+  # Single envelope: `{ data: { tenant, user, ... } }`. This used to read
+  # `data.data.tenant.id` because the handler self-wrapped in `{success,data}`
+  # and the interceptor then wrapped that again. That double envelope is gone.
+  local tid=$(echo "$s" | jqid "?.data?.tenant?.id")
   local l=$(curl -s -m 45 -X POST "$B/auth/login" -H 'Content-Type: application/json' \
     -d "{\"email\":\"$email\",\"password\":\"$pw\"}")
   local tok=$(echo "$l" | jqid "?.data?.access_token")
@@ -32,9 +35,9 @@ read TB TOKB <<< "$(mktenant xt-bravo)"
 echo
 echo "── Each tenant writes one entity ──────────────────────────"
 EA=$(curl -s -m 30 -X POST "$B/crm/entities" -H "Authorization: Bearer $TOKA" -H 'Content-Type: application/json' \
-  -d '{"type":"person","firstName":"AlphaSecret","lastName":"X"}' | jqid "?.data?.data?.id || j?.data?.id")
+  -d '{"type":"person","firstName":"AlphaSecret","lastName":"X"}' | jqid "?.data?.id")
 EB=$(curl -s -m 30 -X POST "$B/crm/entities" -H "Authorization: Bearer $TOKB" -H 'Content-Type: application/json' \
-  -d '{"type":"person","firstName":"BravoSecret","lastName":"Y"}' | jqid "?.data?.data?.id || j?.data?.id")
+  -d '{"type":"person","firstName":"BravoSecret","lastName":"Y"}' | jqid "?.data?.id")
 [ -n "$EA" ] && ok "A wrote entity" || no "A write" "no id"
 [ -n "$EB" ] && ok "B wrote entity" || no "B write" "no id"
 
