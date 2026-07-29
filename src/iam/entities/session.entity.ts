@@ -44,6 +44,15 @@ export class Session {
   @Column({ type: 'text', nullable: true })
   userAgent: string;
 
+  /**
+   * Which product opened this session — `immistack`, `meru-dashboard`,
+   * `governancex`. Three separate apps share this API and one person holds
+   * sessions in several at once, so the session list is meaningless without a
+   * label saying which is which.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  client: string | null;
+
   @Column({ type: 'timestamptz' })
   expiresAt: Date;
 

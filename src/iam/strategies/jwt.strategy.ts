@@ -21,6 +21,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: payload.email,
       tenantId: payload.tenantId,
       roles: payload.roles,
+      // The session this token was issued against. Lets `GET /auth/sessions`
+      // mark which row is the caller's current device, and is why the session
+      // is created before the token is signed. Absent on tokens issued before
+      // that change — treated as "unknown", never as a match.
+      sessionId: payload.sid,
     };
   }
 }

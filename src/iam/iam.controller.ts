@@ -9,6 +9,9 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  Delete,
+  Param,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,6 +20,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
@@ -28,6 +32,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
+import { sessionContextFrom } from './session-context.util';
 
 @Controller('auth')
 @ApiTags('auth')
@@ -52,7 +57,7 @@ export class IamController {
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async login(@Request() req) {
-    return this.iamService.login(req.user);
+    return this.iamService.login(req.user, sessionContextFrom(req));
   }
 
   // This is the "me" endpoint — every authenticated user must be able to read
@@ -118,8 +123,11 @@ export class IamController {
   @ApiResponse({ status: 200, description: 'Tokens refreshed successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
-  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.iamService.refreshTokens(refreshTokenDto.refresh_token);
+  async refresh(@Request() req, @Body() refreshTokenDto: RefreshTokenDto) {
+    return this.iamService.refreshTokens(
+      refreshTokenDto.refresh_token,
+      sessionContextFrom(req),
+    );
   }
 
   @Post('logout')
@@ -147,6 +155,64 @@ export class IamController {
     return this.iamService.logoutSession(logoutDto.refresh_token);
   }
 
+  // ── Session management ────────────────────────────────────────────────────
+  //
+  // Concurrent sessions are allowed by design: ImmiStack, the Meru Dashboard
+  // and GovernanceX are three separate products one person holds open at once,
+  // often on more than one device. Revoking every other session on login would
+  // mean signing into one silently signs you out of the other two. The trade is
+  // that they must be individually visible and revocable — that is what these
+  // three routes are for.
+
+  @Get('sessions')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'List your own active sessions',
+    description:
+      'One row per live sign-in, labelled with the product that opened it, ' +
+      'the IP and the user agent, newest first. The session backing the ' +
+      'current request is flagged `current: true`. No token material is ' +
+      'returned — a session is identified only by its id.',
+  })
+  @ApiResponse({ status: 200, description: 'Sessions retrieved' })
+  async listSessions(@Request() req) {
+    return this.iamService.listSessions(req.user.id, req.user.sessionId);
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Revoke one of your own sessions',
+    description:
+      'Signs a single device or product out. Scoped to the caller — a session ' +
+      'id alone is never enough to revoke somebody else’s session.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  @ApiResponse({ status: 404, description: 'Not yours, or already revoked' })
+  async revokeSession(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.iamService.revokeSessionById(req.user.id, id);
+  }
+
+  @Post('logout-all')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Sign out everywhere',
+    description:
+      'Revokes every session the caller holds, across all three portals and ' +
+      'every device — including this one. The right response to a suspected ' +
+      'credential compromise.',
+  })
+  @ApiResponse({ status: 200, description: 'All sessions revoked' })
+  async logoutAll(@Request() req) {
+    return this.iamService.revokeAllSessions(req.user.id);
+  }
+
   // ── Multi-factor authentication ───────────────────────────────────────────
   //
   // None of these were routed. `login()` has always been able to answer
@@ -169,8 +235,12 @@ export class IamController {
     status: 401,
     description: 'Invalid code, or expired challenge',
   })
-  async verifyMfaLogin(@Body() dto: VerifyMfaLoginDto) {
-    return this.iamService.verifyMfaLogin(dto.temporaryToken, dto.token);
+  async verifyMfaLogin(@Request() req, @Body() dto: VerifyMfaLoginDto) {
+    return this.iamService.verifyMfaLogin(
+      dto.temporaryToken,
+      dto.token,
+      sessionContextFrom(req),
+    );
   }
 
   @Post('mfa/setup')

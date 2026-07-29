@@ -130,6 +130,10 @@ export interface JwtPayload {
   email: string;
   tenantId: string;
   roles: string[];
+  /** Primary role, for portal routing. See IamService.resolvePrimaryRole. */
+  role?: string;
+  /** Session id this token was issued against. See IamService.issueSession. */
+  sid?: string;
 }
 
 export interface UserPayload {

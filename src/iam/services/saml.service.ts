@@ -40,10 +40,7 @@ export interface SamlLoginResult {
 
 // In-memory SAML request store (production: use Redis with TTL)
 // requestId → { tenantId, nonce, issuedAt }
-const pendingRequests = new Map<
-  string,
-  { tenantId: string; issuedAt: Date }
->();
+const pendingRequests = new Map<string, { tenantId: string; issuedAt: Date }>();
 
 // ── SamlService ────────────────────────────────────────────────────────────
 
@@ -69,8 +66,11 @@ export class SamlService {
   // ── SP-initiated SSO: generate AuthnRequest redirect URL ─────────────────
 
   async initiateLogin(tenantSlug: string): Promise<SamlAuthnRequestResult> {
-    const tenant = await this.tenantRepo.findOne({ where: { slug: tenantSlug } });
-    if (!tenant) throw new BadRequestException(`Tenant not found: ${tenantSlug}`);
+    const tenant = await this.tenantRepo.findOne({
+      where: { slug: tenantSlug },
+    });
+    if (!tenant)
+      throw new BadRequestException(`Tenant not found: ${tenantSlug}`);
 
     const cfg = tenant.ssoConfig;
     if (cfg?.provider !== 'saml' || !cfg.entryPoint) {
@@ -83,7 +83,10 @@ export class SamlService {
     const relayState = randomUUID();
     const issueInstant = new Date().toISOString();
 
-    pendingRequests.set(requestId, { tenantId: tenant.id, issuedAt: new Date() });
+    pendingRequests.set(requestId, {
+      tenantId: tenant.id,
+      issuedAt: new Date(),
+    });
 
     // Clean up requests older than 10 minutes
     this.purgeStalePendingRequests();
@@ -134,12 +137,13 @@ export class SamlService {
     if (!tenant) throw new UnauthorizedException('Tenant not found');
 
     // Verify status code
-    const statusCode =
-      this.extractXmlValue(xml, 'StatusCode') ?? '';
+    const statusCode = this.extractXmlValue(xml, 'StatusCode') ?? '';
     if (!statusCode.includes('Success')) {
       const statusMessage =
         this.extractXmlValue(xml, 'StatusMessage') ?? 'Authentication failed';
-      throw new UnauthorizedException(`SAML authentication failed: ${statusMessage}`);
+      throw new UnauthorizedException(
+        `SAML authentication failed: ${statusMessage}`,
+      );
     }
 
     // Verify signature if tenant has a certificate configured
@@ -153,7 +157,11 @@ export class SamlService {
 
     // Verify audience / issuer
     const audience = this.extractXmlValue(xml, 'Audience');
-    if (audience && audience !== this.spIssuer && audience !== this.callbackUrl) {
+    if (
+      audience &&
+      audience !== this.spIssuer &&
+      audience !== this.callbackUrl
+    ) {
       throw new UnauthorizedException(
         `SAML audience mismatch: expected ${this.spIssuer}, got ${audience}`,
       );
@@ -165,10 +173,14 @@ export class SamlService {
     const now = new Date();
 
     if (notBefore && new Date(notBefore) > now) {
-      throw new UnauthorizedException('SAML assertion not yet valid (NotBefore)');
+      throw new UnauthorizedException(
+        'SAML assertion not yet valid (NotBefore)',
+      );
     }
     if (notOnOrAfter && new Date(notOnOrAfter) <= now) {
-      throw new UnauthorizedException('SAML assertion has expired (NotOnOrAfter)');
+      throw new UnauthorizedException(
+        'SAML assertion has expired (NotOnOrAfter)',
+      );
     }
 
     // Extract user attributes

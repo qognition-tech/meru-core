@@ -34,6 +34,21 @@ import * as crypto from 'crypto';
 import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 
+/**
+ * Where a sign-in came from.
+ *
+ * Recorded on the session so a user can tell their three portals apart in the
+ * session list — ImmiStack on a laptop and GovernanceX on a phone are two
+ * legitimate concurrent sessions, and they have to be distinguishable before
+ * "revoke that one" means anything.
+ */
+export interface SessionContext {
+  ipAddress?: string;
+  userAgent?: string;
+  /** Which product opened it: `immistack`, `meru-dashboard`, `governancex`. */
+  client?: string;
+}
+
 @Injectable()
 export class IamService {
   private readonly logger = new Logger(IamService.name);
@@ -96,7 +111,7 @@ export class IamService {
     };
   }
 
-  async login(user: UserPayload) {
+  async login(user: UserPayload, context: SessionContext = {}) {
     // If MFA is enabled but not yet verified, return temporary token
     if (user.mfaEnabled) {
       return {
@@ -127,8 +142,7 @@ export class IamService {
     // `logoutSession(refreshToken)` drops one session, `logout(userId)` drops
     // all of them, and refresh tokens are single-use (see refreshTokens).
 
-    const tokens = await this.generateTokens(user);
-    await this.createSession(user, tokens.refresh_token);
+    const tokens = await this.issueSession(user, context);
 
     // Enrich the response with the user profile + tenant so front-end portals
     // (Meru Dashboard / ImmiStack / GovernanceX) can hydrate their auth store
@@ -181,7 +195,7 @@ export class IamService {
     return PlatformRole.STAFF;
   }
 
-  async refreshTokens(refreshToken: string) {
+  async refreshTokens(refreshToken: string, context: SessionContext = {}) {
     const refreshTokenHash = crypto
       .createHash('sha256')
       .update(refreshToken)
@@ -230,8 +244,14 @@ export class IamService {
       roles: user.roles ?? [],
     };
 
-    const tokens = await this.generateTokens(payload);
-    await this.createSession(payload, tokens.refresh_token);
+    // The rotated session inherits the original's client/device identity when
+    // the caller does not re-supply it, so a silent refresh does not turn one
+    // device into an anonymous new entry in the user's session list.
+    const tokens = await this.issueSession(payload, {
+      ipAddress: context.ipAddress ?? session.ipAddress,
+      userAgent: context.userAgent ?? session.userAgent,
+      client: context.client ?? session.client ?? undefined,
+    });
 
     // Mirror the login() payload so the front-end can re-hydrate its auth
     // store from a silent refresh without a second round-trip.
@@ -336,7 +356,11 @@ export class IamService {
    * entirely and brute-force a six-digit code against any account they could
    * name. The token is single-purpose (`mfaPending`) and expires in 5 minutes.
    */
-  async verifyMfaLogin(temporaryToken: string, token: string) {
+  async verifyMfaLogin(
+    temporaryToken: string,
+    token: string,
+    context: SessionContext = {},
+  ) {
     let challenge: { sub?: string; mfaPending?: boolean };
     try {
       challenge = this.jwtService.verify(temporaryToken);
@@ -385,8 +409,7 @@ export class IamService {
     // Bind before the session/stat writes below, as login() does.
     TenantContext.setTenantId(user.tenantId);
 
-    const tokens = await this.generateTokens(payload);
-    await this.createSession(payload, tokens.refresh_token);
+    const tokens = await this.issueSession(payload, context);
 
     await this.userRepo.increment({ id: user.id }, 'loginCount', 1);
     await this.userRepo.update(user.id, { lastLoginAt: new Date() });
@@ -783,7 +806,64 @@ export class IamService {
 
   // ─── Private Helpers ─────────────────────────────────────────────
 
-  private async generateTokens(user: UserPayload) {
+  // `generateTokens` was folded into `issueSession`. Signing the access token
+  // separately from creating the session meant the token could not carry the
+  // session's id, so nothing could map a live token back to the row that
+  // authorises it — which is what "revoke this one device" requires.
+
+  private async createSession(
+    user: UserPayload,
+    refreshToken: string,
+    context: SessionContext = {},
+  ) {
+    const refreshTokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
+
+    const session = this.sessionRepo.create({
+      userId: user.id,
+      tenantId: user.tenantId,
+      // Both columns hold the same digest. `tokenHash` carries the UNIQUE
+      // constraint, which is what makes a refresh token unrepeatable;
+      // `refreshTokenHash` is what lookups filter on.
+      tokenHash: refreshTokenHash,
+      refreshTokenHash,
+      // Recorded rather than blank. These were hardcoded to '', so the columns
+      // existed but never held anything — there was no way to tell a user which
+      // devices held a live session, let alone let them revoke one.
+      ipAddress: context.ipAddress ?? '',
+      userAgent: context.userAgent ?? '',
+      client: context.client ?? null,
+      expiresAt: new Date(
+        Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+      ),
+    });
+
+    return this.sessionRepo.save(session);
+  }
+
+  // ─── Session Management ──────────────────────────────────────────
+  //
+  // ImmiStack, the Meru Dashboard and GovernanceX are three separate products
+  // that one person legitimately holds open at once, on more than one device.
+  // So concurrent sessions are allowed by design — but "allowed" is only safe
+  // if they are also *visible* and individually revocable, which is what this
+  // section provides. A blanket revoke-on-login would have been simpler and
+  // wrong: it would silently sign you out of the other two products.
+
+  /**
+   * Issue a token pair and the session behind it.
+   *
+   * The session row is created *before* the access token is signed so the
+   * token can carry its `sid`. Without that link an access token cannot be
+   * traced to a session, and "which of these is the device I'm on right now?"
+   * is unanswerable.
+   */
+  private async issueSession(user: UserPayload, context: SessionContext = {}) {
+    const refreshToken = crypto.randomBytes(48).toString('hex');
+    const session = await this.createSession(user, refreshToken, context);
+
     const accessToken = this.jwtService.sign({
       sub: user.id,
       email: user.email,
@@ -796,9 +876,8 @@ export class IamService {
       // Authorisation on the server never uses this claim; PolicyGuard reads
       // `roles` off the validated user.
       role: this.resolvePrimaryRole(user.roles ?? []),
+      sid: session.id,
     });
-
-    const refreshToken = crypto.randomBytes(48).toString('hex');
 
     return {
       access_token: accessToken,
@@ -808,28 +887,66 @@ export class IamService {
     };
   }
 
-  private async createSession(user: UserPayload, refreshToken: string) {
-    const tokenHash = crypto
-      .createHash('sha256')
-      .update(refreshToken)
-      .digest('hex');
-    const refreshTokenHash = crypto
-      .createHash('sha256')
-      .update(refreshToken)
-      .digest('hex');
-
-    const session = this.sessionRepo.create({
-      userId: user.id,
-      tenantId: user.tenantId,
-      tokenHash,
-      refreshTokenHash,
-      ipAddress: '',
-      userAgent: '',
-      expiresAt: new Date(
-        Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
-      ),
+  /**
+   * The caller's own active sessions, newest first.
+   *
+   * Scoped to `userId` from the validated JWT — there is no parameter here a
+   * caller could point at somebody else. Returns no token material of any
+   * kind; a session is identified to the client only by its row id.
+   */
+  async listSessions(userId: string, currentSessionId?: string) {
+    const sessions = await this.sessionRepo.find({
+      where: { userId, revokedAt: IsNull() },
+      order: { createdAt: 'DESC' },
     });
 
-    return this.sessionRepo.save(session);
+    const now = Date.now();
+
+    return sessions
+      .filter((s) => s.expiresAt.getTime() > now)
+      .map((s) => ({
+        id: s.id,
+        client: s.client ?? 'unknown',
+        ipAddress: s.ipAddress || null,
+        userAgent: s.userAgent || null,
+        createdAt: s.createdAt,
+        expiresAt: s.expiresAt,
+        /** True for the session this request is authenticated by. */
+        current: !!currentSessionId && s.id === currentSessionId,
+      }));
+  }
+
+  /**
+   * Revoke one of the caller's own sessions.
+   *
+   * The `userId` predicate is the security boundary: without it a session id —
+   * which the list endpoint hands out freely — would be enough to sign any
+   * other user out.
+   */
+  async revokeSessionById(userId: string, sessionId: string) {
+    const result = await this.sessionRepo.update(
+      { id: sessionId, userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+
+    if (!result.affected) {
+      throw new NotFoundException('Session not found or already revoked');
+    }
+
+    return { revoked: true, sessionId };
+  }
+
+  /**
+   * Revoke every session the caller holds, across all three portals and every
+   * device. This is the "sign me out everywhere" button, and the right response
+   * to a suspected compromise.
+   */
+  async revokeAllSessions(userId: string) {
+    const result = await this.sessionRepo.update(
+      { userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+
+    return { revoked: true, sessionCount: result.affected ?? 0 };
   }
 }
