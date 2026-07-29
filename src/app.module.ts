@@ -85,6 +85,9 @@ import { Report } from './analytics/entities/report.entity';
 import { ReportExecution } from './analytics/entities/report-execution.entity';
 import { DashboardWidget } from './analytics/entities/dashboard-widget.entity';
 
+// Orchestration entities
+import { AgentRun } from './orchestration/entities/agent-run.entity';
+
 // Audit entities
 import { AuditLog } from './audit/entities/audit-log.entity';
 
@@ -198,6 +201,9 @@ import {
             ReportExecution,
             DashboardWidget,
             AuditLog,
+
+            // Orchestration
+            AgentRun,
             // Notifications entities
             Notification,
             NotificationPreference,
