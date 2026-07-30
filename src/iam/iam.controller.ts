@@ -34,6 +34,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { sessionContextFrom } from './session-context.util';
+import { SamlCallbackDto } from './dto/saml-callback.dto';
 
 @Controller('auth')
 @ApiTags('auth')
@@ -363,10 +364,10 @@ export class IamController {
     description: 'SAML login successful — JWT returned',
   })
   @ApiResponse({ status: 401, description: 'Invalid SAML assertion' })
-  async samlCallback(
-    @Body('SAMLResponse') samlResponse: string,
-    @Body('RelayState') relayState: string,
-  ) {
-    return this.samlService.handleCallback(samlResponse, relayState ?? '');
+  async samlCallback(@Body() dto: SamlCallbackDto) {
+    return this.samlService.handleCallback(
+      dto.SAMLResponse,
+      dto.RelayState ?? '',
+    );
   }
 }

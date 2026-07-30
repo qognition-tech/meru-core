@@ -25,6 +25,8 @@ import {
   CalendarEventsQueryDto,
   ListTasksQueryDto,
 } from './dto/task-query.dto';
+import { CreateTaskDto, UpdateTaskDto } from './dto/create-task.dto';
+import { CreateRecurringJobDto } from './dto/create-recurring-job.dto';
 
 @ApiTags('tasks')
 @Controller('tasks')
@@ -38,10 +40,15 @@ export class TaskController {
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
   @ApiResponse({ status: 201, description: 'Task created successfully' })
-  async createTask(@Request() req, @Body() dto: any) {
+  async createTask(@Request() req, @Body() dto: CreateTaskDto) {
+    // Dates arrive as ISO strings (IsDateString) and the service takes Date.
+    // `assignedBy` comes from the JWT, never the body — accepting it from a
+    // caller would let anyone attribute a task to somebody else.
     const task = await this.taskService.createTask(req.user.tenantId, {
       ...dto,
       assignedBy: req.user.id,
+      dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+      reminderDate: dto.reminderDate ? new Date(dto.reminderDate) : undefined,
     });
     return task;
   }
@@ -118,9 +125,13 @@ export class TaskController {
   async updateTask(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: any,
+    @Body() dto: UpdateTaskDto,
   ) {
-    const task = await this.taskService.updateTask(id, req.user.tenantId, dto);
+    const { dueDate, ...rest } = dto;
+    const task = await this.taskService.updateTask(id, req.user.tenantId, {
+      ...rest,
+      ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
+    });
     return task;
   }
 
@@ -188,10 +199,15 @@ export class TaskController {
   @Post('recurring-jobs')
   @ApiOperation({ summary: 'Create a recurring job' })
   @ApiResponse({ status: 201, description: 'Recurring job created' })
-  async createRecurringJob(@Request() req, @Body() dto: any) {
+  async createRecurringJob(@Request() req, @Body() dto: CreateRecurringJobDto) {
+    // The DTO guarantees name, a parseable cron `schedule` and a taskTemplate
+    // object. The template's inner shape mirrors CreateTaskDto and is applied
+    // when the job fires, so it is carried through rather than duplicated here.
     const job = await this.taskService.createRecurringJob(
       req.user.tenantId,
-      dto,
+      dto as unknown as Parameters<
+        typeof this.taskService.createRecurringJob
+      >[1],
     );
     return job;
   }

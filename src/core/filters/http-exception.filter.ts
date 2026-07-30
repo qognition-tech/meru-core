@@ -28,6 +28,44 @@ import {
  *   429 → MER-RATE-0001 (Rate Limit)
  *   5xx → MER-SRV-0001 (Internal Server)
  */
+/**
+ * Distinguish "a dependency is down or unconfigured" from "this request is
+ * broken".
+ *
+ * Both used to surface as 500, which is wrong in both directions: it tells the
+ * client they sent something invalid when they did not, and it tells whoever
+ * reads the alerts to hunt for a crash when the real answer is that
+ * Elasticsearch is unreachable. 503 is the honest code and the one a client
+ * should retry against.
+ *
+ * Matched on the driver's own connection-failure signals rather than on
+ * message text where possible; the string checks are the fallback for clients
+ * that only report a message.
+ */
+function isDependencyUnavailable(exception: unknown): boolean {
+  const err = exception as
+    | { code?: string; name?: string; message?: string }
+    | undefined;
+  if (!err) return false;
+
+  const code = err.code ?? '';
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code)) {
+    return true;
+  }
+
+  const name = err.name ?? '';
+  if (name === 'ConnectionError' || name === 'NoLivingConnectionsError') {
+    return true;
+  }
+
+  const message = (err.message ?? '').toLowerCase();
+  return (
+    message.includes('connect econnrefused') ||
+    message.includes('connection failed') ||
+    message.includes('no living connections')
+  );
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -123,7 +161,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : isDependencyUnavailable(exception)
+          ? HttpStatus.SERVICE_UNAVAILABLE
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const meruError = this.buildError(exception, status);
     const requestId =

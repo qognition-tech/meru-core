@@ -18,7 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { TenantSettingsService } from './tenant-settings.service';
-import type { VerticalConfig } from './entities/tenant-setting.entity';
+import { VerticalConfigDto } from './dto/vertical-config.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { Roles } from '../iam/decorators/roles.decorator';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
@@ -73,7 +73,7 @@ export class TenantController {
   @ApiResponse({ status: 200, description: 'Settings saved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
-  async updateSettings(@Request() req, @Body() config: VerticalConfig) {
+  async updateSettings(@Request() req, @Body() config: VerticalConfigDto) {
     return this.tenantSettingsService.updateSettings(req.user.tenantId, config);
   }
 }

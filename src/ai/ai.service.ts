@@ -1,4 +1,10 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  forwardRef,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import {
@@ -184,8 +190,13 @@ export class AiService {
     metadata: Record<string, any> = {},
   ) {
     if (!this.openaiClient) {
-      throw new Error(
-        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      // 503, not a bare Error. An unset OPENAI_API_KEY is a deployment gap,
+      // not a bug in the request — a 500 tells the caller they broke something
+      // and tells the on-call engineer to look for a crash. 503 says the
+      // dependency is missing, which is what is actually true and what a
+      // client should retry against.
+      throw new ServiceUnavailableException(
+        'AI is not configured on this deployment (OPENAI_API_KEY unset).',
       );
     }
 
@@ -223,8 +234,13 @@ export class AiService {
     limit: number = 5,
   ): Promise<any[]> {
     if (!this.openaiClient) {
-      throw new Error(
-        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      // 503, not a bare Error. An unset OPENAI_API_KEY is a deployment gap,
+      // not a bug in the request — a 500 tells the caller they broke something
+      // and tells the on-call engineer to look for a crash. 503 says the
+      // dependency is missing, which is what is actually true and what a
+      // client should retry against.
+      throw new ServiceUnavailableException(
+        'AI is not configured on this deployment (OPENAI_API_KEY unset).',
       );
     }
 
@@ -330,8 +346,13 @@ export class AiService {
     prompt: AiPrompt,
   ): Promise<AiResponse> {
     if (!this.openaiClient) {
-      throw new Error(
-        'OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.',
+      // 503, not a bare Error. An unset OPENAI_API_KEY is a deployment gap,
+      // not a bug in the request — a 500 tells the caller they broke something
+      // and tells the on-call engineer to look for a crash. 503 says the
+      // dependency is missing, which is what is actually true and what a
+      // client should retry against.
+      throw new ServiceUnavailableException(
+        'AI is not configured on this deployment (OPENAI_API_KEY unset).',
       );
     }
 

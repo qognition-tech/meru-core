@@ -18,6 +18,14 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { BillingService } from './billing.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import {
+  AddCreditsDto,
+  CreatePlanDto,
+  CreateSubscriptionDto,
+  RecordUsageDto,
+} from './dto/billing.dto';
+import type { BillingPlan } from './entities/billing-plan.entity';
+import { DateRangeQueryDto } from '../common/dto/date-range.dto';
 
 @ApiTags('billing')
 @Controller('billing')
@@ -30,8 +38,15 @@ export class BillingController {
 
   @Post('plans')
   @ApiOperation({ summary: 'Create a billing plan' })
-  async createPlan(@Request() req, @Body() dto: any) {
-    const plan = await this.billingService.createPlan(req.user.tenantId, dto);
+  async createPlan(@Request() req, @Body() dto: CreatePlanDto) {
+    // The DTO guarantees the envelope — name present, price a non-negative
+    // integer, currency well-formed. The nested shape of `features`/`limits` is
+    // plan-configuration data rather than a fixed core schema, so it is carried
+    // as an object and asserted here rather than mirrored field-by-field.
+    const plan = await this.billingService.createPlan(
+      req.user.tenantId,
+      dto as Partial<BillingPlan>,
+    );
     return plan;
   }
 
@@ -50,7 +65,7 @@ export class BillingController {
 
   @Post('subscriptions')
   @ApiOperation({ summary: 'Create a subscription' })
-  async createSubscription(@Request() req, @Body() dto: any) {
+  async createSubscription(@Request() req, @Body() dto: CreateSubscriptionDto) {
     const subscription = await this.billingService.createSubscription(
       req.user.tenantId,
       dto,
@@ -72,7 +87,7 @@ export class BillingController {
 
   @Post('usage')
   @ApiOperation({ summary: 'Record metered usage' })
-  async recordUsage(@Request() req, @Body() dto: any) {
+  async recordUsage(@Request() req, @Body() dto: RecordUsageDto) {
     const usage = await this.billingService.recordUsage(req.user.tenantId, dto);
     return usage;
   }
@@ -81,8 +96,14 @@ export class BillingController {
 
   @Post('credits')
   @ApiOperation({ summary: 'Add credits to subscription' })
-  async addCredits(@Request() req, @Body() dto: any) {
-    const credit = await this.billingService.addCredits(req.user.tenantId, dto);
+  async addCredits(@Request() req, @Body() dto: AddCreditsDto) {
+    // `expiryDate` arrives as an ISO string (that is what IsDateString
+    // validates) and the service takes a Date. Converting here keeps an
+    // unparseable value from reaching Postgres as a literal.
+    const credit = await this.billingService.addCredits(req.user.tenantId, {
+      ...dto,
+      expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+    });
     return credit;
   }
 
@@ -115,15 +136,11 @@ export class BillingController {
   @ApiOperation({ summary: 'Get billing metrics' })
   @ApiQuery({ name: 'startDate', required: true })
   @ApiQuery({ name: 'endDate', required: true })
-  async getMetrics(
-    @Request() req,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-  ) {
+  async getMetrics(@Request() req, @Query() range: DateRangeQueryDto) {
     const metrics = await this.billingService.getBillingMetrics(
       req.user.tenantId,
-      new Date(startDate),
-      new Date(endDate),
+      new Date(range.startDate),
+      new Date(range.endDate),
     );
     return metrics;
   }

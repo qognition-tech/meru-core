@@ -18,6 +18,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { CreateReportDto, CreateWidgetDto } from './dto/analytics.dto';
+import type { DashboardWidget } from './entities/dashboard-widget.entity';
 
 @ApiTags('analytics')
 @Controller('analytics')
@@ -30,7 +32,7 @@ export class AnalyticsController {
 
   @Post('reports')
   @ApiOperation({ summary: 'Create a new report' })
-  async createReport(@Request() req, @Body() dto: any) {
+  async createReport(@Request() req, @Body() dto: CreateReportDto) {
     const report = await this.analyticsService.createReport(
       req.user.tenantId,
       req.user.id,
@@ -100,10 +102,14 @@ export class AnalyticsController {
 
   @Post('widgets')
   @ApiOperation({ summary: 'Create a dashboard widget' })
-  async createWidget(@Request() req, @Body() dto: any) {
+  async createWidget(@Request() req, @Body() dto: CreateWidgetDto) {
+    // The DTO guarantees name and widgetType. `configuration` is the widget's
+    // query/display definition — supplied by a dashboard or a config pack, not
+    // a fixed core schema — so it is validated as an object here and
+    // interpreted by the widget executor.
     const widget = await this.analyticsService.createWidget(
       req.user.tenantId,
-      dto,
+      dto as Partial<DashboardWidget>,
     );
     return widget;
   }

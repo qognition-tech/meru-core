@@ -26,6 +26,7 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 // import is erased, `design:paramtypes` degrades to `Object`, and validation is
 // skipped entirely — the same silent no-op that made this an interface a bug.
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { CheckSlugDto } from './dto/check-slug.dto';
 import { TenantPlan } from './entities/tenant.entity';
 import { Roles } from './decorators/roles.decorator';
 import { PlatformRole } from './enums/platform-role.enum';
@@ -87,9 +88,10 @@ export class TenantProvisioningController {
       required: ['slug'],
     },
   })
-  async checkSlug(@Body('slug') slug: string) {
-    const result =
-      await this.tenantProvisioningService.checkSlugAvailability(slug);
+  async checkSlug(@Body() dto: CheckSlugDto) {
+    const result = await this.tenantProvisioningService.checkSlugAvailability(
+      dto.slug,
+    );
 
     return result;
   }

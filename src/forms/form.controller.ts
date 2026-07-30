@@ -20,6 +20,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { FormBuilderService } from './form-builder.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { CreateFormDto } from './dto/create-form.dto';
+import type { FormDefinition } from './form-builder.service';
 
 @ApiTags('forms')
 @Controller('forms')
@@ -33,10 +35,14 @@ export class FormController {
   @Post()
   @ApiOperation({ summary: 'Create a new form schema' })
   @ApiResponse({ status: 201, description: 'Form created successfully' })
-  async createForm(@Request() req, @Body() dto: any) {
+  async createForm(@Request() req, @Body() dto: CreateFormDto) {
+    // The DTO guarantees name, entityType, layout and a fields array. The
+    // inner field vocabulary is the vertical's, supplied by a config pack, so
+    // core validates the envelope and lets FORM interpret the contents
+    // (CLAUDE.md §2 row 7).
     const form = await this.formService.createForm(
       req.user.tenantId,
-      dto,
+      dto as unknown as FormDefinition,
       req.user.id,
     );
     return form;

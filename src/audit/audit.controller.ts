@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
   Res,
+  ParseEnumPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,12 +16,16 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import type { Response } from 'express';
 import { paginated } from '../common/paginated';
+import { DateRangeQueryDto } from '../common/dto/date-range.dto';
+import { ExportLogsDto } from './dto/export-logs.dto';
+import { ComplianceStandard } from './entities/audit-log.entity';
 
 @ApiTags('audit')
 @Controller('audit')
@@ -84,19 +89,17 @@ export class AuditController {
 
   @Get('logs/user/:userId')
   @ApiOperation({ summary: 'Get user activity' })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
+  @ApiResponse({ status: 400, description: 'Missing or malformed date range' })
   async getUserActivity(
     @Request() req,
     @Param('userId') userId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    @Query() range: DateRangeQueryDto,
   ) {
     const logs = await this.auditService.getUserActivity(
       req.user.tenantId,
       userId,
-      new Date(startDate),
-      new Date(endDate),
+      new Date(range.startDate),
+      new Date(range.endDate),
     );
     return logs;
   }
@@ -135,12 +138,7 @@ export class AuditController {
   @ApiOperation({ summary: 'Export audit logs' })
   async exportLogs(
     @Request() req,
-    @Body()
-    body: {
-      startDate: string;
-      endDate: string;
-      format: 'json' | 'csv' | 'xml';
-    },
+    @Body() body: ExportLogsDto,
     @Res() res: Response,
   ) {
     const { data, filename } = await this.auditService.exportLogs(
@@ -160,19 +158,22 @@ export class AuditController {
 
   @Get('compliance/:standard')
   @ApiOperation({ summary: 'Get compliance report' })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
+  @ApiParam({ name: 'standard', enum: ComplianceStandard })
+  @ApiResponse({ status: 400, description: 'Unknown standard, or bad dates' })
   async getComplianceReport(
     @Request() req,
-    @Param('standard') standard: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    // Validated against the enum. An unknown value used to reach Postgres and
+    // 500 with `invalid input value for enum
+    // audit_logs_compliancestandard_enum: "..."`.
+    @Param('standard', new ParseEnumPipe(ComplianceStandard))
+    standard: ComplianceStandard,
+    @Query() range: DateRangeQueryDto,
   ) {
     const report = await this.auditService.getComplianceReport(
       req.user.tenantId,
-      standard as any,
-      new Date(startDate),
-      new Date(endDate),
+      standard,
+      new Date(range.startDate),
+      new Date(range.endDate),
     );
     return report;
   }

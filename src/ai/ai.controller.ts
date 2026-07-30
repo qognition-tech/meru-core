@@ -23,6 +23,12 @@ import type { AiRequest } from './ai.service';
 import type { AuthenticatedRequest } from '../orchestration/authenticated-request.interface';
 import { AiPrompt, PromptCategory } from './entities/ai-prompt.entity';
 import { VerticalType } from '../iam/enums/vertical.enum';
+import {
+  AnalyzeEntityDto,
+  CreateEmbeddingDto,
+  ExecutePromptDto,
+  UpsertPromptDto,
+} from './dto/ai-request.dto';
 
 interface AnalyzeEntityBody {
   vertical?: VerticalType;
@@ -46,7 +52,7 @@ export class AiController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async execute(
     @Request() req: AuthenticatedRequest,
-    @Body() aiRequest: AiRequest,
+    @Body() aiRequest: ExecutePromptDto,
   ) {
     return this.aiService.execute({
       ...aiRequest,
@@ -61,12 +67,12 @@ export class AiController {
   @ApiResponse({ status: 200, description: 'Entity analysis result' })
   async analyzeEntity(
     @Request() req: AuthenticatedRequest,
-    @Body() entityData: AnalyzeEntityBody,
+    @Body() entityData: AnalyzeEntityDto,
   ) {
     return this.aiService.analyzeEntity(
       req.user.tenantId,
       entityData,
-      entityData.vertical || VerticalType.IMMIGRATION,
+      entityData.vertical ?? VerticalType.IMMIGRATION,
     );
   }
 
@@ -77,13 +83,7 @@ export class AiController {
   @ApiResponse({ status: 200, description: 'Embedding created' })
   async createEmbedding(
     @Request() req: AuthenticatedRequest,
-    @Body()
-    data: {
-      text: string;
-      type: string;
-      resourceId: string;
-      metadata?: Record<string, unknown>;
-    },
+    @Body() data: CreateEmbeddingDto,
   ) {
     return this.aiService.createEmbedding(
       req.user.tenantId,
@@ -137,7 +137,7 @@ export class AiController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create or update a prompt' })
   @ApiResponse({ status: 200, description: 'Prompt saved' })
-  async upsertPrompt(@Body() promptData: Partial<AiPrompt>) {
+  async upsertPrompt(@Body() promptData: UpsertPromptDto) {
     return this.aiService.upsertPrompt(promptData);
   }
 }

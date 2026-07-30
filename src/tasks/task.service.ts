@@ -187,10 +187,22 @@ export class TaskService {
       assignedTo: userId,
     };
 
-    if (options.status) {
-      where.status = options.status;
+    // `In(...)`, not a bare array. A plain array in TypeORM find-options is not
+    // an IN clause — it is serialised as a Postgres array literal and compared
+    // against the column, so this 500'd with
+    //   invalid input value for enum tasks_status_enum: "{"todo","in_progress",…}"
+    // and /tasks/my-work was unreachable. Same family as the `revokedAt: null`
+    // bug in IamService: find-options syntax that looks right and silently
+    // means something else.
+    if (options.status?.length) {
+      where.status = In(options.status);
     } else if (!options.includeCompleted) {
-      where.status = ['todo', 'in_progress', 'under_review', 'blocked'];
+      where.status = In([
+        TaskStatus.TODO,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.UNDER_REVIEW,
+        TaskStatus.BLOCKED,
+      ]);
     }
 
     const tasks = await this.taskRepo.find({
@@ -206,31 +218,40 @@ export class TaskService {
     return { tasks, counts };
   }
 
+  /**
+   * Per-status task counts for one assignee.
+   *
+   * Statuses come from the enum rather than a hand-written list. The list had
+   * drifted: it contained `completed`, which is not a TaskStatus — the member
+   * is `done` — and `status as TaskStatus` silenced the type error, so the
+   * count query reached Postgres and 500'd with
+   * `invalid input value for enum tasks_status_enum: "completed"`, taking all
+   * of `/tasks/my-work` down with it.
+   *
+   * One grouped query rather than a COUNT per status: the old loop issued a
+   * round trip for every state and then summed a `total` that included itself
+   * had the key ordering differed.
+   */
   private async getTaskCounts(
     tenantId: string,
     userId: string,
   ): Promise<Record<string, number>> {
-    const counts: Record<string, number> = {
-      todo: 0,
-      in_progress: 0,
-      under_review: 0,
-      completed: 0,
-      total: 0,
-    };
+    const counts: Record<string, number> = Object.fromEntries(
+      Object.values(TaskStatus).map((s) => [s, 0]),
+    );
 
-    for (const status of Object.keys(counts)) {
-      if (status === 'total') continue;
+    const rows = await this.taskRepo
+      .createQueryBuilder('t')
+      .select('t.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('t."tenantId" = :tenantId', { tenantId })
+      .andWhere('t."assignedTo" = :userId', { userId })
+      .groupBy('t.status')
+      .getRawMany<{ status: string; count: number }>();
 
-      counts[status] = await this.taskRepo.count({
-        where: {
-          tenantId,
-          assignedTo: userId,
-          status: status as TaskStatus,
-        },
-      });
-    }
+    for (const row of rows) counts[row.status] = row.count;
 
-    counts.total = Object.values(counts).reduce((a, b) => a + b, 0);
+    counts.total = rows.reduce((sum, r) => sum + r.count, 0);
 
     return counts;
   }

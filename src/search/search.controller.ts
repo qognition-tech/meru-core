@@ -19,6 +19,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { SearchService } from './search.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { BulkIndexDto, IndexEntityDto } from './dto/index-entity.dto';
 
 @Controller('search')
 @ApiTags('search')
@@ -67,8 +68,8 @@ export class SearchController {
   })
   @ApiResponse({ status: 200, description: 'Index rebuild started' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async rebuildIndex(@Body() data: { entities: any[] }) {
-    return this.searchService.indexBulk(data.entities || []);
+  async rebuildIndex(@Body() data: BulkIndexDto) {
+    return this.searchService.indexBulk(data.entities);
   }
 
   @Post('index/entity')
@@ -85,7 +86,7 @@ export class SearchController {
   })
   @ApiResponse({ status: 200, description: 'Entity indexed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async indexEntity(@Body() data: { entity: any }) {
+  async indexEntity(@Body() data: IndexEntityDto) {
     return this.searchService.indexEntityData(data.entity);
   }
 }
