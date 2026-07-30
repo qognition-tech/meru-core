@@ -16,10 +16,10 @@ import {
 import { User } from './entities/user.entity';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { randomUUID } from 'node:crypto';
-import * as AWS from 'aws-sdk';
 import { TenantContext } from '../core/tenancy/tenant-context';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { PlatformRole } from './enums/platform-role.enum';
+import { MailService } from '../core/mail/mail.service';
 
 // Re-exported so existing importers keep working. The definition now lives in
 // ./dto/create-tenant.dto.ts as a decorated *class* — see the note there on why
@@ -36,9 +36,6 @@ export interface TenantWorkspaceResponse {
 @Injectable()
 export class TenantProvisioningService {
   private readonly logger = new Logger(TenantProvisioningService.name);
-  private readonly ses: AWS.SES | null;
-  private readonly sesFrom: string;
-  private readonly appUrl: string;
 
   constructor(
     @InjectRepository(Tenant)
@@ -49,28 +46,8 @@ export class TenantProvisioningService {
     private tenantSettingRepo: Repository<TenantSetting>,
     private dataSource: DataSource,
     private configService: ConfigService,
-  ) {
-    const sesEnabled =
-      configService.get<string>('SES_ENABLED') !== 'false' &&
-      !!configService.get<string>('AWS_REGION');
-
-    this.sesFrom =
-      configService.get<string>('SES_FROM_ADDRESS') ?? 'hello@meru.com';
-    this.appUrl =
-      configService.get<string>('APP_URL') ?? 'https://app.meru.com';
-
-    if (sesEnabled) {
-      this.ses = new AWS.SES({
-        region: configService.get<string>('AWS_REGION') ?? 'us-east-1',
-      });
-      this.logger.log(`SES email enabled — from: ${this.sesFrom}`);
-    } else {
-      this.ses = null;
-      this.logger.warn(
-        'SES email disabled — set SES_ENABLED=true and AWS_REGION to enable',
-      );
-    }
-  }
+    private mailService: MailService,
+  ) {}
 
   async createTenant(dto: CreateTenantDto): Promise<TenantWorkspaceResponse> {
     // Signup is the one operation that *creates* the tenant it would otherwise
@@ -192,13 +169,24 @@ export class TenantProvisioningService {
       this.logger.log(`Tenant workspace created successfully: ${tenant.slug}`);
 
       // 6. Send welcome email (async, outside transaction)
-      await this.sendWelcomeEmail(user, tenant);
+      // Reported, not assumed. This was hardcoded `true`, so a workspace
+      // whose welcome email never left the building still told the caller it
+      // had — the same claim-success-without-checking pattern that made mail
+      // failures invisible everywhere else.
+      const { delivered } = await this.mailService.sendWelcome({
+        to: user.email,
+        firstName: user.firstName,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        plan: tenant.plan,
+        trialEndsAt: tenant.trialEndsAt,
+      });
 
       return {
         tenant,
         user: this.sanitizeUser(user),
         workspaceUrl: `${tenant.slug}.meru.com`,
-        welcomeEmailSent: true,
+        welcomeEmailSent: delivered,
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -493,84 +481,5 @@ export class TenantProvisioningService {
   private sanitizeUser(user: User): Partial<User> {
     const { password, ...sanitized } = user;
     return sanitized;
-  }
-
-  private async sendWelcomeEmail(user: User, tenant: Tenant): Promise<void> {
-    if (!this.ses) {
-      this.logger.log(
-        `[email-skipped] Welcome email to ${user.email} for tenant ${tenant.slug}`,
-      );
-      return;
-    }
-
-    const loginUrl = `${this.appUrl}/login?tenant=${tenant.slug}`;
-    const subject = `Welcome to Meru — your ${tenant.name} workspace is ready`;
-    const body = [
-      `Hi${user.firstName ? ` ${user.firstName}` : ''},`,
-      '',
-      `Your Meru workspace for ${tenant.name} has been created.`,
-      '',
-      `Log in here: ${loginUrl}`,
-      '',
-      `Workspace: ${tenant.slug}`,
-      `Plan: ${tenant.plan}`,
-      `Trial ends: ${tenant.trialEndsAt ? tenant.trialEndsAt.toDateString() : 'N/A'}`,
-      '',
-      'If you have questions, reply to this email or visit https://help.meru.com.',
-      '',
-      '— The Meru Team',
-    ].join('\n');
-
-    const htmlBody = `
-      <html><body style="font-family:sans-serif;max-width:600px;margin:auto;color:#111">
-        <h2>Welcome to Meru</h2>
-        <p>Your workspace for <strong>${this.escapeHtml(tenant.name)}</strong> is ready.</p>
-        <p><a href="${loginUrl}" style="background:#0f172a;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Log in to your workspace</a></p>
-        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-        <p style="color:#6b7280;font-size:13px">
-          Workspace: ${this.escapeHtml(tenant.slug)}<br>
-          Plan: ${tenant.plan}<br>
-          ${tenant.trialEndsAt ? `Trial ends: ${tenant.trialEndsAt.toDateString()}` : ''}
-        </p>
-        <p style="color:#6b7280;font-size:12px">Meru Regulatory OS &mdash; <a href="https://meru.com">meru.com</a></p>
-      </body></html>
-    `;
-
-    try {
-      await this.ses
-        .sendEmail({
-          Source: this.sesFrom,
-          Destination: { ToAddresses: [user.email] },
-          Message: {
-            Subject: { Data: subject, Charset: 'UTF-8' },
-            Body: {
-              Text: { Data: body, Charset: 'UTF-8' },
-              Html: { Data: htmlBody, Charset: 'UTF-8' },
-            },
-          },
-          Tags: [
-            { Name: 'tenant', Value: tenant.slug },
-            { Name: 'type', Value: 'welcome' },
-          ],
-        })
-        .promise();
-
-      this.logger.log(
-        `Welcome email sent to ${user.email} (tenant=${tenant.slug})`,
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `Failed to send welcome email to ${user.email}: ${msg}`,
-      );
-    }
-  }
-
-  private escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   }
 }

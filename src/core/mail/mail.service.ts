@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as AWS from 'aws-sdk';
+import { Resend } from 'resend';
 
 export interface MailMessage {
   to: string;
@@ -11,62 +11,71 @@ export interface MailMessage {
 }
 
 /**
- * Outbound transactional email.
+ * Outbound transactional email, via Resend.
  *
- * Extracted from `TenantProvisioningService`, which owned the only SES client
- * in the codebase and kept it private. Invites and password resets need to send
- * too, and three copies of an SES client with three slightly different
- * from-addresses is how a product ends up with mail that works in one flow and
- * silently drops in another.
+ * One mail path for the whole platform. It was previously AWS SES, and the
+ * only SES client lived privately inside `TenantProvisioningService` — so
+ * invites and password resets had nowhere to send from, and the welcome email
+ * worked while everything else silently did not.
  *
- * When SES is not configured the service does **not** pretend to send: it logs
- * the full message at warn level and reports `delivered: false` to the caller.
- * A no-op that returns success is what makes "the invite email never arrived"
- * take a day to diagnose.
+ * When Resend is not configured the service does **not** pretend to send: it
+ * logs the full message, including any action link, and reports
+ * `delivered: false`. A no-op that returns success is what makes "the invite
+ * never arrived" take a day to diagnose, and the logged link is what lets an
+ * operator unblock a user before credentials are sorted out.
  */
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly ses: AWS.SES | null;
+  private readonly resend: Resend | null;
   private readonly from: string;
   readonly appUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    const sesEnabled =
-      config.get<string>('SES_ENABLED') !== 'false' &&
-      !!config.get<string>('AWS_REGION');
+    const apiKey = config.get<string>('RESEND_API_KEY');
 
-    this.from = config.get<string>('SES_FROM_ADDRESS') ?? 'hello@meru.com';
+    // Resend requires the sender to be on a domain verified in the account.
+    // `onboarding@resend.dev` is Resend's own sandbox sender, which works
+    // without domain verification but only delivers to the account owner —
+    // fine for a first smoke test, useless in production, hence the warning.
+    this.from =
+      config.get<string>('RESEND_FROM') ?? 'Meru <onboarding@resend.dev>';
     this.appUrl = config.get<string>('APP_URL') ?? 'https://app.meru.com';
 
-    if (sesEnabled) {
-      this.ses = new AWS.SES({
-        region: config.get<string>('AWS_REGION') ?? 'us-east-1',
-      });
-      this.logger.log(`Mail enabled via SES — from: ${this.from}`);
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+      this.logger.log(`Mail enabled via Resend — from: ${this.from}`);
+
+      if (this.from.includes('onboarding@resend.dev')) {
+        this.logger.warn(
+          'RESEND_FROM is unset, using Resend’s sandbox sender. It only ' +
+            'delivers to the Resend account owner — set RESEND_FROM to an ' +
+            'address on a verified domain before relying on this.',
+        );
+      }
     } else {
-      this.ses = null;
+      this.resend = null;
       this.logger.warn(
-        'Mail disabled — set AWS_REGION (and SES_ENABLED != false) to send. ' +
-          'Messages will be logged instead of delivered.',
+        'Mail disabled — set RESEND_API_KEY to send. Messages will be logged ' +
+          'in full (including action links) instead of delivered.',
       );
     }
   }
 
   isConfigured(): boolean {
-    return this.ses !== null;
+    return this.resend !== null;
   }
 
   /**
    * Send a message. Never throws.
    *
    * Mail is a side effect of flows that must complete regardless — a user has
-   * still been invited even if SES is down, and a password-reset request must
+   * still been invited even if Resend is down, and a password-reset request must
    * not leak "this address exists" through a 500. Failures are logged and
    * reported in the return value.
    */
   async send(message: MailMessage): Promise<{ delivered: boolean }> {
-    if (!this.ses) {
+    if (!this.resend) {
       this.logger.warn(
         `[mail-not-configured] to=${message.to} subject="${message.subject}"\n${message.text}`,
       );
@@ -74,27 +83,35 @@ export class MailService {
     }
 
     try {
-      await this.ses
-        .sendEmail({
-          Source: this.from,
-          Destination: { ToAddresses: [message.to] },
-          Message: {
-            Subject: { Data: message.subject, Charset: 'UTF-8' },
-            Body: {
-              Text: { Data: message.text, Charset: 'UTF-8' },
-              ...(message.html
-                ? { Html: { Data: message.html, Charset: 'UTF-8' } }
-                : {}),
-            },
-          },
-        })
-        .promise();
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+      });
 
-      this.logger.log(`Mail sent to ${message.to}: ${message.subject}`);
+      // Resend reports failures in the response body rather than by throwing.
+      // Treating a populated `error` as success is exactly the 200-with-error
+      // trap the government adapters had — the send would look fine and the
+      // mail would never arrive.
+      if (error) {
+        this.logger.error(
+          `Mail to ${message.to} rejected by Resend: ${error.name} — ${error.message}`,
+        );
+        // Log the body so an operator can still recover an action link.
+        this.logger.warn(`[mail-undelivered] ${message.text}`);
+        return { delivered: false };
+      }
+
+      this.logger.log(
+        `Mail sent to ${message.to}: ${message.subject} (id: ${data?.id})`,
+      );
       return { delivered: true };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       this.logger.error(`Mail to ${message.to} failed: ${detail}`);
+      this.logger.warn(`[mail-undelivered] ${message.text}`);
       return { delivered: false };
     }
   }
@@ -162,6 +179,52 @@ export class MailService {
          ${this.actionButton(url, 'Set your password')}
          <p style="color:#6b7280;font-size:13px">This link can be used once and expires on ${expiry}.
             If you were not expecting this invitation you can ignore this email.</p>`,
+      ),
+    });
+  }
+
+  /** Welcome email for a freshly provisioned workspace. */
+  async sendWelcome(params: {
+    to: string;
+    firstName?: string | null;
+    tenantName: string;
+    tenantSlug: string;
+    plan: string;
+    trialEndsAt?: Date | null;
+  }): Promise<{ delivered: boolean }> {
+    const loginUrl = `${this.appUrl}/login?tenant=${params.tenantSlug}`;
+    const trial = params.trialEndsAt
+      ? `Trial ends: ${params.trialEndsAt.toDateString()}`
+      : '';
+
+    return this.send({
+      to: params.to,
+      subject: `Welcome to Meru — your ${params.tenantName} workspace is ready`,
+      text: [
+        `Hi${params.firstName ? ` ${params.firstName}` : ''},`,
+        '',
+        `Your Meru workspace for ${params.tenantName} has been created.`,
+        '',
+        `Log in here: ${loginUrl}`,
+        '',
+        `Workspace: ${params.tenantSlug}`,
+        `Plan: ${params.plan}`,
+        trial,
+        '',
+        'If you have questions, reply to this email.',
+        '',
+        '— The Meru Team',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      html: this.layout(
+        'Welcome to Meru',
+        `<p>Your workspace for <strong>${this.escapeHtml(params.tenantName)}</strong> is ready.</p>
+         ${this.actionButton(loginUrl, 'Log in to your workspace')}
+         <p style="color:#6b7280;font-size:13px">
+           Workspace: ${this.escapeHtml(params.tenantSlug)}<br>
+           Plan: ${this.escapeHtml(params.plan)}${trial ? `<br>${trial}` : ''}
+         </p>`,
       ),
     });
   }
