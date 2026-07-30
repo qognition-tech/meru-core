@@ -222,6 +222,27 @@ reuse. Access tokens now carry a `sid` claim identifying their session.
 answer). In both cases `riskScore`/`riskLevel` are `null` meaning **unknown**,
 never "no risk". Do not render an all-clear from a null.
 
+### Credential flows
+
+| Need | Call |
+|---|---|
+| Forgot password | `POST /auth/forgot-password` `{ email }` — always 200 |
+| Set password (reset or invite) | `POST /auth/reset-password` `{ token, password }` |
+| Re-send a pending invite | `POST /iam/users/:id/resend-invite` |
+
+`forgot-password` never reveals whether an address exists. `reset-password`
+handles both token types, promotes `invited` → `active`, and revokes every
+session the user holds. Tokens are single-use: reset 60 min, invite 7 days.
+`POST /iam/users/invite` returns `inviteSent` — `false` means the user exists
+but no email went out.
+
+### AIS ingestion
+
+`POST /integrations/vessel/ais/ingest` — `Authorization: Bearer <CRON_SECRET>`.
+Accepts `{ sentences: string[] }` (raw AIVDM/AIVDO) and/or
+`{ positions: [{ mmsi, lat, lon, ... }] }`. Positions are platform-global.
+Vessel responses carry `source: 'provider' | 'ingested'`.
+
 ### Obligations, breaches and cases — all `/crm/entities`
 
 These are one shape (a record with a state, an owner and a deadline) so they
