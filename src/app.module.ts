@@ -3,6 +3,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { TenancyModule } from './core/tenancy/tenancy.module';
+import { MailModule } from './core/mail/mail.module';
 import { TenantAlsMiddleware } from './core/tenancy/tenant-als.middleware';
 import { TenantBindingInterceptor } from './core/tenancy/tenant-binding.interceptor';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -42,6 +43,7 @@ import { AiPrompt, AiEmbedding } from './ai/entities/ai-prompt.entity';
 // IAM entities (new)
 import { Role } from './iam/entities/role.entity';
 import { Session } from './iam/entities/session.entity';
+import { AuthToken } from './iam/entities/auth-token.entity';
 import { ApiKey } from './iam/entities/api-key.entity';
 import { TenantConfigPin } from './iam/entities/tenant-config-pin.entity';
 
@@ -87,6 +89,7 @@ import { DashboardWidget } from './analytics/entities/dashboard-widget.entity';
 
 // Orchestration entities
 import { AgentRun } from './orchestration/entities/agent-run.entity';
+import { VesselPosition } from './integrations/entities/vessel-position.entity';
 
 // Audit entities
 import { AuditLog } from './audit/entities/audit-log.entity';
@@ -163,6 +166,7 @@ import {
             Tenant,
             Role,
             Session,
+            AuthToken,
             ApiKey,
             TenantConfigPin,
             TenantSetting,
@@ -204,6 +208,9 @@ import {
 
             // Orchestration
             AgentRun,
+
+            // Integrations
+            VesselPosition,
             // Notifications entities
             Notification,
             NotificationPreference,
@@ -264,6 +271,7 @@ import {
     HealthModule,
     JobsModule,
     TenancyModule,
+    MailModule,
   ],
   // AppController serves GET /api/v1/ (the root status route). It existed but
   // was never registered in any module, so the route 404'd and was missing from

@@ -21,9 +21,11 @@ import { Tenant } from './entities/tenant.entity';
 import { Role } from './entities/role.entity';
 import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
+import { AuthToken, AuthTokenType } from './entities/auth-token.entity';
 import { UserPayload, CreateUserInput, DirectoryUser } from '../common/types';
 import { TenantContext } from '../core/tenancy/tenant-context';
 import { PlatformRole, ROLE_PRECEDENCE } from './enums/platform-role.enum';
+import { MailService } from '../core/mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 // otplib is pinned to v12 deliberately. v13 pulls in @scure/base and
@@ -53,6 +55,8 @@ export interface SessionContext {
 export class IamService {
   private readonly logger = new Logger(IamService.name);
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
+  private readonly PASSWORD_RESET_TTL_MINUTES = 60;
+  private readonly INVITE_TTL_DAYS = 7;
   private readonly API_KEY_PREFIX = 'meru_';
 
   constructor(
@@ -61,7 +65,10 @@ export class IamService {
     @InjectRepository(Role) private roleRepo: Repository<Role>,
     @InjectRepository(Session) private sessionRepo: Repository<Session>,
     @InjectRepository(ApiKey) private apiKeyRepo: Repository<ApiKey>,
+    @InjectRepository(AuthToken)
+    private authTokenRepo: Repository<AuthToken>,
     private jwtService: JwtService,
+    private mailService: MailService,
   ) {}
 
   // ─── Authentication ──────────────────────────────────────────────
@@ -712,7 +719,8 @@ export class IamService {
       lastName?: string;
       department?: string;
     },
-  ): Promise<DirectoryUser> {
+    invitedBy?: { id: string; name: string },
+  ): Promise<DirectoryUser & { inviteSent: boolean }> {
     const existing = await TenantContext.runAsSystem(
       'check global email uniqueness before invite',
       () => this.userRepo.findOne({ where: { email: dto.email } }),
@@ -746,9 +754,85 @@ export class IamService {
     });
 
     await this.userRepo.save(user);
-    this.logger.log(`Invited ${dto.email} to tenant ${tenantId}`);
 
-    return this.toDirectoryUser(user);
+    // Issue the acceptance link. Without this the invite is a dead end: the
+    // placeholder password above is unusable by construction and is never
+    // returned, so an invited user previously had no route in at all.
+    const { token, expiresAt } = await this.issueAuthToken(
+      user,
+      AuthTokenType.INVITE,
+      this.INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
+      invitedBy?.id,
+    );
+
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+
+    const { delivered } = await this.mailService.sendInvite({
+      to: user.email,
+      inviterName: invitedBy?.name ?? 'A colleague',
+      tenantName: tenant?.name ?? 'your workspace',
+      token,
+      expiresAt,
+    });
+
+    // Reported rather than assumed. The user exists either way, but an admin
+    // needs to know whether to expect the invitee to receive anything — when
+    // mail is unconfigured the link is only in the server log.
+    this.logger.log(
+      `Invited ${dto.email} to tenant ${tenantId} (email delivered: ${delivered})`,
+    );
+
+    return { ...this.toDirectoryUser(user), inviteSent: delivered };
+  }
+
+  /**
+   * Re-send an invitation, issuing a fresh link.
+   *
+   * Needed because delivery genuinely fails — SES misconfigured, a typo'd
+   * address, a mailbox that bounced. Without this the only recovery was to
+   * delete the user and invite them again, and `users.email` is globally
+   * unique so that is not even reliably possible. Issuing a new token
+   * invalidates the previous one, so a resend also revokes a link sent to the
+   * wrong place.
+   */
+  async resendInvite(
+    tenantId: string,
+    userId: string,
+    invitedBy?: { id: string; name: string },
+  ): Promise<{ email: string; inviteSent: boolean; expiresAt: Date }> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Only pending invitations. Re-inviting an active user would be a way to
+    // force a password-set link onto somebody who already has credentials.
+    if (user.status !== UserStatus.INVITED) {
+      throw new BadRequestException(
+        'That user has already accepted their invitation. Use password reset instead.',
+      );
+    }
+
+    const { token, expiresAt } = await this.issueAuthToken(
+      user,
+      AuthTokenType.INVITE,
+      this.INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
+      invitedBy?.id,
+    );
+
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+
+    const { delivered } = await this.mailService.sendInvite({
+      to: user.email,
+      inviterName: invitedBy?.name ?? 'A colleague',
+      tenantName: tenant?.name ?? 'your workspace',
+      token,
+      expiresAt,
+    });
+
+    this.logger.log(`Re-invited ${user.email} (email delivered: ${delivered})`);
+
+    return { email: user.email, inviteSent: delivered, expiresAt };
   }
 
   /**
@@ -841,6 +925,165 @@ export class IamService {
     });
 
     return this.sessionRepo.save(session);
+  }
+
+  // ─── Credential Recovery ─────────────────────────────────────────
+  //
+  // Password reset and invite acceptance share one mechanism: a single-use,
+  // time-limited token whose SHA-256 is all that is stored. The two differ only
+  // in lifetime and in the email that carries them.
+
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
+   * Mint a credential token and persist only its digest.
+   *
+   * Any unused token of the same type for that user is burned first, so a
+   * second "forgot password" click invalidates the first link rather than
+   * leaving two live ways into the account.
+   */
+  private async issueAuthToken(
+    user: User,
+    type: AuthTokenType,
+    ttlMs: number,
+    issuedBy?: string,
+  ): Promise<{ token: string; expiresAt: Date }> {
+    const token = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + ttlMs);
+
+    await this.authTokenRepo.update(
+      { userId: user.id, type, usedAt: IsNull() },
+      { usedAt: new Date() },
+    );
+
+    await this.authTokenRepo.save(
+      this.authTokenRepo.create({
+        tenantId: user.tenantId,
+        userId: user.id,
+        type,
+        tokenHash: this.hashToken(token),
+        expiresAt,
+        issuedBy: issuedBy ?? null,
+      }),
+    );
+
+    return { token, expiresAt };
+  }
+
+  /**
+   * Begin a password reset.
+   *
+   * Always resolves the same way regardless of whether the address exists.
+   * Reporting "no such user" would turn this endpoint into a free membership
+   * oracle for anyone with a list of email addresses, and the response is
+   * public. The work is identical either way; only the email differs.
+   */
+  async requestPasswordReset(email: string): Promise<{ ok: true }> {
+    // Bootstrap lookup: an unauthenticated caller supplies only an email, so
+    // the tenant is what this discovers.
+    const user = await TenantContext.runAsSystem(
+      'resolve user by email for password reset',
+      () => this.userRepo.findOne({ where: { email } }),
+    );
+
+    if (!user) {
+      this.logger.log(`Password reset requested for unknown address ${email}`);
+      return { ok: true };
+    }
+
+    if (user.status === UserStatus.LOCKED) {
+      // A locked account must not be recoverable by self-service; that is the
+      // point of locking it.
+      this.logger.warn(`Password reset refused for locked account ${email}`);
+      return { ok: true };
+    }
+
+    const { token, expiresAt } = await TenantContext.runAsSystem(
+      'issue password reset token',
+      () =>
+        this.issueAuthToken(
+          user,
+          AuthTokenType.PASSWORD_RESET,
+          this.PASSWORD_RESET_TTL_MINUTES * 60 * 1000,
+        ),
+    );
+
+    await this.mailService.sendPasswordReset({
+      to: user.email,
+      firstName: user.firstName,
+      token,
+      expiresAt,
+    });
+
+    return { ok: true };
+  }
+
+  /**
+   * Redeem a reset or invite token and set a password.
+   *
+   * One handler for both types because the security-relevant steps are
+   * identical. Every session the user holds is revoked afterwards: a password
+   * change is the standard response to a suspected compromise, and leaving the
+   * attacker's existing refresh token alive would defeat it.
+   */
+  async resetPassword(
+    token: string,
+    newPassword: string,
+  ): Promise<{ ok: true; email: string }> {
+    const tokenHash = this.hashToken(token);
+
+    // Whoever presents a reset link has no session, so nothing is bound and
+    // RLS would filter the row away.
+    return TenantContext.runAsSystem('redeem credential token', async () => {
+      const record = await this.authTokenRepo.findOne({
+        where: { tokenHash },
+      });
+
+      // Deliberately one message for missing, used and expired. Distinguishing
+      // them tells an attacker probing tokens which guesses were once real.
+      const invalid = new BadRequestException(
+        'This link is invalid or has expired. Request a new one.',
+      );
+
+      if (!record || record.usedAt || record.expiresAt < new Date()) {
+        throw invalid;
+      }
+
+      const user = await this.userRepo.findOne({
+        where: { id: record.userId },
+      });
+      if (!user) throw invalid;
+
+      // Burn the token first. If the password write fails afterwards the link
+      // is still spent, which is the safe direction to fail in.
+      const burned = await this.authTokenRepo.update(
+        { id: record.id, usedAt: IsNull() },
+        { usedAt: new Date() },
+      );
+
+      // Lost the race with a concurrent redemption of the same link.
+      if (!burned.affected) throw invalid;
+
+      user.password = await bcrypt.hash(newPassword, 10);
+
+      // An invited user becomes active by accepting; a reset leaves status be.
+      if (user.status === UserStatus.INVITED) {
+        user.status = UserStatus.ACTIVE;
+      }
+
+      await this.userRepo.save(user);
+
+      await this.sessionRepo.update(
+        { userId: user.id, revokedAt: IsNull() },
+        { revokedAt: new Date() },
+      );
+
+      this.logger.log(`Password set for ${user.email} via ${record.type}`);
+
+      return { ok: true as const, email: user.email };
+    });
   }
 
   // ─── Session Management ──────────────────────────────────────────

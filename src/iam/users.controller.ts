@@ -77,9 +77,11 @@ export class UsersController {
   @ApiOperation({
     summary: 'Invite a user into the tenant',
     description:
-      'Creates the user in `invited` status with no usable password. No ' +
-      'credential is returned — the invitee gets in via password reset or ' +
-      'SSO. Email delivery is not wired yet; the row is created regardless.',
+      'Creates the user in `invited` status with no usable password and emails ' +
+      'them a single-use acceptance link (7-day expiry) to set one. No ' +
+      'credential is ever returned to the caller. `inviteSent` reports whether ' +
+      'the email actually went out — when mail is unconfigured the link is ' +
+      'only in the server log.',
   })
   @ApiResponse({ status: 201, description: 'User invited' })
   @ApiResponse({ status: 409, description: 'Email already registered' })
@@ -87,7 +89,35 @@ export class UsersController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: InviteUserDto,
   ) {
-    return this.iamService.inviteUser(req.user.tenantId, dto);
+    return this.iamService.inviteUser(req.user.tenantId, dto, {
+      id: req.user.id,
+      name: req.user.email,
+    });
+  }
+
+  @Post(':id/resend-invite')
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Re-send a pending invitation',
+    description:
+      'Issues a fresh acceptance link and invalidates the previous one, so ' +
+      'this also revokes a link that went to the wrong address. Only valid ' +
+      'while the user is still `invited` — an accepted user should use ' +
+      'password reset instead.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Invitation re-sent' })
+  @ApiResponse({ status: 400, description: 'User has already accepted' })
+  @ApiResponse({ status: 404, description: 'No such user on this tenant' })
+  async resendInvite(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.iamService.resendInvite(req.user.tenantId, id, {
+      id: req.user.id,
+      name: req.user.email,
+    });
   }
 
   @Patch(':id')

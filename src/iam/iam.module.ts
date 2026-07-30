@@ -11,6 +11,7 @@ import { Tenant } from './entities/tenant.entity';
 import { Role } from './entities/role.entity';
 import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
+import { AuthToken } from './entities/auth-token.entity';
 import { TenantConfigPin } from './entities/tenant-config-pin.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
@@ -33,6 +34,7 @@ import { SamlService } from './services/saml.service';
       Role,
       Session,
       ApiKey,
+      AuthToken,
       TenantConfigPin,
       TenantSetting,
     ]),

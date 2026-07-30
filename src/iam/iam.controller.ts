@@ -32,6 +32,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { sessionContextFrom } from './session-context.util';
 
 @Controller('auth')
@@ -153,6 +154,41 @@ export class IamController {
   @ApiResponse({ status: 400, description: 'Bad request' })
   async logout(@Body() logoutDto: LogoutDto) {
     return this.iamService.logoutSession(logoutDto.refresh_token);
+  }
+
+  // ── Credential recovery ───────────────────────────────────────────────────
+
+  @Post('forgot-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request a password-reset link',
+    description:
+      'Always returns 200, whether or not the address belongs to an account. ' +
+      'Reporting "no such user" would make this a free membership oracle for ' +
+      'anyone holding a list of email addresses. Any previously issued reset ' +
+      'link for the same user is invalidated.',
+  })
+  @ApiResponse({ status: 200, description: 'Request accepted' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.iamService.requestPasswordReset(dto.email);
+  }
+
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Set a password using a reset or invite token',
+    description:
+      'Handles both flows — the token type decides which. Accepting an invite ' +
+      'also moves the user from `invited` to `active`. Every existing session ' +
+      'is revoked afterwards, since a password change is the standard response ' +
+      'to a suspected compromise.',
+  })
+  @ApiResponse({ status: 200, description: 'Password set; sessions revoked' })
+  @ApiResponse({ status: 400, description: 'Token invalid, used or expired' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.iamService.resetPassword(dto.token, dto.password);
   }
 
   // ── Session management ────────────────────────────────────────────────────
