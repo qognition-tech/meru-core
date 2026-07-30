@@ -11,9 +11,12 @@ import { CaIrccAdapter } from './adapters/ca-ircc.adapter';
 import { UkHomeOfficeAdapter } from './adapters/uk-home-office.adapter';
 import { NzImmigrationAdapter } from './adapters/nz-immigration.adapter';
 import { IntegrationsController } from './integrations.controller';
+import { AisIngestController } from './ais-ingest.controller';
 import { IntegrationsService } from './integrations.service';
 import { VesselService } from './services/vessel.service';
 import { TradeService } from './services/trade.service';
+import { AisIngestService } from './services/ais-ingest.service';
+import { VesselPosition } from './entities/vessel-position.entity';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { AiModule } from '../ai/ai.module';
 
@@ -30,16 +33,21 @@ import { AiModule } from '../ai/ai.module';
     // trade instruments are entity rows, but they do not want CRM's
     // create-time vertical-field validation, so they use the repository, not
     // CrmService.
-    TypeOrmModule.forFeature([IntegrationAdapter, UniversalEntity]),
+    TypeOrmModule.forFeature([
+      IntegrationAdapter,
+      UniversalEntity,
+      VesselPosition,
+    ]),
     IamModule,
     // VesselTrackingEngine and ScreeningEngine (CLAUDE.md §3.2, §3.4).
     AiModule,
   ],
-  controllers: [IntegrationsController],
+  controllers: [IntegrationsController, AisIngestController],
   providers: [
     IntegrationsService,
     VesselService,
     TradeService,
+    AisIngestService,
     AuHomeAffairsAdapter,
     UaeCentralBankAdapter,
     SaSamaAdapter,

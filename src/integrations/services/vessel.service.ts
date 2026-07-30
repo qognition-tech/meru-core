@@ -6,6 +6,7 @@ import {
   UniversalEntity,
 } from '../../crm/entities/universal-entity.entity';
 import { VesselTrackingEngine } from '../../ai/engines/vessel-tracking.engine';
+import { AisIngestService } from './ais-ingest.service';
 
 /**
  * A watched vessel as the API returns it.
@@ -28,6 +29,10 @@ export interface WatchedVessel {
   darkPeriods: number;
   /** False when risk could not be established — nulls mean "unknown", not "safe". */
   live: boolean;
+  /** `provider` = commercial AIS API; `ingested` = locally ingested feed. */
+  source?: 'provider' | 'ingested';
+  /** Name of the sanctioned port whose geofence this vessel is inside. */
+  sanctionedPort?: string | null;
   /**
    * Why `live` is false. `ais_not_configured` means no feed is wired up at all;
    * `lookup_failed` means the feed was tried and did not answer. The UI must be
@@ -54,6 +59,7 @@ export class VesselService {
     @InjectRepository(UniversalEntity)
     private readonly entityRepo: Repository<UniversalEntity>,
     private readonly engine: VesselTrackingEngine,
+    private readonly ais: AisIngestService,
   ) {}
 
   private async watchlistRows(tenantId: string): Promise<UniversalEntity[]> {
@@ -93,19 +99,57 @@ export class VesselService {
           addedAt: row.createdAt,
         };
 
-        // Not configured is not the same as "checked and clean". The engine
-        // returns null rather than throwing when no AIS feed is wired up, so
-        // without this guard every vessel would report live:true / risk:none —
-        // a confident all-clear nobody actually earned.
+        // Two sources, in order of quality. A commercial AIS API gives
+        // history and dark-period analysis; the locally ingested feed gives a
+        // last-known fix, which is enough to place a vessel and geofence it.
         if (!this.engine.isConfigured()) {
+          const stored = await this.ais.find({
+            imo: attrs.imo,
+            mmsi: attrs.mmsi,
+          });
+
+          // Nothing configured *and* nothing ingested: genuinely unknown.
+          // Never report this as clear — see the `unavailableReason` note.
+          if (!stored || stored.lat === null || stored.lon === null) {
+            return {
+              ...base,
+              position: null,
+              riskScore: null,
+              riskLevel: null,
+              darkPeriods: 0,
+              live: false,
+              unavailableReason: 'ais_not_configured',
+            };
+          }
+
+          // Geofencing is local maths over a known fix, so a sanctioned-port
+          // breach is detectable from the ingested feed alone.
+          const fence = this.engine.checkGeofence(stored.lat, stored.lon);
+
           return {
             ...base,
-            position: null,
-            riskScore: null,
-            riskLevel: null,
+            name: stored.name ?? base.name,
+            flag: stored.flag ?? base.flag,
+            type: stored.shipType ?? base.type,
+            position: {
+              lat: stored.lat,
+              lon: stored.lon,
+              speed: stored.sog,
+              course: stored.cog,
+              heading: stored.heading,
+              navStatus: stored.navStatus,
+              destination: stored.destination,
+              timestamp: stored.lastSeenAt,
+              source: stored.source,
+            },
+            riskScore: fence.inSanctionedZone ? 90 : 10,
+            riskLevel: fence.inSanctionedZone ? 'critical' : 'low',
+            sanctionedPort: fence.inSanctionedZone
+              ? fence.nearestPort?.name
+              : null,
             darkPeriods: 0,
-            live: false,
-            unavailableReason: 'ais_not_configured',
+            live: true,
+            source: 'ingested',
           };
         }
 
@@ -124,6 +168,7 @@ export class VesselService {
             riskLevel: risk?.overallRisk ?? null,
             darkPeriods: info?.darkPeriods?.length ?? 0,
             live: true,
+            source: 'provider',
           };
         } catch (error) {
           const message =
