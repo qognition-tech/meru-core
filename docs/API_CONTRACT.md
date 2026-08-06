@@ -86,10 +86,10 @@ the message contains "expired"), `403 → MER-AUTH-0008`, `404 → MER-RES-0001`
 Unwrap `response.data.data`, and treat a non-null `error` as a thrown failure.
 Note `pagination` lives on `meta`, **not** inside `data`.
 
-> **Known frontend divergence.** The three apps currently disagree:
-> - `governancex/lib/api/client.ts` — unwraps `.data`. **Correct.**
-> - `meru-dashboard/lib/api/client.ts` — `isEnvelope` guard on `{data, meta, error}`. **Correct.**
-> - `immistack/lib/api/client.ts:100` — returns `response.data` raw, **no unwrapping. Broken** — every live call returns the envelope where the payload is expected. Must be fixed.
+> All three frontend clients unwrap the envelope identically (`isEnvelope`
+> guard + throw on 200-with-populated-`error`) since FE commit `24320bb`
+> (2026-07-30). A previous version of this block flagged immistack's client
+> as broken; that was fixed and the flag is retired (handoff §8.1).
 
 ---
 

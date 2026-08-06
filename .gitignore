@@ -58,3 +58,6 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .vercel
+
+# Product/reference documents (client proposals, BRDs) — not source code
+claude-documents/
