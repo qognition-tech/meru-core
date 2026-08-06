@@ -1,3 +1,4 @@
+import { MigrateService } from './migrate.service';
 import { Module } from '@nestjs/common';
 import { JobsController } from './jobs.controller';
 import { CronSecretGuard } from './cron-secret.guard';
@@ -29,6 +30,6 @@ import { AiModule } from '../ai/ai.module';
     AiModule,
   ],
   controllers: [JobsController],
-  providers: [CronSecretGuard],
+  providers: [CronSecretGuard, MigrateService],
 })
 export class JobsModule {}

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -30,6 +31,7 @@ import { AuditService } from '../audit/audit.service';
 import { RegulatoryRadarEngine } from '../ai/engines/regulatory-radar.engine';
 import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
+import { MigrateService, MigrateTarget } from './migrate.service';
 
 export interface JobResult {
   job: string;
@@ -144,9 +146,33 @@ export class JobsController {
     private readonly analyticsService: AnalyticsService,
     private readonly auditService: AuditService,
     private readonly regulatoryRadar: RegulatoryRadarEngine,
+    private readonly migrateService: MigrateService,
   ) {}
 
   // ── Consolidated dispatcher ───────────────────────────────────────────────
+  // Declared before the :job routes for the same reason as tick.
+
+  @Post('migrate/:target')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Run bundled migrations against one of the three databases',
+    description:
+      "Machine endpoint (CRON_SECRET). target: 'control' (DATABASE_URL), " +
+      "'govx' (GOVX_DB_URL) or 'immistack' (IMMISTACK_DB_URL). Idempotent — " +
+      'reports alreadyApplied when the chain is current. Exists because the ' +
+      'vertical databases are migrated from deploy infrastructure, not from ' +
+      'developer machines (three-DB split, MASTER_GAP_ANALYSIS P1).',
+  })
+  @ApiResponse({ status: 200, description: 'Migrations executed (or current)' })
+  async migrate(@Param('target') target: string) {
+    if (!['control', 'govx', 'immistack'].includes(target)) {
+      throw new BadRequestException(
+        "target must be 'control', 'govx' or 'immistack'",
+      );
+    }
+    return this.migrateService.migrate(target as MigrateTarget);
+  }
+
   // Declared before the :job routes so "tick" is not swallowed as a job name.
 
   @Get('tick')
