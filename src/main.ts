@@ -9,7 +9,9 @@ import rateLimit from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: Stripe webhook signatures are computed over the exact bytes;
+  // a re-serialized JSON body never verifies.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const logger = new Logger('Bootstrap');
 
   // Determine CORS origins from env

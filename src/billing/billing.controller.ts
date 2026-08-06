@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Body,
   Param,
@@ -18,6 +20,9 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { BillingService } from './billing.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
+import { StripeService } from './stripe.service';
 import {
   AddCreditsDto,
   CreatePlanDto,
@@ -32,7 +37,42 @@ import { DateRangeQueryDto } from '../common/dto/date-range.dto';
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class BillingController {
-  constructor(private billingService: BillingService) {}
+  constructor(
+    private billingService: BillingService,
+    private stripeService: StripeService,
+  ) {}
+
+  // ==================== STRIPE ====================
+
+  @Post('checkout')
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
+  @ApiOperation({
+    summary: 'Stripe Checkout link for a plan (seats = quantity)',
+  })
+  @ApiResponse({ status: 201, description: 'Checkout URL created' })
+  @ApiResponse({ status: 503, description: 'Stripe not configured' })
+  async checkout(
+    @Request() req,
+    @Body()
+    dto: {
+      planCode: string;
+      seats?: number;
+      successUrl: string;
+      cancelUrl: string;
+    },
+  ) {
+    return this.stripeService.createCheckoutSession(req.user.tenantId, dto);
+  }
+
+  @Post('portal')
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
+  @ApiOperation({ summary: 'Stripe customer portal link' })
+  async portal(@Request() req, @Body() dto: { returnUrl: string }) {
+    return this.stripeService.createPortalSession(
+      req.user.tenantId,
+      dto.returnUrl,
+    );
+  }
 
   // ==================== PLANS ====================
 
