@@ -48,6 +48,9 @@ export class PolicyGuard implements CanActivate {
     }
 
     const vertical = await this.resolveVertical(request);
+    // Downstream handlers (connectors catalogue, entitlements) need the
+    // resolved vertical; attaching it here saves them a second lookup.
+    request.tenantVertical = vertical;
     if (!vertical) {
       // No tenant on the token (platform-scoped caller): the role check above
       // is the gate; there is no vertical policy to apply.

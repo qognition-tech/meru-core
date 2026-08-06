@@ -17,6 +17,9 @@ import { VesselService } from './services/vessel.service';
 import { TradeService } from './services/trade.service';
 import { AisIngestService } from './services/ais-ingest.service';
 import { VesselPosition } from './entities/vessel-position.entity';
+import { TenantConnector } from './entities/tenant-connector.entity';
+import { ConnectorsController } from './connectors.controller';
+import { ConnectorsService } from './services/connectors.service';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { AiModule } from '../ai/ai.module';
 
@@ -37,17 +40,23 @@ import { AiModule } from '../ai/ai.module';
       IntegrationAdapter,
       UniversalEntity,
       VesselPosition,
+      TenantConnector,
     ]),
     IamModule,
     // VesselTrackingEngine and ScreeningEngine (CLAUDE.md §3.2, §3.4).
     AiModule,
   ],
-  controllers: [IntegrationsController, AisIngestController],
+  controllers: [
+    IntegrationsController,
+    AisIngestController,
+    ConnectorsController,
+  ],
   providers: [
     IntegrationsService,
     VesselService,
     TradeService,
     AisIngestService,
+    ConnectorsService,
     AuHomeAffairsAdapter,
     UaeCentralBankAdapter,
     SaSamaAdapter,
