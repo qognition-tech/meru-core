@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ALL_MIGRATIONS } from '../config/migrations';
+import { ALL_ENTITIES } from '../config/entities';
+import { AddTenantRowLevelSecurity1753500000000 } from '../migrations/1753500000000-AddTenantRowLevelSecurity';
 
 export type MigrateTarget = 'control' | 'govx' | 'immistack';
 
@@ -29,6 +31,15 @@ export class MigrateService {
     }
   }
 
+  /** No public tables ⇒ never provisioned, so bootstrap rather than migrate. */
+  private async isEmptyDatabase(ds: DataSource): Promise<boolean> {
+    const rows = await ds.query<{ count: string }[]>(
+      `SELECT count(*)::text AS count FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+    );
+    return Number(rows?.[0]?.count ?? 0) === 0;
+  }
+
   async migrate(target: MigrateTarget): Promise<{
     target: MigrateTarget;
     executed: string[];
@@ -44,6 +55,7 @@ export class MigrateService {
     const ds = new DataSource({
       type: 'postgres',
       url,
+      entities: ALL_ENTITIES,
       migrations: ALL_MIGRATIONS,
       // 'each': fresh databases run the whole chain in one call, and enum
       // ADD VALUE + later use must not share one giant transaction.
@@ -86,6 +98,61 @@ export class MigrateService {
         CREATE OR REPLACE FUNCTION app.set_context_fields() RETURNS trigger
         LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
       `);
+
+      // An empty database is BOOTSTRAPPED, not migrated.
+      //
+      // The migration chain cannot run from empty: several 2025 migrations
+      // reference columns and functions that only exist because the
+      // control-plane database was built incrementally and then baselined
+      // (scripts/baseline-migrations.js). Replaying it against a fresh Neon
+      // database dies on undefined functions and missing columns, and
+      // "fix each error as it surfaces" would rewrite history that production
+      // already depends on.
+      //
+      // So: build the schema from entity metadata (the same definitions the
+      // app runs against — no drift possible), apply the RLS migration
+      // explicitly because synchronize knows nothing about policies, then
+      // record every migration as applied so future incremental migrations
+      // run normally on top.
+      const isEmpty = await this.isEmptyDatabase(ds);
+      if (isEmpty) {
+        this.logger.log(`Bootstrapping empty database '${target}' from entities`);
+        await ds.synchronize();
+        await ds.query(`
+          CREATE TABLE IF NOT EXISTS migrations (
+            id SERIAL PRIMARY KEY,
+            timestamp bigint NOT NULL,
+            name character varying NOT NULL
+          )
+        `);
+
+        const rls = new AddTenantRowLevelSecurity1753500000000();
+        const runner = ds.createQueryRunner();
+        try {
+          await runner.connect();
+          await rls.up(runner);
+        } finally {
+          await runner.release();
+        }
+
+        for (const m of ALL_MIGRATIONS) {
+          const name = m.name;
+          const timestamp = Number(/(\d{13})$/.exec(name)?.[1] ?? Date.now());
+          await ds.query(
+            'INSERT INTO migrations (timestamp, name) VALUES ($1, $2)',
+            [timestamp, name],
+          );
+        }
+
+        this.logger.log(
+          `Bootstrapped '${target}': schema from entities + RLS, ${ALL_MIGRATIONS.length} migrations baselined`,
+        );
+        return {
+          target,
+          executed: [`bootstrap (${ALL_MIGRATIONS.length} baselined)`],
+          alreadyApplied: false,
+        };
+      }
 
       const executed = await ds.runMigrations({ transaction: 'each' });
       this.logger.log(
