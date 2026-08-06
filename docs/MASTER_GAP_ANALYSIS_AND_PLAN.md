@@ -149,3 +149,45 @@ A **live publishable key** was provided. Policy: publishable keys are frontend-s
 - **P3:** Stripe test-mode checkout → webhook flips plan → entitlements change live.
 - **P4/P5:** each wired page: empty-DB state renders honestly (no mock leakage with `ALLOW_MOCKS` unset), then seeded-data state; screening returns real OFAC hits.
 - **P6:** two tenants on the same app render different logos/colors.
+
+---
+
+## 4. Execution log — 2026-08-07 session
+
+### Shipped and deployed (meru-core `main`, all building green on Vercel)
+
+| Phase | Item | State |
+|---|---|---|
+| P0 | Global default-deny auth guard + `@Public()` surface | **done** |
+| P0 | PolicyGuard resolves real tenant vertical (fintech mock killed) | **done** |
+| P0 | Guard unit tests; CI gates on `npm test` + `rls:verify` | **done** |
+| P0 | Fixed pre-existing red CI (missing JWT_SECRET in load probe) | **done** |
+| P1 | `govx` + `immistack` Neon databases created | **done** |
+| P1 | Shared entity catalogue + `VerticalDataSources` (RLS parity, env-gated rollout) | **done** |
+| P1 | `POST /jobs/migrate/:target` — migrate any of the 3 DBs from deploy infra | **done** |
+| P1 | Connector registry: `GET/PUT /integrations/connectors`, AES-256-GCM credentials | **done** |
+| P1 | Entitlements `GET /tenants/me/entitlements`; plan→module map | **done** |
+| P1 | Provisioning v2: `POST /tenants` (invite flow), suspend/resume | **done** |
+| P2 | `GET /platform/stats`; feature-flags CRUD API | **done** |
+| P3 | Stripe: checkout, portal, signature-verified webhook, plan sync | **done** (needs `STRIPE_SECRET_KEY`) |
+| P4 | COM transport — notifications actually deliver via Resend, on `/jobs/tick` | **done** |
+| P4 | `PUT /forms/:id` (draft update; published → 409 + version flow) | **done** |
+| P5 | `lead` entity type + migration | **done** |
+| P6 | `GET/PUT /tenant/branding` | **done** |
+| — | `fix`: billing metrics returned `mrr: {}` (unawaited promise) | **done** |
+
+### Shipped (meru-core-fe `main`)
+
+- **meru-dashboard**: not-implemented registry now **empty**. God-view, tenants, config-packs (promote/deactivate), billing, feature-flags, modules all live. **Tenant provisioning wizard** (`/platform/tenants/new`) with vertical/plan/country-module/connector selection; suspend/resume row actions.
+- **governancex**: live regulator connector picker (CBUAE/SAMA/QCB/CBB + credentials); GovAI chat on the real `/ai/execute` with citation rendering; mock fallbacks removed from search/tasks/regulatory/SAR (and fixed 3 permanently-blank SAR columns the mock typing hid).
+- **immistack**: runtime white-label theming (`BrandingProvider` → CSS variables); cases page live; **kanban no longer drags mock ids into live PATCHes**.
+
+### Honest remaining scope
+
+**The full GovernanceX 143-feature set and the complete 13-batch ImmiStack spec are not done.** What exists is the platform they hang off, plus the highest-risk correctness fixes. Concretely:
+
+- **GovX**: ~12 of 21 module areas have live UI. Not started: match review/rescreening workflow, knowledge base & training, email automation + RFI advanced (A/B, scheduler, follow-up), collaboration (chat/presence/WebSocket), turnover monitoring, Finacle sync, milestones/roadmap, voice transcription, WorldCheck/Dow Jones feeds.
+- **ImmiStack**: ~3 of 35 pages live (cases, kanban, login/onboarding). Still mock-driven: clients, leads, client/case detail tabs, documents, payments, communications, staff, analytics, marketing, all client-portal pages. The 7-step onboarding wizard still persists only step 1.
+- **Backend**: screening still runs on hardcoded OFAC samples (no list ingestion); Regulatory Radar does not draft config-pack diffs; Elasticsearch service remains unwired behind the stub search facade; SLA watchdog actions are still TODOs.
+
+These are weeks of engineering, not hours. The ordering above (P7–P9) stands.
