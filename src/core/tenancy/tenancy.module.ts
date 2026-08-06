@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { AuditModule } from '../../audit/audit.module';
 import { applyRlsToDataSource, assertRlsEnforceable } from './rls.datasource';
 import { TenancyService } from './tenancy.service';
+import { VerticalDataSources } from './vertical-datasources.service';
 
 /**
  * Wires database-level tenant isolation (CLAUDE.md §6.4).
@@ -15,8 +16,8 @@ import { TenancyService } from './tenancy.service';
 @Global()
 @Module({
   imports: [AuditModule],
-  providers: [TenancyService],
-  exports: [TenancyService],
+  providers: [TenancyService, VerticalDataSources],
+  exports: [TenancyService, VerticalDataSources],
 })
 export class TenancyModule implements OnModuleInit {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}

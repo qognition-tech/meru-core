@@ -63,6 +63,12 @@ export const configuration = () => ({
     // See scripts/provision-rls-role.js.
     url: process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
     migrationUrl: process.env.DATABASE_URL,
+    // Per-vertical databases (three-DB split, MASTER_GAP_ANALYSIS §2 P1).
+    // Unset ⇒ that vertical shares the default (control-plane) database, so
+    // the split can roll out one environment at a time without downtime.
+    govxUrl: process.env.GOVX_DB_APP_URL || process.env.GOVX_DB_URL,
+    immistackUrl:
+      process.env.IMMISTACK_DB_APP_URL || process.env.IMMISTACK_DB_URL,
     host: process.env.DATABASE_HOST || 'localhost',
     port: parseInt(process.env.DATABASE_PORT || '5432', 10),
     username: process.env.DATABASE_USERNAME || 'postgres',
