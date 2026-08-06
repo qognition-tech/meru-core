@@ -599,7 +599,7 @@ export class BillingService {
       invoiceCount: invoices.length,
       averageInvoice,
       activeSubscriptions: subscriptions,
-      mrr: this.calculateMRR(tenantId),
+      mrr: await this.calculateMRR(tenantId),
     };
   }
 
