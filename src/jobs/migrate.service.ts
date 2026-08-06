@@ -54,6 +54,13 @@ export class MigrateService {
 
     await ds.initialize();
     try {
+      // A brand-new Neon database has neither extension, and the migration
+      // chain calls uuid_generate_v4()/gen_random_uuid() from the very first
+      // migration. The control-plane DB only has them because they were
+      // installed by hand before the chain ever ran there.
+      await ds.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+      await ds.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+
       const executed = await ds.runMigrations({ transaction: 'each' });
       this.logger.log(
         `Migrated '${target}': ${executed.length} migration(s) executed`,
