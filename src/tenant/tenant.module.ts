@@ -9,6 +9,8 @@ import { ConfigPackService } from './services/config-pack.service';
 import { ConfigPackLoaderService } from './services/config-pack-loader.service';
 import { TenantController } from './tenant.controller';
 import { ConfigPackController } from './controllers/config-pack.controller';
+import { FeatureFlagController } from './controllers/feature-flag.controller';
+import { FeatureFlagService } from './services/feature-flag.service';
 import { CoreModule } from '../core/core.module';
 import { BillingModule } from '../billing/billing.module';
 import { AuditModule } from '../audit/audit.module';
@@ -29,12 +31,13 @@ import { AuditModule } from '../audit/audit.module';
     BillingModule,
     AuditModule,
   ],
-  controllers: [TenantController, ConfigPackController],
+  controllers: [TenantController, ConfigPackController, FeatureFlagController],
   providers: [
     TenantSettingsService,
     ConfigPackService,
     ConfigPackLoaderService,
+    FeatureFlagService,
   ],
-  exports: [TenantSettingsService, ConfigPackService],
+  exports: [TenantSettingsService, ConfigPackService, FeatureFlagService],
 })
 export class TenantModule {}
