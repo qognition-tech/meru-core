@@ -3,6 +3,8 @@ import { DataSource } from 'typeorm';
 import { ALL_MIGRATIONS } from '../config/migrations';
 import { ALL_ENTITIES } from '../config/entities';
 import { AddTenantRowLevelSecurity1753500000000 } from '../migrations/1753500000000-AddTenantRowLevelSecurity';
+import { AddVesselPositions1754200000000 } from '../migrations/1754200000000-AddVesselPositions';
+import { AddTenantConnectors1754700000000 } from '../migrations/1754700000000-AddTenantConnectors';
 
 export type MigrateTarget = 'control' | 'govx' | 'immistack';
 
@@ -126,11 +128,21 @@ export class MigrateService {
           )
         `);
 
-        const rls = new AddTenantRowLevelSecurity1753500000000();
+        // synchronize() creates tables but knows nothing about policies, so
+        // every migration that carries RLS has to be replayed. These three are
+        // idempotent (IF NOT EXISTS / DROP POLICY IF EXISTS), and rls:verify
+        // fails the deploy if any table is left uncovered.
+        const rlsMigrations = [
+          new AddTenantRowLevelSecurity1753500000000(),
+          new AddVesselPositions1754200000000(),
+          new AddTenantConnectors1754700000000(),
+        ];
         const runner = ds.createQueryRunner();
         try {
           await runner.connect();
-          await rls.up(runner);
+          for (const migration of rlsMigrations) {
+            await migration.up(runner);
+          }
         } finally {
           await runner.release();
         }
