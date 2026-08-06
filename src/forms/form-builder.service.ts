@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -145,6 +146,77 @@ export class FormBuilderService {
       relations: ['fields'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * Bare update of a DRAFT form. Published (ACTIVE) forms are immutable by
+   * design — live submissions reference their field set — so edits to a
+   * published form must go through createNewVersion instead. This split is
+   * the contract answer to the FE's "PUT /forms/:id or /forms/:id/version?"
+   * question: PUT for drafts, version for anything already published.
+   */
+  async updateForm(
+    id: string,
+    tenantId: string,
+    definition: Partial<FormDefinition>,
+  ): Promise<FormSchema> {
+    const form = await this.formSchemaRepo.findOne({
+      where: { id, tenantId },
+    });
+
+    if (!form) {
+      throw new NotFoundException('Form not found');
+    }
+
+    if (form.status !== FormStatus.DRAFT) {
+      throw new ConflictException(
+        'Published forms are immutable — create a new draft version via POST /forms/:id/version, edit that, then publish it.',
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      if (definition.name !== undefined) form.name = definition.name;
+      if (definition.description !== undefined)
+        form.description = definition.description;
+      if (definition.layout !== undefined) form.layout = definition.layout;
+      if (definition.config !== undefined) form.config = definition.config;
+      await queryRunner.manager.save(form);
+
+      // A fields array replaces the draft's field set wholesale — partial
+      // field patches would need per-field identity the DTO doesn't carry.
+      if (definition.fields !== undefined) {
+        await queryRunner.manager.delete(FormField, { formSchemaId: form.id });
+        for (const fieldDef of definition.fields) {
+          const field = queryRunner.manager.create(FormField, {
+            formSchemaId: form.id,
+            key: fieldDef.key,
+            label: fieldDef.label,
+            type: fieldDef.type,
+            description: fieldDef.description,
+            placeholder: fieldDef.placeholder,
+            order: fieldDef.order || 0,
+            validation: fieldDef.validation || {},
+            options: fieldDef.options || {},
+            config: fieldDef.config || {},
+            conditionalLogic: fieldDef.conditionalLogic,
+          });
+          await queryRunner.manager.save(field);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    return this.getForm(id);
   }
 
   async publishForm(id: string, tenantId: string): Promise<FormSchema> {

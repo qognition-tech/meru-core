@@ -21,6 +21,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { FormBuilderService } from './form-builder.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CreateFormDto } from './dto/create-form.dto';
+import { UpdateFormDto } from './dto/update-form.dto';
 import type { FormDefinition } from './form-builder.service';
 
 @ApiTags('forms')
@@ -118,6 +119,26 @@ export class FormController {
   async renderForm(@Param('id', ParseUUIDPipe) id: string) {
     const form = await this.formService.renderForm(id);
     return form;
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update a DRAFT form in place' })
+  @ApiResponse({ status: 200, description: 'Form updated' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Form is published — create a new version via POST /forms/:id/version',
+  })
+  async updateForm(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: UpdateFormDto,
+  ) {
+    return this.formService.updateForm(
+      id,
+      req.user.tenantId,
+      dto as unknown as Partial<FormDefinition>,
+    );
   }
 
   @Post(':id/publish')
