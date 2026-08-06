@@ -77,6 +77,15 @@ export class MigrateService {
         CREATE OR REPLACE FUNCTION app.has_access(text, text) RETURNS boolean
         LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;
       `);
+      // Attached as a BEFORE INSERT OR UPDATE trigger on ~20 tables by the
+      // same two migrations, and likewise never defined. A no-op preserves
+      // the insert exactly as the application wrote it — the entities set
+      // their own vertical/environment/tenant columns, and RLS is what
+      // enforces isolation, not this trigger.
+      await ds.query(`
+        CREATE OR REPLACE FUNCTION app.set_context_fields() RETURNS trigger
+        LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+      `);
 
       const executed = await ds.runMigrations({ transaction: 'each' });
       this.logger.log(
