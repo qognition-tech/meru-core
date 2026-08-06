@@ -1,11 +1,12 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { TenancyModule } from './core/tenancy/tenancy.module';
 import { MailModule } from './core/mail/mail.module';
 import { TenantAlsMiddleware } from './core/tenancy/tenant-als.middleware';
 import { TenantBindingInterceptor } from './core/tenancy/tenant-binding.interceptor';
+import { GlobalAuthGuard } from './core/auth/global-auth.guard';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
@@ -284,6 +285,10 @@ import {
     // this would run against an unbound connection — CLAUDE.md §6.4 admits no
     // opt-in surface for tenant isolation.
     { provide: APP_INTERCEPTOR, useClass: TenantBindingInterceptor },
+    // Default-deny authentication: every route requires a JWT unless it
+    // declares @Public(). Same rationale as the interceptor above — auth,
+    // like tenancy, admits no opt-in surface.
+    { provide: APP_GUARD, useClass: GlobalAuthGuard },
   ],
 })
 export class AppModule implements NestModule {

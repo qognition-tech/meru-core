@@ -45,6 +45,7 @@ export class IamController {
   ) {}
 
   @Post('login')
+  @Public() // credential check is AuthGuard('local'), not the global JWT guard
   @UseGuards(AuthGuard('local')) // See ./strategies/local.strategy.ts
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({
@@ -78,6 +79,7 @@ export class IamController {
   }
 
   @Post('register')
+  @Public()
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({
     schema: {
@@ -320,6 +322,7 @@ export class IamController {
   // ── SAML SSO endpoints ────────────────────────────────────────────────────
 
   @Get('saml/initiate')
+  @Public() // browser redirect to the IdP happens pre-authentication
   @ApiOperation({
     summary: 'Initiate SAML SSO — redirects to the tenant IdP',
     description:
@@ -339,6 +342,7 @@ export class IamController {
   }
 
   @Post('saml/callback')
+  @Public() // the IdP posts the assertion; the assertion itself is the credential
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'SAML SSO callback — receives assertion from IdP',

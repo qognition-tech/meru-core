@@ -17,7 +17,14 @@ export interface VerticalPolicy {
 export class VerticalPolicyService {
   private readonly logger = new Logger(VerticalPolicyService.name);
 
-  // Mock DB of Vertical Configs
+  // Interim in-memory defaults. PolicyGuard now resolves the tenant's REAL
+  // vertical, so these rules are live enforcement, not dead code: an IP
+  // whitelist or business-hours window here blocks actual traffic for every
+  // tenant of that vertical. They therefore ship permissive (no IP list,
+  // 24h access) until per-tenant policies load from config packs / tenant
+  // settings (Phase 1 of docs/MASTER_GAP_ANALYSIS_AND_PLAN.md). The earlier
+  // mock values (`ipWhitelist: ['10.0.0.1']`, 9–17 hours on immigration)
+  // would have locked every ImmiStack tenant out.
   private verticalConfigs: Record<VerticalType, VerticalPolicy> = {
     [VerticalType.GRC]: {
       vertical: VerticalType.GRC,
@@ -32,8 +39,8 @@ export class VerticalPolicyService {
       vertical: VerticalType.IMMIGRATION,
       rules: {
         mfaRequired: false,
-        ipWhitelist: ['10.0.0.1'], // Mock internal IP
-        businessHours: { start: 9, end: 17 },
+        ipWhitelist: [],
+        businessHours: { start: 0, end: 24 },
         dataRetentionDays: 3650,
       },
     },
@@ -42,7 +49,7 @@ export class VerticalPolicyService {
       rules: {
         mfaRequired: true,
         ipWhitelist: [],
-        businessHours: { start: 8, end: 18 },
+        businessHours: { start: 0, end: 24 },
         dataRetentionDays: 1825,
       },
     },
@@ -60,7 +67,7 @@ export class VerticalPolicyService {
       rules: {
         mfaRequired: false,
         ipWhitelist: [],
-        businessHours: { start: 9, end: 17 },
+        businessHours: { start: 0, end: 24 },
         dataRetentionDays: 3650,
       },
     },

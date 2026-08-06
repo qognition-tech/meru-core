@@ -29,6 +29,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CheckSlugDto } from './dto/check-slug.dto';
 import { TenantPlan } from './entities/tenant.entity';
 import { Roles } from './decorators/roles.decorator';
+import { Public } from './decorators/public.decorator';
 import { PlatformRole } from './enums/platform-role.enum';
 import { TenancyService } from '../core/tenancy/tenancy.service';
 import type { AuthenticatedRequest } from '../common/types';
@@ -66,6 +67,7 @@ export class TenantProvisioningController {
   }
 
   @Post('signup')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new workspace (tenant)' })
   @ApiResponse({ status: 201, description: 'Workspace created successfully' })
@@ -77,6 +79,7 @@ export class TenantProvisioningController {
   }
 
   @Post('check-slug')
+  @Public()
   @ApiOperation({ summary: 'Check if a workspace slug is available' })
   @ApiResponse({ status: 200, description: 'Slug availability checked' })
   @ApiBody({

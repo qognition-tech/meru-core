@@ -13,6 +13,7 @@ import {
   ApiSecurity,
 } from '@nestjs/swagger';
 import { CronSecretGuard } from '../jobs/cron-secret.guard';
+import { Public } from '../iam/decorators/public.decorator';
 import {
   AisIngestService,
   type AisIngestResult,
@@ -34,6 +35,7 @@ import { AisIngestDto } from './dto/ais-ingest.dto';
  */
 @ApiTags('integrations')
 @Controller('integrations/vessel/ais')
+@Public() // authenticated by CronSecretGuard below, not by user JWT
 @UseGuards(CronSecretGuard)
 @ApiSecurity('cron-secret')
 export class AisIngestController {

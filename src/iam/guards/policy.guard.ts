@@ -5,15 +5,29 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { VerticalPolicyService } from '../../core/verticals/vertical-policy.service';
+import { TenantContext } from '../../core/tenancy/tenant-context';
+import { VerticalType } from '../enums/vertical.enum';
 import { User } from '../entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
+
+// Tenant verticals effectively never change; a short in-process cache keeps
+// the guard off the DB hot path while bounding how long a re-verticaled
+// tenant could see stale policy.
+const VERTICAL_CACHE_TTL_MS = 5 * 60_000;
 
 @Injectable()
 export class PolicyGuard implements CanActivate {
+  private readonly verticalCache = new Map<
+    string,
+    { vertical: VerticalType; expires: number }
+  >();
+
   constructor(
     private reflector: Reflector,
     private verticalPolicyService: VerticalPolicyService,
+    @InjectDataSource() private dataSource: DataSource,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -21,16 +35,6 @@ export class PolicyGuard implements CanActivate {
     const user = request.user as User;
 
     if (!user) throw new ForbiddenException('Unauthorized');
-
-    // Assume request contains full user object (eager loaded in strategy or via decorator)
-    // For this demo, we use the minimal JWT payload if tenant isn't attached.
-    // In a real app, attach full tenant object to request in middleware.
-
-    // Mocking tenant lookup for this specific snippet to ensure code works without DB eager load in JWT
-    const tenant = request.user?.tenant || { vertical: 'fintech' };
-
-    // 1. Load Vertical Policy (Cached)
-    const policy = await this.verticalPolicyService.getPolicy(tenant.vertical);
 
     const requiredRoles = this.reflector.getAllAndOverride<string[]>('roles', [
       context.getHandler(),
@@ -43,7 +47,16 @@ export class PolicyGuard implements CanActivate {
       throw new ForbiddenException('Insufficient Role Privileges');
     }
 
-    // 3. Context-Aware Checks
+    const vertical = await this.resolveVertical(request);
+    if (!vertical) {
+      // No tenant on the token (platform-scoped caller): the role check above
+      // is the gate; there is no vertical policy to apply.
+      return true;
+    }
+
+    const policy = await this.verticalPolicyService.getPolicy(vertical);
+
+    // Context-aware checks
     // IP Whitelist
     if (policy.rules.ipWhitelist && policy.rules.ipWhitelist.length > 0) {
       const ip = request.ip;
@@ -66,5 +79,40 @@ export class PolicyGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private async resolveVertical(request: {
+    user?: { tenant?: { vertical?: VerticalType }; tenantId?: string };
+  }): Promise<VerticalType | null> {
+    const attached = request.user?.tenant?.vertical;
+    if (attached) return attached;
+
+    const tenantId = request.user?.tenantId;
+    if (!tenantId) return null;
+
+    const cached = this.verticalCache.get(tenantId);
+    if (cached && cached.expires > Date.now()) return cached.vertical;
+
+    // Guards run before TenantBindingInterceptor, so the pooled connection is
+    // not yet bound to a tenant and RLS on `tenants` would match zero rows.
+    // This is an identity-bootstrap lookup — the documented use of
+    // runAsSystem (CLAUDE.md §6.4).
+    const rows = await TenantContext.runAsSystem(
+      'policy-guard vertical lookup',
+      () =>
+        this.dataSource.query<{ vertical: VerticalType }[]>(
+          'SELECT vertical FROM tenants WHERE id = $1',
+          [tenantId],
+        ),
+    );
+
+    const vertical = rows?.[0]?.vertical ?? null;
+    if (vertical) {
+      this.verticalCache.set(tenantId, {
+        vertical,
+        expires: Date.now() + VERTICAL_CACHE_TTL_MS,
+      });
+    }
+    return vertical;
   }
 }
