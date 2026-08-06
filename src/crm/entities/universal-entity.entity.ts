@@ -36,6 +36,13 @@ export enum EntityType {
    */
   BREACH = 'breach',
   /**
+   * A prospective client before conversion. ImmiStack renders these as
+   * "Leads" (source, visa interest, score live in `verticalAttributes`);
+   * conversion to a client is a type-preserving workflow, not a new record —
+   * the config pack labels the lifecycle (new/contacted/qualified/converted).
+   */
+  LEAD = 'lead',
+  /**
    * A trade finance instrument — letter of credit, guarantee, collection.
    * Banking-shaped fields (applicant, beneficiary, amount, screening result)
    * live in `verticalAttributes`; core only models the record and its

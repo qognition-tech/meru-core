@@ -26,6 +26,7 @@ const WORKABLE_TYPES: ReadonlySet<EntityType> = new Set([
   EntityType.CASE,
   EntityType.OBLIGATION,
   EntityType.BREACH,
+  EntityType.LEAD,
 ]);
 
 function defaultStatusFor(type: EntityType): EntityStatus | null {
