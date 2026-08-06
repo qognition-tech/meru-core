@@ -51,6 +51,27 @@ jobs:
       - name: Verify the compiled app loads under CommonJS
         run: node -e "require('./dist/src/app.module'); require('./dist/src/swagger');"
 
+      # Unit tests are a hard gate. The suite is small but guards the two
+      # security-critical seams: default-deny auth (GlobalAuthGuard) and
+      # vertical policy resolution (PolicyGuard).
+      - name: Test
+        run: npm test
+
+      # Attempts real cross-tenant reads/writes as the non-BYPASSRLS app role
+      # and fails if any succeed (CLAUDE.md §6.4: never trust "RLS is on"
+      # without running this). Runs only when the repo secret is configured —
+      # forks and secretless clones skip it rather than red-Xing on a missing
+      # credential.
+      - name: Verify tenant isolation (RLS)
+        env:
+          DATABASE_APP_URL: ${{ secrets.RLS_VERIFY_DATABASE_APP_URL }}
+        run: |
+          if [ -z "$DATABASE_APP_URL" ]; then
+            echo "::warning::RLS_VERIFY_DATABASE_APP_URL secret not set — tenant-isolation verification SKIPPED. Set it to a Neon branch app-role URL to enforce this gate."
+          else
+            npm run rls:verify
+          fi
+
       # Not a gate yet: the existing code has pre-existing lint findings.
       - name: Lint
         run: npm run lint
