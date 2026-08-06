@@ -48,7 +48,13 @@ jobs:
 
       # Catches an entrypoint that compiles but cannot be loaded as CommonJS —
       # the exact failure mode the serverless bundle hits at cold start.
+      # JWT_SECRET is a dummy: loading app.module runs the Joi config
+      # validation, which requires it. This step verifies loadability, not
+      # configuration — this exact failure red-Xed every push since strict
+      # validation landed.
       - name: Verify the compiled app loads under CommonJS
+        env:
+          JWT_SECRET: ci-load-check-not-a-real-secret
         run: node -e "require('./dist/src/app.module'); require('./dist/src/swagger');"
 
       # Unit tests are a hard gate. The suite is small but guards the two
