@@ -1,3 +1,5 @@
+import { User } from '../iam/entities/user.entity';
+import { NotificationDispatchService } from './notification-dispatch.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotificationsService } from './notifications.service';
@@ -14,10 +16,11 @@ import {
       Notification,
       NotificationPreference,
       NotificationTemplate,
+      User,
     ]),
   ],
-  providers: [NotificationsService],
+  providers: [NotificationsService, NotificationDispatchService],
   controllers: [NotificationsController],
-  exports: [NotificationsService],
+  exports: [NotificationsService, NotificationDispatchService],
 })
 export class NotificationsModule {}

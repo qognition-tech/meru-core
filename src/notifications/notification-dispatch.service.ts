@@ -1,0 +1,175 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import {
+  Notification,
+  NotificationStatus,
+  NotificationType,
+} from './entities/notification.entity';
+import { User } from '../iam/entities/user.entity';
+import { MailService } from '../core/mail/mail.service';
+import { TenantContext } from '../core/tenancy/tenant-context';
+
+/**
+ * Actually delivers notifications. NotificationsService writes rows and emits
+ * an event nobody consumed, so every notification sat at `pending` forever —
+ * the COM module has been storage-only since it was written.
+ *
+ * Drained from `/jobs/tick` rather than a @Cron: @nestjs/schedule never fires
+ * on Vercel, so an in-process timer would be dead in production.
+ *
+ * Email is live via Resend. SMS/WhatsApp are declared here and deliberately
+ * left as explicit "no transport" failures rather than silent successes —
+ * a channel that reports `sent` without a provider is worse than one that
+ * reports why it couldn't.
+ */
+@Injectable()
+export class NotificationDispatchService {
+  private readonly logger = new Logger(NotificationDispatchService.name);
+
+  constructor(
+    @InjectRepository(Notification)
+    private readonly notificationRepo: Repository<Notification>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly mailService: MailService,
+  ) {}
+
+  /**
+   * Deliver a batch of pending notifications across all tenants. Runs as
+   * system: the dispatcher is platform infrastructure with no request tenant,
+   * and each notification carries its own tenantId.
+   */
+  async dispatchPending(limit = 50): Promise<{
+    processed: number;
+    delivered: number;
+    failed: number;
+    skipped: number;
+  }> {
+    return TenantContext.runAsSystem('notification dispatch sweep', async () => {
+      const due = await this.notificationRepo.find({
+        where: [
+          // Unscheduled pending rows, plus scheduled ones whose time has come.
+          { status: NotificationStatus.PENDING, scheduledAt: IsNull() },
+          {
+            status: NotificationStatus.PENDING,
+            scheduledAt: LessThanOrEqual(new Date()),
+          },
+          { status: NotificationStatus.QUEUED },
+        ],
+        order: { createdAt: 'ASC' },
+        take: limit,
+      });
+
+      let delivered = 0;
+      let failed = 0;
+      let skipped = 0;
+
+      for (const notification of due) {
+        // IN_APP needs no transport — the row IS the delivery.
+        if (notification.type === NotificationType.IN_APP) {
+          notification.status = NotificationStatus.DELIVERED;
+          notification.sentAt = new Date();
+          await this.notificationRepo.save(notification);
+          skipped += 1;
+          continue;
+        }
+
+        if (notification.type !== NotificationType.EMAIL) {
+          this.recordAttempt(
+            notification,
+            false,
+            `no transport configured for channel '${notification.type}'`,
+          );
+          notification.status = NotificationStatus.FAILED;
+          await this.notificationRepo.save(notification);
+          failed += 1;
+          continue;
+        }
+
+        const address = await this.resolveEmail(notification);
+        if (!address) {
+          this.recordAttempt(notification, false, 'recipient has no email address');
+          notification.status = NotificationStatus.FAILED;
+          await this.notificationRepo.save(notification);
+          failed += 1;
+          continue;
+        }
+
+        const result = await this.mailService.send({
+          to: address,
+          subject: notification.subject || 'Notification',
+          text: notification.content ?? '',
+        });
+
+        if (result.delivered) {
+          notification.status = NotificationStatus.SENT;
+          notification.sentAt = new Date();
+          this.recordAttempt(notification, true);
+          delivered += 1;
+        } else {
+          // Mail unconfigured or provider rejected: retry rather than lose it.
+          notification.retryCount = (notification.retryCount ?? 0) + 1;
+          notification.status =
+            notification.retryCount >= 3
+              ? NotificationStatus.FAILED
+              : NotificationStatus.RETRYING;
+          this.recordAttempt(notification, false, 'mail provider did not deliver');
+          failed += 1;
+        }
+        await this.notificationRepo.save(notification);
+      }
+
+      if (due.length) {
+        this.logger.log(
+          `Notification dispatch: ${due.length} processed, ${delivered} delivered, ${failed} failed, ${skipped} in-app`,
+        );
+      }
+      return { processed: due.length, delivered, failed, skipped };
+    });
+  }
+
+  private async resolveEmail(
+    notification: Notification,
+  ): Promise<string | null> {
+    const explicit = (
+      notification.metadata as { email?: string } | null | undefined
+    )?.email;
+    if (explicit) return explicit;
+
+    if (!notification.recipientId) return null;
+    const user = await this.userRepo.findOne({
+      where: { id: notification.recipientId },
+      select: ['id', 'email'],
+    });
+    return user?.email ?? null;
+  }
+
+  private recordAttempt(
+    notification: Notification,
+    success: boolean,
+    error?: string,
+  ): void {
+    const attempts = Array.isArray(notification.deliveryAttempts)
+      ? notification.deliveryAttempts
+      : [];
+    attempts.push({
+      timestamp: new Date().toISOString(),
+      channel: notification.type,
+      success,
+      ...(error ? { error } : {}),
+    } as never);
+    notification.deliveryAttempts = attempts;
+  }
+
+  /** Retry rows parked in RETRYING; called from the same tick. */
+  async retryFailed(limit = 25): Promise<{ requeued: number }> {
+    return TenantContext.runAsSystem('notification retry sweep', async () => {
+      const result = await this.notificationRepo.update(
+        { status: In([NotificationStatus.RETRYING]) },
+        { status: NotificationStatus.PENDING },
+      );
+      return { requeued: Math.min(result.affected ?? 0, limit) };
+    });
+  }
+}

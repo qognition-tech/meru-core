@@ -32,6 +32,7 @@ import { RegulatoryRadarEngine } from '../ai/engines/regulatory-radar.engine';
 import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
 import { MigrateService, MigrateTarget } from './migrate.service';
+import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 
 export interface JobResult {
   job: string;
@@ -56,6 +57,9 @@ const JOB_CADENCE_MINUTES = {
   'scheduled-jobs': 1,
   'recurring-tasks': 1,
   'scheduled-notifications': 1,
+  // The COM delivery sweep. Without this the notifications module writes
+  // rows nobody ever sends — it had no transport at all before.
+  'notification-dispatch': 1,
   'sla-watchdog': 5,
   'scheduled-reports': 60,
   'daily-billing': 1440,
@@ -147,6 +151,7 @@ export class JobsController {
     private readonly auditService: AuditService,
     private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
+    private readonly notificationDispatch: NotificationDispatchService,
   ) {}
 
   // ── Consolidated dispatcher ───────────────────────────────────────────────
@@ -308,6 +313,11 @@ export class JobsController {
         return () => this.taskService.processRecurringJobs();
       case 'scheduled-notifications':
         return () => this.notificationsService.processScheduledNotifications();
+      case 'notification-dispatch':
+        return async () => {
+          await this.notificationDispatch.retryFailed();
+          return this.notificationDispatch.dispatchPending();
+        };
       case 'sla-watchdog':
         return () => this.slaWatchdogService.checkSLAViolations();
       case 'scheduled-reports':
