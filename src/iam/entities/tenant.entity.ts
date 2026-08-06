@@ -95,6 +95,13 @@ export class Tenant {
       emailFromName?: string;
       slackWebhook?: string;
     };
+    /**
+     * Module entitlements frozen at provisioning (plan defaults + explicit
+     * grants, including `country:XX`). Stored rather than computed so a
+     * tenant's grant survives changes to plan definitions; absent on tenants
+     * created before provisioning v2, which fall back to their plan defaults.
+     */
+    modules?: string[];
   };
 
   @Column({ type: 'jsonb', default: {} })
@@ -113,6 +120,13 @@ export class Tenant {
     referralCode?: string;
     suspensionReason?: string;
     suspendedAt?: string;
+    /**
+     * Stripe linkage. The customer is created lazily on first checkout;
+     * the subscription id is written by the checkout.session.completed
+     * webhook. Both are projections of Stripe state, never authored here.
+     */
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
   };
 
   @CreateDateColumn()
