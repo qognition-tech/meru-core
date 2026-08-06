@@ -20,6 +20,10 @@ import { TenantContext } from '../core/tenancy/tenant-context';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { PlatformRole } from './enums/platform-role.enum';
 import { MailService } from '../core/mail/mail.service';
+import {
+  ConnectorMode,
+  TenantConnector,
+} from '../integrations/entities/tenant-connector.entity';
 
 // Re-exported so existing importers keep working. The definition now lives in
 // ./dto/create-tenant.dto.ts as a decorated *class* — see the note there on why
@@ -32,6 +36,44 @@ export interface TenantWorkspaceResponse {
   workspaceUrl: string;
   welcomeEmailSent: boolean;
 }
+
+/**
+ * Plan → module entitlements. The five core modules are never gated (Immigrow
+ * BRD: "always enabled"); paid tiers add capability modules. Country modules
+ * arrive as `country:AU`-style entries chosen at provisioning, not from the
+ * plan. Stored on tenant.settings.modules so a tenant's grant survives plan
+ * math changes; the plan list is the DEFAULT at provisioning time, not a
+ * live computation.
+ */
+const CORE_MODULES = [
+  'crm',
+  'cases',
+  'tasks',
+  'documents',
+  'payments',
+  'communications',
+];
+const PLAN_MODULES: Record<TenantPlan, string[]> = {
+  [TenantPlan.FREE]: [...CORE_MODULES],
+  [TenantPlan.STARTER]: [...CORE_MODULES, 'forms'],
+  [TenantPlan.PROFESSIONAL]: [
+    ...CORE_MODULES,
+    'forms',
+    'ai_automation',
+    'advanced_analytics',
+    'marketing',
+  ],
+  [TenantPlan.ENTERPRISE]: [
+    ...CORE_MODULES,
+    'forms',
+    'ai_automation',
+    'advanced_analytics',
+    'marketing',
+    'branding',
+    'api_access',
+    'sso',
+  ],
+};
 
 @Injectable()
 export class TenantProvisioningService {
@@ -284,6 +326,151 @@ export class TenantProvisioningService {
    * single row matching `app.current_tenant_id`, and this would otherwise
    * return exactly one tenant (or none) rather than failing loudly.
    */
+  /**
+   * Admin-provisioned tenant creation (the Meru-dashboard "create GovX /
+   * ImmiStack account" flow). Unlike signup, no password is taken: the
+   * workspace admin gets an invite (single-use link, 7-day expiry, via the
+   * existing inviteUser flow) and sets their own credentials. Requested
+   * connectors are pre-enabled in sandbox. Caller must be platform_admin —
+   * the controller wraps this in runAsGod.
+   */
+  async provisionTenant(
+    dto: {
+      name: string;
+      slug: string;
+      vertical: VerticalType;
+      plan?: TenantPlan;
+      adminEmail: string;
+      adminFirstName?: string;
+      adminLastName?: string;
+      modules?: string[];
+      connectors?: string[];
+    },
+    inviteUser: (
+      tenantId: string,
+      invite: { email: string; role: string; firstName?: string; lastName?: string },
+    ) => Promise<{ inviteSent: boolean }>,
+  ): Promise<{
+    tenant: Pick<Tenant, 'id' | 'slug' | 'name' | 'vertical' | 'plan' | 'status'>;
+    inviteSent: boolean;
+    connectorsEnabled: string[];
+  }> {
+    const plan = dto.plan ?? TenantPlan.FREE;
+    const modules = Array.from(
+      new Set([...(PLAN_MODULES[plan] ?? CORE_MODULES), ...(dto.modules ?? [])]),
+    );
+
+    const tenant = await TenantContext.runAsSystem(
+      `admin-provision tenant ${dto.slug}`,
+      async () => {
+        const existing = await this.tenantRepo.findOne({
+          where: { slug: dto.slug },
+        });
+        if (existing) {
+          throw new BadRequestException(`Slug ${dto.slug} is already taken`);
+        }
+
+        const created = this.tenantRepo.create({
+          id: randomUUID(),
+          name: dto.name,
+          slug: dto.slug,
+          vertical: dto.vertical,
+          status: TenantStatus.TRIAL,
+          plan,
+          settings: { ...this.getDefaultSettings(plan), modules },
+          metadata: { source: 'admin-provisioned' },
+          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(),
+        });
+        await this.tenantRepo.save(created);
+
+        if (dto.connectors?.length) {
+          const connectorRepo = this.dataSource.getRepository(TenantConnector);
+          await connectorRepo.save(
+            dto.connectors.map((adapterCode) =>
+              connectorRepo.create({
+                tenantId: created.id,
+                adapterCode,
+                enabled: true,
+                mode: ConnectorMode.SANDBOX,
+              }),
+            ),
+          );
+        }
+        return created;
+      },
+    );
+
+    // Outside the system block on purpose: inviteUser manages its own scoped
+    // bypasses and sends the Resend mail.
+    const invite = await inviteUser(tenant.id, {
+      email: dto.adminEmail,
+      role: PlatformRole.FIRM_ADMIN,
+      firstName: dto.adminFirstName,
+      lastName: dto.adminLastName,
+    });
+
+    return {
+      tenant: {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name,
+        vertical: tenant.vertical,
+        plan: tenant.plan,
+        status: tenant.status,
+      },
+      inviteSent: invite.inviteSent,
+      connectorsEnabled: dto.connectors ?? [],
+    };
+  }
+
+  /** Suspend or reactivate a tenant. Caller wraps in runAsGod. */
+  async setTenantStatus(
+    tenantId: string,
+    status: TenantStatus.ACTIVE | TenantStatus.SUSPENDED,
+  ): Promise<Pick<Tenant, 'id' | 'slug' | 'status'>> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
+    tenant.status = status;
+    await this.tenantRepo.save(tenant);
+    return { id: tenant.id, slug: tenant.slug, status: tenant.status };
+  }
+
+  /**
+   * The caller tenant's own entitlements — what the three portals gate their
+   * nav and module screens on. Modules were frozen onto settings.modules at
+   * provisioning; tenants created before that carry no list and fall back to
+   * their plan's defaults.
+   */
+  async getEntitlements(tenantId: string): Promise<{
+    vertical: VerticalType;
+    plan: TenantPlan;
+    status: TenantStatus;
+    trialEndsAt: Date | null;
+    modules: string[];
+    connectors: { adapterCode: string; mode: string }[];
+  }> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
+
+    const stored = (tenant.settings as { modules?: string[] } | null)?.modules;
+    const connectors = await this.dataSource
+      .getRepository(TenantConnector)
+      .find({ where: { tenantId, enabled: true } });
+
+    return {
+      vertical: tenant.vertical,
+      plan: tenant.plan,
+      status: tenant.status,
+      trialEndsAt: tenant.trialEndsAt ?? null,
+      modules: stored ?? PLAN_MODULES[tenant.plan] ?? CORE_MODULES,
+      connectors: connectors.map((c) => ({
+        adapterCode: c.adapterCode,
+        mode: c.mode,
+      })),
+    };
+  }
+
   /**
    * Cross-tenant aggregates for the God UI (`GET /platform/stats`). Caller
    * must wrap in runAsGod — this reads every tenant row.

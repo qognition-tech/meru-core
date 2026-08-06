@@ -27,7 +27,9 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 // skipped entirely — the same silent no-op that made this an interface a bug.
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CheckSlugDto } from './dto/check-slug.dto';
-import { TenantPlan } from './entities/tenant.entity';
+import { TenantPlan, TenantStatus } from './entities/tenant.entity';
+import { ProvisionTenantDto } from './dto/provision-tenant.dto';
+import { IamService } from './iam.service';
 import { Roles } from './decorators/roles.decorator';
 import { Public } from './decorators/public.decorator';
 import { PlatformRole } from './enums/platform-role.enum';
@@ -40,6 +42,7 @@ export class TenantProvisioningController {
   constructor(
     private readonly tenantProvisioningService: TenantProvisioningService,
     private readonly tenancyService: TenancyService,
+    private readonly iamService: IamService,
   ) {}
 
   // ── God View ──────────────────────────────────────────────────────────────
@@ -63,6 +66,93 @@ export class TenantProvisioningController {
       req.user.tenantId,
       'List all platform tenants (God View)',
       () => this.tenantProvisioningService.listAllTenants(),
+    );
+  }
+
+  @Get('me/entitlements')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: "The caller tenant's plan, modules and enabled connectors",
+    description:
+      'What the portals gate nav/module screens on. Modules were frozen at ' +
+      'provisioning; pre-existing tenants fall back to their plan defaults.',
+  })
+  @ApiResponse({ status: 200, description: 'Entitlements retrieved' })
+  async myEntitlements(@Request() req: AuthenticatedRequest) {
+    return this.tenantProvisioningService.getEntitlements(req.user.tenantId);
+  }
+
+  @Post()
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.PLATFORM_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Provision a tenant (God View) — invite flow, no password',
+    description:
+      'Creates the workspace, freezes plan+module entitlements, pre-enables ' +
+      'requested connectors in sandbox, and emails the admin a single-use ' +
+      'invite link. Cross-tenant write → runAsGod + CRITICAL audit entry.',
+  })
+  @ApiResponse({ status: 201, description: 'Tenant provisioned, invite sent' })
+  @ApiResponse({ status: 400, description: 'Slug taken or invalid input' })
+  async provision(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ProvisionTenantDto,
+  ) {
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      req.user.tenantId,
+      `Provision tenant ${dto.slug} (God View)`,
+      () =>
+        this.tenantProvisioningService.provisionTenant(dto, (tenantId, invite) =>
+          this.iamService.inviteUser(tenantId, invite, {
+            id: req.user.id,
+            name: 'Meru Platform',
+          }),
+        ),
+    );
+  }
+
+  @Patch(':id/suspend')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.PLATFORM_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Suspend a tenant (God View)' })
+  @ApiParam({ name: 'id', description: 'Tenant id' })
+  async suspend(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      req.user.tenantId,
+      `Suspend tenant ${id} (God View)`,
+      () =>
+        this.tenantProvisioningService.setTenantStatus(
+          id,
+          TenantStatus.SUSPENDED,
+        ),
+    );
+  }
+
+  @Patch(':id/resume')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.PLATFORM_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Reactivate a suspended tenant (God View)' })
+  @ApiParam({ name: 'id', description: 'Tenant id' })
+  async resume(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      req.user.tenantId,
+      `Resume tenant ${id} (God View)`,
+      () =>
+        this.tenantProvisioningService.setTenantStatus(id, TenantStatus.ACTIVE),
     );
   }
 
