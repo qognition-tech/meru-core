@@ -61,6 +61,23 @@ export class MigrateService {
       await ds.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
       await ds.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
 
+      // The `app` schema and `app.has_access()` are referenced by
+      // 1743900000000 and 1743910000000 but created by NO migration — the
+      // control-plane database only survived because it was baselined
+      // (scripts/baseline-migrations.js) rather than migrated from empty. A
+      // genuinely fresh database therefore cannot run the chain at all.
+      //
+      // Seeded permissively here on purpose: the vertical/environment policies
+      // those two migrations declare are superseded by the tenant_isolation
+      // policies in 1753500000000, which is the isolation that actually holds
+      // (and which `npm run rls:verify` proves). A restrictive stub would
+      // silently deny every row instead.
+      await ds.query('CREATE SCHEMA IF NOT EXISTS app');
+      await ds.query(`
+        CREATE OR REPLACE FUNCTION app.has_access(text, text) RETURNS boolean
+        LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;
+      `);
+
       const executed = await ds.runMigrations({ transaction: 'each' });
       this.logger.log(
         `Migrated '${target}': ${executed.length} migration(s) executed`,
