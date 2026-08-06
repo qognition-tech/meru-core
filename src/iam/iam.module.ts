@@ -22,6 +22,7 @@ import { VerticalPolicyService } from '../core/verticals/vertical-policy.service
 import { CoreModule } from '../core/core.module';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningController } from './tenant-provisioning.controller';
+import { PlatformController } from './platform.controller';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { AuditModule } from '../audit/audit.module';
 import { SamlService } from './services/saml.service';
@@ -50,7 +51,12 @@ import { SamlService } from './services/saml.service';
     CoreModule,
     AuditModule,
   ],
-  controllers: [IamController, UsersController, TenantProvisioningController],
+  controllers: [
+    IamController,
+    UsersController,
+    TenantProvisioningController,
+    PlatformController,
+  ],
   providers: [
     IamService,
     JwtStrategy,

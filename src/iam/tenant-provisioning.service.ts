@@ -284,6 +284,42 @@ export class TenantProvisioningService {
    * single row matching `app.current_tenant_id`, and this would otherwise
    * return exactly one tenant (or none) rather than failing loudly.
    */
+  /**
+   * Cross-tenant aggregates for the God UI (`GET /platform/stats`). Caller
+   * must wrap in runAsGod — this reads every tenant row.
+   */
+  async getPlatformStats(): Promise<{
+    totalTenants: number;
+    newTenants30d: number;
+    totalUsers: number;
+    byVertical: Record<string, number>;
+    byStatus: Record<string, number>;
+    byPlan: Record<string, number>;
+  }> {
+    const [tenants, totalUsers] = await Promise.all([
+      this.tenantRepo.find(),
+      this.userRepo.count(),
+    ]);
+
+    const bucket = (key: (t: (typeof tenants)[number]) => string) =>
+      tenants.reduce<Record<string, number>>((acc, t) => {
+        const k = key(t) ?? 'unknown';
+        acc[k] = (acc[k] ?? 0) + 1;
+        return acc;
+      }, {});
+
+    const cutoff30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    return {
+      totalTenants: tenants.length,
+      newTenants30d: tenants.filter((t) => t.createdAt > cutoff30d).length,
+      totalUsers,
+      byVertical: bucket((t) => t.vertical),
+      byStatus: bucket((t) => t.status),
+      byPlan: bucket((t) => t.plan),
+    };
+  }
+
   async listAllTenants(): Promise<
     Array<{
       id: string;
