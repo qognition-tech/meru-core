@@ -11,6 +11,9 @@ import { TenantController } from './tenant.controller';
 import { ConfigPackController } from './controllers/config-pack.controller';
 import { FeatureFlagController } from './controllers/feature-flag.controller';
 import { FeatureFlagService } from './services/feature-flag.service';
+import { BrandingController } from './controllers/branding.controller';
+import { BrandingService } from './services/branding.service';
+import { Tenant } from '../iam/entities/tenant.entity';
 import { CoreModule } from '../core/core.module';
 import { BillingModule } from '../billing/billing.module';
 import { AuditModule } from '../audit/audit.module';
@@ -26,18 +29,30 @@ import { AuditModule } from '../audit/audit.module';
       ConfigPack,
       FeatureFlag,
       TenantConfigPin,
+      Tenant,
     ]),
     CoreModule,
     BillingModule,
     AuditModule,
   ],
-  controllers: [TenantController, ConfigPackController, FeatureFlagController],
+  controllers: [
+    TenantController,
+    ConfigPackController,
+    FeatureFlagController,
+    BrandingController,
+  ],
   providers: [
     TenantSettingsService,
     ConfigPackService,
     ConfigPackLoaderService,
     FeatureFlagService,
+    BrandingService,
   ],
-  exports: [TenantSettingsService, ConfigPackService, FeatureFlagService],
+  exports: [
+    TenantSettingsService,
+    ConfigPackService,
+    FeatureFlagService,
+    BrandingService,
+  ],
 })
 export class TenantModule {}
