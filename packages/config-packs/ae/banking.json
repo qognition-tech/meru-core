@@ -1,12 +1,14 @@
 {
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
-  "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.0.0",
+  "description": "UAE banking governance, risk & compliance \u2014 covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
+  "version": "1.1.0",
   "vertical": "banking",
   "country": "AE",
-  "locales": ["en", "ar"],
-
+  "locales": [
+    "en",
+    "ar"
+  ],
   "regulators": [
     {
       "id": "uae-cbuae",
@@ -24,42 +26,104 @@
       "authMethod": "api_key",
       "adapterId": "uae-local-sanctions",
       "documentation": "https://www.uaeinteract.com/government/law-legislation/sanctions"
+    },
+    {
+      "id": "refinitiv-worldcheck",
+      "name": "Refinitiv World-Check One",
+      "country": "XX",
+      "authMethod": "api_key",
+      "adapterId": "refinitiv-worldcheck",
+      "documentation": "https://www.refinitiv.com/en/products/world-check-kyc-screening",
+      "licensed": false
+    },
+    {
+      "id": "dowjones-rnc",
+      "name": "Dow Jones Risk & Compliance",
+      "country": "XX",
+      "authMethod": "api_key",
+      "adapterId": "dowjones-rnc",
+      "documentation": "https://www.dowjones.com/professional/risk/",
+      "licensed": false
+    },
+    {
+      "id": "finacle-core",
+      "name": "Finacle Core Banking",
+      "country": "AE",
+      "authMethod": "oauth2",
+      "adapterId": "finacle-core",
+      "documentation": "https://www.edgeverve.com/finacle/",
+      "licensed": false
     }
   ],
-
   "roles": [
     {
       "key": "compliance_officer",
       "label": "Compliance Officer",
-      "permissions": ["screening:all", "sar:file", "sar:review", "reports:all", "alerts:manage"]
+      "permissions": [
+        "screening:all",
+        "sar:file",
+        "sar:review",
+        "reports:all",
+        "alerts:manage"
+      ]
     },
     {
       "key": "kyc_analyst",
       "label": "KYC Analyst",
-      "permissions": ["screening:run", "cases:read", "cases:write", "documents:all", "alerts:read"]
+      "permissions": [
+        "screening:run",
+        "cases:read",
+        "cases:write",
+        "documents:all",
+        "alerts:read"
+      ]
     },
     {
       "key": "relationship_manager",
       "label": "Relationship Manager",
-      "permissions": ["cases:read", "clients:read", "alerts:read"]
+      "permissions": [
+        "cases:read",
+        "clients:read",
+        "alerts:read"
+      ]
     },
     {
       "key": "mlro",
       "label": "Money Laundering Reporting Officer",
-      "permissions": ["screening:all", "sar:all", "reports:all", "audit:read", "alerts:all"]
+      "permissions": [
+        "screening:all",
+        "sar:all",
+        "reports:all",
+        "audit:read",
+        "alerts:all"
+      ]
     }
   ],
-
   "documentTypes": [
     {
       "key": "trade_invoice",
       "label": "Commercial Invoice",
       "required": true,
-      "acceptedFormats": ["pdf", "jpg", "png"],
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "png"
+      ],
       "maxSizeMb": 20,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["invoiceNumber", "seller", "buyer", "goods", "hsCode", "value", "currency", "shipmentOrigin", "shipmentDestination", "incoterms"]
+        "fields": [
+          "invoiceNumber",
+          "seller",
+          "buyer",
+          "goods",
+          "hsCode",
+          "value",
+          "currency",
+          "shipmentOrigin",
+          "shipmentDestination",
+          "incoterms"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": true,
@@ -71,11 +135,22 @@
       "key": "bill_of_lading",
       "label": "Bill of Lading",
       "required": false,
-      "acceptedFormats": ["pdf"],
+      "acceptedFormats": [
+        "pdf"
+      ],
       "maxSizeMb": 20,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["blNumber", "vesselName", "portOfLoading", "portOfDischarge", "shipper", "consignee", "cargoDescription", "containerNumbers"]
+        "fields": [
+          "blNumber",
+          "vesselName",
+          "portOfLoading",
+          "portOfDischarge",
+          "shipper",
+          "consignee",
+          "cargoDescription",
+          "containerNumbers"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": false,
@@ -87,11 +162,22 @@
       "key": "corporate_id",
       "label": "Trade License / Corporate ID",
       "required": true,
-      "acceptedFormats": ["pdf", "jpg", "png"],
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "png"
+      ],
       "maxSizeMb": 10,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["companyName", "licenseNumber", "issueDate", "expiryDate", "licenseAuthority", "activities"]
+        "fields": [
+          "companyName",
+          "licenseNumber",
+          "issueDate",
+          "expiryDate",
+          "licenseAuthority",
+          "activities"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": true,
@@ -100,7 +186,6 @@
       }
     }
   ],
-
   "workflows": [
     {
       "id": "aml-customer-onboarding",
@@ -114,21 +199,62 @@
           "assignedRole": "kyc_analyst",
           "slaHours": 24,
           "formFields": [
-            { "key": "entityName", "label": "Entity Name", "type": "text", "required": true },
-            { "key": "entityType", "label": "Entity Type", "type": "select", "required": true,
-              "validation": { "options": [
-                { "value": "individual", "label": "Individual" },
-                { "value": "corporate", "label": "Corporate" },
-                { "value": "financial_institution", "label": "Financial Institution" }
-              ]}
+            {
+              "key": "entityName",
+              "label": "Entity Name",
+              "type": "text",
+              "required": true
             },
-            { "key": "jurisdiction", "label": "Jurisdiction", "type": "country", "required": true },
-            { "key": "businessActivity", "label": "Primary Business Activity", "type": "text", "required": true },
-            { "key": "expectedTransactionVolume", "label": "Expected Annual Volume (AED)", "type": "currency" },
-            { "key": "isPep", "label": "Is PEP or Related to PEP?", "type": "checkbox" }
+            {
+              "key": "entityType",
+              "label": "Entity Type",
+              "type": "select",
+              "required": true,
+              "validation": {
+                "options": [
+                  {
+                    "value": "individual",
+                    "label": "Individual"
+                  },
+                  {
+                    "value": "corporate",
+                    "label": "Corporate"
+                  },
+                  {
+                    "value": "financial_institution",
+                    "label": "Financial Institution"
+                  }
+                ]
+              }
+            },
+            {
+              "key": "jurisdiction",
+              "label": "Jurisdiction",
+              "type": "country",
+              "required": true
+            },
+            {
+              "key": "businessActivity",
+              "label": "Primary Business Activity",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "expectedTransactionVolume",
+              "label": "Expected Annual Volume (AED)",
+              "type": "currency"
+            },
+            {
+              "key": "isPep",
+              "label": "Is PEP or Related to PEP?",
+              "type": "checkbox"
+            }
           ],
           "transitions": [
-            { "to": "initial_screening", "label": "Proceed to Screening" }
+            {
+              "to": "initial_screening",
+              "label": "Proceed to Screening"
+            }
           ]
         },
         {
@@ -140,11 +266,29 @@
           "apiAction": {
             "adapterId": "uae-cbuae",
             "method": "runScreening",
-            "params": { "lists": ["ofac", "eu", "un", "uk_hmt", "uae_local"], "pepCheck": true, "adverseMedia": true }
+            "params": {
+              "lists": [
+                "ofac",
+                "eu",
+                "un",
+                "uk_hmt",
+                "uae_local"
+              ],
+              "pepCheck": true,
+              "adverseMedia": true
+            }
           },
           "transitions": [
-            { "to": "document_collection", "label": "Clear — Proceed", "condition": "screening.riskLevel !== 'critical'" },
-            { "to": "enhanced_due_diligence", "label": "Hit — Escalate to EDD", "condition": "screening.riskLevel === 'critical'" }
+            {
+              "to": "document_collection",
+              "label": "Clear \u2014 Proceed",
+              "condition": "screening.riskLevel !== 'critical'"
+            },
+            {
+              "to": "enhanced_due_diligence",
+              "label": "Hit \u2014 Escalate to EDD",
+              "condition": "screening.riskLevel === 'critical'"
+            }
           ]
         },
         {
@@ -152,9 +296,14 @@
           "name": "Document Collection",
           "type": "document",
           "slaHours": 72,
-          "requiredDocuments": ["corporate_id"],
+          "requiredDocuments": [
+            "corporate_id"
+          ],
           "transitions": [
-            { "to": "analyst_review", "label": "Documents Complete" }
+            {
+              "to": "analyst_review",
+              "label": "Documents Complete"
+            }
           ]
         },
         {
@@ -164,8 +313,14 @@
           "assignedRole": "compliance_officer",
           "slaHours": 48,
           "transitions": [
-            { "to": "mlro_review", "label": "EDD Complete — Escalate to MLRO" },
-            { "to": "rejected", "label": "Reject Onboarding" }
+            {
+              "to": "mlro_review",
+              "label": "EDD Complete \u2014 Escalate to MLRO"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject Onboarding"
+            }
           ]
         },
         {
@@ -175,8 +330,14 @@
           "assignedRole": "kyc_analyst",
           "slaHours": 48,
           "transitions": [
-            { "to": "approved", "label": "Approve Onboarding" },
-            { "to": "compliance_review", "label": "Refer to Compliance" }
+            {
+              "to": "approved",
+              "label": "Approve Onboarding"
+            },
+            {
+              "to": "compliance_review",
+              "label": "Refer to Compliance"
+            }
           ]
         },
         {
@@ -186,9 +347,18 @@
           "assignedRole": "compliance_officer",
           "slaHours": 24,
           "transitions": [
-            { "to": "approved", "label": "Approve" },
-            { "to": "mlro_review", "label": "Escalate to MLRO" },
-            { "to": "rejected", "label": "Reject" }
+            {
+              "to": "approved",
+              "label": "Approve"
+            },
+            {
+              "to": "mlro_review",
+              "label": "Escalate to MLRO"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject"
+            }
           ]
         },
         {
@@ -198,9 +368,18 @@
           "assignedRole": "mlro",
           "slaHours": 24,
           "transitions": [
-            { "to": "approved", "label": "Approve with Enhanced Monitoring" },
-            { "to": "sar_filing", "label": "File SAR" },
-            { "to": "rejected", "label": "Reject" }
+            {
+              "to": "approved",
+              "label": "Approve with Enhanced Monitoring"
+            },
+            {
+              "to": "sar_filing",
+              "label": "File SAR"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject"
+            }
           ]
         },
         {
@@ -214,7 +393,10 @@
             "method": "fileSar"
           },
           "transitions": [
-            { "to": "rejected", "label": "SAR Filed" }
+            {
+              "to": "rejected",
+              "label": "SAR Filed"
+            }
           ]
         },
         {
@@ -232,22 +414,30 @@
       ]
     }
   ],
-
   "screening": {
     "enabled": true,
-    "lists": ["ofac", "eu", "un", "uk_hmt", "uae_local"],
+    "lists": [
+      "ofac",
+      "eu",
+      "un",
+      "uk_hmt",
+      "uae_local"
+    ],
     "threshold": 0.85,
     "autoEscalate": true,
     "pepCheck": true,
     "adverseMedia": true
   },
-
   "compliance": {
     "dataResidency": "AE",
     "retentionYears": 5,
     "encryptionRequired": true,
     "auditRequired": true,
-    "regulatoryFrameworks": ["CBUAE AML-CFT Guidelines 2019", "Federal Decree-Law No. 20 of 2018", "FATF Recommendations"],
+    "regulatoryFrameworks": [
+      "CBUAE AML-CFT Guidelines 2019",
+      "Federal Decree-Law No. 20 of 2018",
+      "FATF Recommendations"
+    ],
     "reportingObligations": [
       {
         "trigger": "suspicious_transaction",
@@ -263,26 +453,465 @@
       }
     ]
   },
-
   "kpis": [
-    { "key": "active_cases", "label": "Active Onboarding Cases", "unit": "count" },
-    { "key": "screening_hits", "label": "Screening Hits (30d)", "unit": "count" },
-    { "key": "sar_filed", "label": "SARs Filed (30d)", "unit": "count" },
-    { "key": "avg_kyc_days", "label": "Avg. KYC Completion Days", "unit": "days", "target": 5, "alert": { "threshold": 10, "direction": "above" } },
-    { "key": "false_positive_rate", "label": "Screening False Positive Rate", "unit": "percentage", "alert": { "threshold": 60, "direction": "above" } },
-    { "key": "sla_compliance", "label": "SLA Compliance", "unit": "percentage", "target": 95 }
+    {
+      "key": "active_cases",
+      "label": "Active Onboarding Cases",
+      "unit": "count"
+    },
+    {
+      "key": "screening_hits",
+      "label": "Screening Hits (30d)",
+      "unit": "count"
+    },
+    {
+      "key": "sar_filed",
+      "label": "SARs Filed (30d)",
+      "unit": "count"
+    },
+    {
+      "key": "avg_kyc_days",
+      "label": "Avg. KYC Completion Days",
+      "unit": "days",
+      "target": 5,
+      "alert": {
+        "threshold": 10,
+        "direction": "above"
+      }
+    },
+    {
+      "key": "false_positive_rate",
+      "label": "Screening False Positive Rate",
+      "unit": "percentage",
+      "alert": {
+        "threshold": 60,
+        "direction": "above"
+      }
+    },
+    {
+      "key": "sla_compliance",
+      "label": "SLA Compliance",
+      "unit": "percentage",
+      "target": 95
+    }
   ],
-
   "uiConfig": {
     "primaryColor": "#C8102E",
     "supportEmail": "support@governancex.com",
     "termsUrl": "https://governancex.com/terms",
     "helpUrl": "https://help.governancex.com/uae"
   },
-
   "metadata": {
     "author": "Meru Platform Team",
     "lastReviewedAt": "2026-05-01T00:00:00Z",
-    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions — AML/CFT, 2021"
-  }
+    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions \u2014 AML/CFT, 2021"
+  },
+  "entityTypes": [
+    {
+      "type": "screening_match",
+      "label": "Screening Match",
+      "pluralLabel": "Match Review",
+      "module": "sanctions",
+      "workable": true,
+      "statusLabels": {
+        "open": "Pending Review",
+        "in_progress": "Under Review",
+        "blocked": "Escalated",
+        "resolved": "True Match",
+        "closed": "False Positive",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "matchedName",
+          "label": "Matched Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "listSource",
+          "label": "List",
+          "type": "select",
+          "options": [
+            "OFAC",
+            "UN",
+            "EU",
+            "UK_HMT",
+            "UAE_LOCAL",
+            "INTERNAL"
+          ],
+          "required": true
+        },
+        {
+          "key": "matchScore",
+          "label": "Match Score",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "counterpartyId",
+          "label": "Counterparty",
+          "type": "entityRef"
+        },
+        {
+          "key": "dispositionNote",
+          "label": "Disposition Rationale",
+          "type": "textarea"
+        },
+        {
+          "key": "rescreenDue",
+          "label": "Next Rescreen",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "vendor",
+      "label": "Vendor",
+      "pluralLabel": "Vendor Due Diligence",
+      "module": "vendor_dd",
+      "workable": true,
+      "fields": [
+        {
+          "key": "legalName",
+          "label": "Legal Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jurisdiction",
+          "label": "Jurisdiction",
+          "type": "country"
+        },
+        {
+          "key": "riskTier",
+          "label": "Risk Tier",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "key": "contractValue",
+          "label": "Contract Value",
+          "type": "currency"
+        },
+        {
+          "key": "lastAssessedAt",
+          "label": "Last Assessed",
+          "type": "date"
+        },
+        {
+          "key": "uboVerified",
+          "label": "UBO Verified",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "control_test",
+      "label": "Control Test",
+      "pluralLabel": "Control Testing",
+      "module": "control_testing",
+      "workable": true,
+      "fields": [
+        {
+          "key": "controlRef",
+          "label": "Control Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "framework",
+          "label": "Framework",
+          "type": "select",
+          "options": [
+            "CBUAE",
+            "SOC2",
+            "ISO27001",
+            "BASEL_III",
+            "INTERNAL"
+          ]
+        },
+        {
+          "key": "testResult",
+          "label": "Result",
+          "type": "select",
+          "options": [
+            "effective",
+            "partially_effective",
+            "ineffective",
+            "not_tested"
+          ]
+        },
+        {
+          "key": "evidenceUrl",
+          "label": "Evidence",
+          "type": "document"
+        },
+        {
+          "key": "testedBy",
+          "label": "Tested By",
+          "type": "user"
+        },
+        {
+          "key": "nextTestDue",
+          "label": "Next Test Due",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "risk_scenario",
+      "label": "Risk Scenario",
+      "pluralLabel": "Risk Workshop",
+      "module": "risk_workshop",
+      "workable": true,
+      "fields": [
+        {
+          "key": "scenario",
+          "label": "Scenario",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "likelihood",
+          "label": "Likelihood (1-5)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "impact",
+          "label": "Impact (1-5)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "inherentScore",
+          "label": "Inherent Risk",
+          "type": "computed",
+          "formula": "likelihood * impact"
+        },
+        {
+          "key": "mitigation",
+          "label": "Mitigation",
+          "type": "textarea"
+        },
+        {
+          "key": "residualScore",
+          "label": "Residual Risk",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "milestone",
+      "label": "Milestone",
+      "pluralLabel": "Governance Roadmap",
+      "module": "milestones",
+      "workable": true,
+      "fields": [
+        {
+          "key": "targetDate",
+          "label": "Target Date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "owner",
+          "label": "Owner",
+          "type": "user"
+        },
+        {
+          "key": "dependsOn",
+          "label": "Depends On",
+          "type": "entityRef",
+          "multiple": true
+        },
+        {
+          "key": "completionPct",
+          "label": "Completion %",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "rfi",
+      "label": "RFI",
+      "pluralLabel": "Requests for Information",
+      "module": "rfi",
+      "workable": true,
+      "statusLabels": {
+        "open": "Issued",
+        "in_progress": "Awaiting Response",
+        "blocked": "Overdue",
+        "resolved": "Responded",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "recipientEmail",
+          "label": "Recipient",
+          "type": "email",
+          "required": true
+        },
+        {
+          "key": "subject",
+          "label": "Subject",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "body",
+          "label": "Request",
+          "type": "richtext"
+        },
+        {
+          "key": "slaHours",
+          "label": "SLA (hours)",
+          "type": "number",
+          "default": 72
+        },
+        {
+          "key": "remindersSent",
+          "label": "Reminders Sent",
+          "type": "number",
+          "default": 0
+        },
+        {
+          "key": "respondedAt",
+          "label": "Responded",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "type": "turnover_record",
+      "label": "Turnover Record",
+      "pluralLabel": "Turnover Monitoring",
+      "module": "turnover",
+      "workable": false,
+      "fields": [
+        {
+          "key": "counterpartyId",
+          "label": "Counterparty",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "period",
+          "label": "Period",
+          "type": "month",
+          "required": true
+        },
+        {
+          "key": "declaredTurnover",
+          "label": "Declared",
+          "type": "currency"
+        },
+        {
+          "key": "observedTurnover",
+          "label": "Observed",
+          "type": "currency"
+        },
+        {
+          "key": "variancePct",
+          "label": "Variance %",
+          "type": "computed",
+          "formula": "((observedTurnover - declaredTurnover) / declaredTurnover) * 100"
+        },
+        {
+          "key": "alertThresholdPct",
+          "label": "Alert Threshold %",
+          "type": "number",
+          "default": 25
+        }
+      ]
+    },
+    {
+      "type": "knowledge_article",
+      "label": "Article",
+      "pluralLabel": "Knowledge Base",
+      "module": "knowledge_base",
+      "workable": false,
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "body",
+          "label": "Content",
+          "type": "richtext",
+          "required": true
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "aml",
+            "sanctions",
+            "trade_finance",
+            "regulatory",
+            "internal_policy"
+          ]
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "tags"
+        },
+        {
+          "key": "reviewedAt",
+          "label": "Last Reviewed",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "training_module",
+      "label": "Training Module",
+      "pluralLabel": "Training",
+      "module": "training",
+      "workable": false,
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "durationMinutes",
+          "label": "Duration (min)",
+          "type": "number"
+        },
+        {
+          "key": "mandatoryFor",
+          "label": "Mandatory For",
+          "type": "roles",
+          "multiple": true
+        },
+        {
+          "key": "renewMonths",
+          "label": "Renewal (months)",
+          "type": "number",
+          "default": 12
+        },
+        {
+          "key": "completions",
+          "label": "Completions",
+          "type": "json"
+        }
+      ]
+    }
+  ]
 }

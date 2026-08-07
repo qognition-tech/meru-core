@@ -19,6 +19,7 @@ import { AddAuthTokens1754100000000 } from '../migrations/1754100000000-AddAuthT
 import { AddVesselPositions1754200000000 } from '../migrations/1754200000000-AddVesselPositions';
 import { AddLeadEntityType1754600000000 } from '../migrations/1754600000000-AddLeadEntityType';
 import { AddTenantConnectors1754700000000 } from '../migrations/1754700000000-AddTenantConnectors';
+import { AddGovxEntityTypes1754800000000 } from '../migrations/1754800000000-AddGovxEntityTypes';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -49,4 +50,5 @@ export const ALL_MIGRATIONS = [
   AddVesselPositions1754200000000,
   AddLeadEntityType1754600000000,
   AddTenantConnectors1754700000000,
+  AddGovxEntityTypes1754800000000,
 ];

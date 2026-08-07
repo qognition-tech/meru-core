@@ -27,6 +27,15 @@ const WORKABLE_TYPES: ReadonlySet<EntityType> = new Set([
   EntityType.OBLIGATION,
   EntityType.BREACH,
   EntityType.LEAD,
+  // GovX module areas whose records are worked to a conclusion. Reference
+  // data (knowledge articles, training modules) is deliberately NOT here —
+  // an article has no assignee or due date.
+  EntityType.VENDOR,
+  EntityType.CONTROL_TEST,
+  EntityType.RISK_SCENARIO,
+  EntityType.MILESTONE,
+  EntityType.RFI,
+  EntityType.SCREENING_MATCH,
 ]);
 
 function defaultStatusFor(type: EntityType): EntityStatus | null {

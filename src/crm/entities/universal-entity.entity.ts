@@ -43,6 +43,37 @@ export enum EntityType {
    */
   LEAD = 'lead',
   /**
+   * The GovernanceX module areas below are records with a status, an owner and
+   * a date — structurally the same thing the CRM module already models. They
+   * are entity types rather than bespoke modules because CLAUDE.md §11.3
+   * forbids putting a vertical's vocabulary inside the horizontal engine: the
+   * labels, fields and lifecycles come from the banking config pack, and core
+   * only knows "a record that can be worked".
+   */
+
+  /** Knowledge Base article. GovX: Knowledge Base & Training. */
+  KNOWLEDGE_ARTICLE = 'knowledge_article',
+  /** Training course + completion tracking. GovX: Training Modules. */
+  TRAINING_MODULE = 'training_module',
+  /** Third party under due diligence. GovX: Vendor Due Diligence. */
+  VENDOR = 'vendor',
+  /** A control and its test outcome. GovX: Automated Control Testing. */
+  CONTROL_TEST = 'control_test',
+  /** Scenario scored in a risk workshop. GovX: Risk Workshop. */
+  RISK_SCENARIO = 'risk_scenario',
+  /** Governance milestone on the roadmap. GovX: Milestones & Roadmap. */
+  MILESTONE = 'milestone',
+  /** Periodic turnover/exposure figure. GovX: Turnover Monitoring. */
+  TURNOVER_RECORD = 'turnover_record',
+  /** Request for Information. GovX: RFI Management. */
+  RFI = 'rfi',
+  /**
+   * One screening hit awaiting disposition (true match / false positive).
+   * GovX: Match Review Workflow — the engine produces these, a human closes
+   * them, and the audit trail is the point.
+   */
+  SCREENING_MATCH = 'screening_match',
+  /**
    * A trade finance instrument — letter of credit, guarantee, collection.
    * Banking-shaped fields (applicant, beneficiary, amount, screening result)
    * live in `verticalAttributes`; core only models the record and its
