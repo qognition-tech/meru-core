@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { SearchIndex, SearchableType } from './entities/search-index.entity';
 
 // SRCH module facade — currently Postgres ILIKE; planned Phase B work
@@ -48,8 +48,13 @@ export class SearchService {
   async search(tenantId: string, query: string, limit: number = 20) {
     const results = await this.searchRepo.find({
       where: [
-        { tenantId, title: Like(`%${query}%`) },
-        { tenantId, content: Like(`%${query}%`) },
+        // ILike, not Like. TypeORM's Like maps to SQL LIKE, which is
+        // case-SENSITIVE in Postgres — so searching "john" never matched a
+        // record titled "John", and every search in every portal silently
+        // under-returned. The comment above always claimed ILIKE; the code
+        // did not.
+        { tenantId, title: ILike(`%${query}%`) },
+        { tenantId, content: ILike(`%${query}%`) },
       ],
       take: limit,
       order: { updatedAt: 'DESC' },

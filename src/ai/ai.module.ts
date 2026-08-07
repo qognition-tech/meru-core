@@ -24,9 +24,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AiPrompt, AiEmbedding
-      WatchlistEntry,
-    ]),
+    TypeOrmModule.forFeature([AiPrompt, AiEmbedding, WatchlistEntry]),
     CoreModule,
     forwardRef(() => CrmModule),
     forwardRef(() => WorkflowModule),
