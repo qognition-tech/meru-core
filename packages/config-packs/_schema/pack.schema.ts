@@ -163,6 +163,37 @@ export const ConfigPackSchema = z.object({
   screening: ScreeningConfigSchema.optional(),
   compliance: ComplianceRulesSchema.optional(),
   kpis: z.array(KpiSchema).optional(),
+
+  /**
+   * Per-entity-type vocabulary: what core stores as `knowledge_article` is
+   * rendered as "Knowledge Base" with these columns, status words and form
+   * controls. This is Layer 4 doing its job (CLAUDE.md §4) — the UI reads it
+   * instead of hardcoding a field list per page.
+   *
+   * Fields are intentionally loose: a vertical may need control types this
+   * schema has never heard of, and a strict union would mean editing core
+   * every time a pack author invents one. The `type` string is validated by
+   * the renderer, which falls back to a text input for anything unknown.
+   */
+  entityTypes: z.array(z.object({
+    type: z.string(),
+    label: z.string(),
+    pluralLabel: z.string().optional(),
+    module: z.string().optional(),
+    workable: z.boolean().optional(),
+    statusLabels: z.record(z.string(), z.string()).optional(),
+    fields: z.array(z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.string(),
+      required: z.boolean().optional(),
+      options: z.array(z.string()).optional(),
+      multiple: z.boolean().optional(),
+      default: z.unknown().optional(),
+      formula: z.string().optional(),
+    })).default([]),
+  })).optional(),
+
   defaults: z.record(z.string(), z.unknown()).optional(),
   uiConfig: z.object({
     primaryColor: z.string().optional(),

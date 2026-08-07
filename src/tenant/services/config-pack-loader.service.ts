@@ -137,6 +137,9 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
         screening: def.screening ?? null,
         compliance: def.compliance ?? null,
         kpis: def.kpis ?? [],
+        // Without this key the block is validated and then dropped on the
+        // way to the database — the UI would never see it.
+        entityTypes: def.entityTypes ?? [],
         regulators: def.regulators ?? [],
         country: def.country,
         locales: def.locales,
