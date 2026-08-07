@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Controller,
   Post,
   Body,
@@ -224,16 +225,44 @@ export class TenantProvisioningController {
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiOperation({ summary: 'Get tenant statistics' })
+  @ApiOperation({
+    summary: 'Get tenant statistics',
+    description:
+      'Own tenant: any member. Another tenant: platform_admin only, and the ' +
+      'read runs through runAsGod so it is audited like every other ' +
+      'cross-tenant access.',
+  })
   @ApiResponse({
     status: 200,
     description: 'Statistics retrieved successfully',
   })
+  @ApiResponse({
+    status: 403,
+    description: "Requires platform_admin to read another tenant's stats",
+  })
   @ApiResponse({ status: 404, description: 'Tenant not found' })
   @ApiParam({ name: 'id', description: 'Tenant ID' })
-  async getStats(@Param('id') id: string) {
-    const stats = await this.tenantProvisioningService.getTenantStats(id);
+  async getStats(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+    // This route accepted any id and ran on the caller's RLS-bound
+    // connection, so asking for someone else's tenant returned ZEROS rather
+    // than an error — silently wrong counts in the God UI, which is worse
+    // than a failure because nobody investigates a number that renders.
+    if (id === req.user.tenantId) {
+      return this.tenantProvisioningService.getTenantStats(id);
+    }
 
-    return stats;
+    const roles = req.user.roles ?? [];
+    if (!roles.includes(PlatformRole.PLATFORM_ADMIN)) {
+      throw new ForbiddenException(
+        "Reading another tenant's statistics requires platform_admin",
+      );
+    }
+
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      req.user.tenantId,
+      `Read statistics for tenant ${id} (God View)`,
+      () => this.tenantProvisioningService.getTenantStats(id),
+    );
   }
 }
