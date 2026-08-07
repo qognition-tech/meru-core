@@ -4,6 +4,7 @@ import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { SearchIndex } from '../search/entities/search-index.entity';
 import { AiPrompt, AiEmbedding } from '../ai/entities/ai-prompt.entity';
+import { WatchlistEntry } from '../ai/entities/watchlist-entry.entity';
 import { Role } from '../iam/entities/role.entity';
 import { Session } from '../iam/entities/session.entity';
 import { AuthToken } from '../iam/entities/auth-token.entity';
@@ -90,6 +91,7 @@ export const ALL_ENTITIES = [
   SearchIndex,
   AiPrompt,
   AiEmbedding,
+  WatchlistEntry,
   // Documents
   Document,
   DocumentVersion,

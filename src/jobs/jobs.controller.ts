@@ -33,6 +33,8 @@ import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
 import { MigrateService, MigrateTarget } from './migrate.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
+import { WatchlistIngestService } from '../ai/engines/watchlist-ingest.service';
+import { ScreeningEngine } from '../ai/engines/screening.engine';
 
 export interface JobResult {
   job: string;
@@ -65,6 +67,9 @@ const JOB_CADENCE_MINUTES = {
   'daily-billing': 1440,
   'regulatory-radar': 1440,
   'audit-archive': 1440,
+  // Sanctions lists change daily; screening against a stale list is the
+  // failure mode that matters, so this runs with the daily sweep.
+  'watchlist-ingest': 1440,
   'digest-emails': 1440,
 } as const;
 
@@ -152,6 +157,8 @@ export class JobsController {
     private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
     private readonly notificationDispatch: NotificationDispatchService,
+    private readonly watchlistIngest: WatchlistIngestService,
+    private readonly screeningEngine: ScreeningEngine,
   ) {}
 
   // ── Consolidated dispatcher ───────────────────────────────────────────────
@@ -328,6 +335,14 @@ export class JobsController {
         return () => this.regulatoryRadar.scheduledScan();
       case 'audit-archive':
         return () => this.auditService.archiveOldLogs();
+      case 'watchlist-ingest':
+        return async () => {
+          const result = await this.watchlistIngest.ingestAll();
+          // The engine caches lists for 10 minutes; drop it so a fresh
+          // ingest takes effect immediately rather than after the TTL.
+          this.screeningEngine.invalidateCache();
+          return result;
+        };
       case 'digest-emails':
         return () => this.notificationsService.sendDigestEmails();
     }

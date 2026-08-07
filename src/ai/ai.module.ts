@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ScreeningEngine } from './engines/screening.engine';
+import { WatchlistIngestService } from './engines/watchlist-ingest.service';
+import { WatchlistEntry } from './entities/watchlist-entry.entity';
 import { DocIntelEngine } from './engines/doc-intel.engine';
 import { DecisionEngine } from './engines/decision.engine';
 import { CommsEngine } from './engines/comms.engine';
@@ -22,7 +24,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AiPrompt, AiEmbedding]),
+    TypeOrmModule.forFeature([AiPrompt, AiEmbedding
+      WatchlistEntry,
+    ]),
     CoreModule,
     forwardRef(() => CrmModule),
     forwardRef(() => WorkflowModule),
@@ -38,6 +42,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
   providers: [
     AiService,
     ScreeningEngine,
+    WatchlistIngestService,
     DocIntelEngine,
     DecisionEngine,
     CommsEngine,
@@ -47,6 +52,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
   exports: [
     AiService,
     ScreeningEngine,
+    WatchlistIngestService,
     DocIntelEngine,
     DecisionEngine,
     CommsEngine,

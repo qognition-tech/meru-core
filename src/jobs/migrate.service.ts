@@ -5,6 +5,7 @@ import { ALL_ENTITIES } from '../config/entities';
 import { AddTenantRowLevelSecurity1753500000000 } from '../migrations/1753500000000-AddTenantRowLevelSecurity';
 import { AddVesselPositions1754200000000 } from '../migrations/1754200000000-AddVesselPositions';
 import { AddTenantConnectors1754700000000 } from '../migrations/1754700000000-AddTenantConnectors';
+import { AddWatchlistEntries1754900000000 } from '../migrations/1754900000000-AddWatchlistEntries';
 
 export type MigrateTarget = 'control' | 'govx' | 'immistack';
 
@@ -136,6 +137,7 @@ export class MigrateService {
           new AddTenantRowLevelSecurity1753500000000(),
           new AddVesselPositions1754200000000(),
           new AddTenantConnectors1754700000000(),
+          new AddWatchlistEntries1754900000000(),
         ];
         const runner = ds.createQueryRunner();
         try {

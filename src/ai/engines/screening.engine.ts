@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { WatchlistIngestService } from './watchlist-ingest.service';
 // Classical string metrics from `talisman` rather than hand-rolled copies.
 // CommonJS on purpose (see scripts/check-cjs-deps.js); `require` because the
 // package ships no bundled type declarations.
@@ -170,7 +171,69 @@ export class ScreeningEngine {
   private readonly logger = new Logger(ScreeningEngine.name);
 
   // Sub-200ms p95 target: all matching is in-process (no network I/O per name).
-  // Live list ingestion happens asynchronously via the INT module.
+  // Ingested lists are therefore cached in memory and refreshed on a TTL —
+  // reloading ~17k OFAC rows per screening request would miss that budget by
+  // orders of magnitude.
+  private cache: { entries: WatchlistEntry[]; expires: number } | null = null;
+  private static readonly CACHE_TTL_MS = 10 * 60_000;
+
+  constructor(private readonly watchlistIngest: WatchlistIngestService) {}
+
+  /**
+   * The lists to screen against.
+   *
+   * Ingested rows (OFAC SDN, UN Consolidated) are authoritative when present.
+   * BUILTIN_WATCHLISTS remains only as the fallback for a database that has
+   * never been ingested into — without it a fresh install would silently
+   * clear every name, which is the most dangerous possible failure mode for
+   * a sanctions screen.
+   */
+  private async loadWatchlist(): Promise<WatchlistEntry[]> {
+    if (this.cache && this.cache.expires > Date.now()) return this.cache.entries;
+
+    let entries: WatchlistEntry[] = BUILTIN_WATCHLISTS;
+    try {
+      const rows = await this.watchlistIngest.loadAll();
+      if (rows.length > 0) {
+        entries = rows.map((r) => ({
+          id: `${r.listSource}-${r.externalId}`,
+          name: r.name,
+          aliases: r.aliases ?? [],
+          type: (r.entityType === 'individual'
+            ? 'individual'
+            : 'organization') as WatchlistEntry['type'],
+          listSource: r.listSource as WatchlistEntry['listSource'],
+          country: r.country ?? undefined,
+          programs: r.programs ?? [],
+          remarks: r.remarks ?? undefined,
+        }));
+      } else {
+        this.logger.warn(
+          'watchlist_entries is empty — screening against built-in samples only. ' +
+            'Run the watchlist-ingest job to load OFAC/UN.',
+        );
+      }
+    } catch (err) {
+      // Screening must not fail closed into "no hits": that reports a
+      // sanctioned party as clear. Fall back loudly instead.
+      this.logger.error(
+        `Watchlist load failed, falling back to built-in samples: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    this.cache = {
+      entries,
+      expires: Date.now() + ScreeningEngine.CACHE_TTL_MS,
+    };
+    return entries;
+  }
+
+  /** Drops the cache so a fresh ingest takes effect immediately. */
+  invalidateCache(): void {
+    this.cache = null;
+  }
 
   async screen(
     request: ScreeningRequest,
@@ -182,7 +245,7 @@ export class ScreeningEngine {
 
     const namesToCheck = this.buildNameList(request);
     const watchlist = [
-      ...BUILTIN_WATCHLISTS,
+      ...(await this.loadWatchlist()),
       ...(request.customWatchlist ?? []),
     ].filter((entry) => this.listMatchesTypes(entry, request.screeningTypes));
 
