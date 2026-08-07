@@ -21,14 +21,15 @@ const express = require('express');
 const helmet = require('helmet');
 const { randomUUID } = require('node:crypto');
 
-const { AppModule } = require('../dist/src/app.module');
-const {
-  AllExceptionsFilter,
-} = require('../dist/src/core/filters/http-exception.filter');
-const {
-  ResponseEnvelopeInterceptor,
-} = require('../dist/src/core/interceptors/response-envelope.interceptor');
-const { setupSwagger } = require('../dist/src/swagger');
+// Deliberately NOT required at module scope. `dist/src/app.module` runs
+// ConfigModule's Joi validation at import time, so a bad environment variable
+// throws here — before the handler below is even defined, and therefore
+// outside any try/catch it could have. The result is
+// FUNCTION_INVOCATION_FAILED with no diagnosable log line, which is exactly
+// how a single empty env var became hours of unexplained downtime.
+//
+// Loading them inside bootstrap() puts the throw somewhere the handler can
+// catch, log and report.
 
 const server = express();
 let ready = null;
@@ -44,6 +45,15 @@ function corsOrigins() {
 }
 
 async function bootstrap() {
+  const { AppModule } = require('../dist/src/app.module');
+  const {
+    AllExceptionsFilter,
+  } = require('../dist/src/core/filters/http-exception.filter');
+  const {
+    ResponseEnvelopeInterceptor,
+  } = require('../dist/src/core/interceptors/response-envelope.interceptor');
+  const { setupSwagger } = require('../dist/src/swagger');
+
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
     logger: ['error', 'warn', 'log'],
     // Stripe signs the exact bytes; a re-serialized body never verifies.
