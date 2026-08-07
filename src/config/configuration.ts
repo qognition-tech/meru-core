@@ -68,6 +68,34 @@ export const validationSchema = Joi.object({
   MAX_FILE_SIZE: Joi.number().empty('').default(52428800),
 });
 
+/**
+ * Strip `sslmode` (and `channel_binding`) from a Postgres URL.
+ *
+ * `pg` now warns that it treats sslmode=require as **verify-full**, and under
+ * verify-full the driver validates the server certificate chain itself —
+ * overriding the explicit `ssl: { rejectUnauthorized: false }` the DataSource
+ * passes. On a serverless runtime whose CA bundle does not satisfy the Neon
+ * chain, every connection attempt then fails, TypeORM burns its retry budget,
+ * and the function exits non-zero, so EVERY route answers 500 including
+ * /health.
+ *
+ * Removing the parameter leaves TLS on (the explicit ssl option still
+ * applies) while keeping verification behaviour in one place — the code —
+ * instead of split between the code and a query string.
+ */
+const stripSslMode = (url?: string): string | undefined => {
+  if (!url) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete('sslmode');
+    parsed.searchParams.delete('channel_binding');
+    return parsed.toString();
+  } catch {
+    // Not a parsable URL (discrete-var setups); hand it back untouched.
+    return url;
+  }
+};
+
 export const configuration = () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   vertical: process.env.VERTICAL || 'core',
@@ -76,14 +104,19 @@ export const configuration = () => ({
     // are actually enforced; DATABASE_URL (owner) is reserved for migrations and
     // is only used at runtime as a fallback when the app role is not provisioned.
     // See scripts/provision-rls-role.js.
-    url: process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
-    migrationUrl: process.env.DATABASE_URL,
+    url: stripSslMode(
+      process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
+    ),
+    migrationUrl: stripSslMode(process.env.DATABASE_URL),
     // Per-vertical databases (three-DB split, MASTER_GAP_ANALYSIS §2 P1).
     // Unset ⇒ that vertical shares the default (control-plane) database, so
     // the split can roll out one environment at a time without downtime.
-    govxUrl: process.env.GOVX_DB_APP_URL || process.env.GOVX_DB_URL,
-    immistackUrl:
+    govxUrl: stripSslMode(
+      process.env.GOVX_DB_APP_URL || process.env.GOVX_DB_URL,
+    ),
+    immistackUrl: stripSslMode(
       process.env.IMMISTACK_DB_APP_URL || process.env.IMMISTACK_DB_URL,
+    ),
     host: process.env.DATABASE_HOST || 'localhost',
     port: parseInt(process.env.DATABASE_PORT || '5432', 10),
     username: process.env.DATABASE_USERNAME || 'postgres',
