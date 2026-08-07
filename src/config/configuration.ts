@@ -1,56 +1,71 @@
 import * as Joi from 'joi';
 
+/**
+ * Every entry below is `.empty('')`, which converts an empty string to
+ * undefined so the declared `.default()` applies.
+ *
+ * This is not cosmetic. Joi's `.default()` only fires for *undefined*; an env
+ * var that exists but is empty is a defined empty string and fails
+ * validation ("is not allowed to be empty", or the `.valid()` list for enums).
+ * ConfigModule throws that at startup, Nest never finishes booting, and every
+ * route — including /health — answers 500. A deployment platform writing an
+ * empty value for an optional variable should degrade to its default, not
+ * take the whole API down.
+ *
+ * JWT_SECRET deliberately keeps failing on empty: booting with no signing
+ * secret is worse than not booting.
+ */
 export const validationSchema = Joi.object({
-  NODE_ENV: Joi.string()
+  NODE_ENV: Joi.string().empty('')
     .valid('development', 'production', 'test')
     .default('development'),
-  PORT: Joi.number().default(3000),
-  VERTICAL: Joi.string()
+  PORT: Joi.number().empty('').default(3000),
+  VERTICAL: Joi.string().empty('')
     .valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal')
     .default('core'),
 
   // CORS
-  CORS_ALLOWED_ORIGINS: Joi.string().default(
+  CORS_ALLOWED_ORIGINS: Joi.string().empty('').default(
     'http://localhost:3000,http://localhost:3001,http://localhost:3002',
   ),
 
   // Rate Limiting
-  RATE_LIMIT_TTL_MS: Joi.number().default(60000),
-  RATE_LIMIT_MAX_GLOBAL: Joi.number().default(100),
-  RATE_LIMIT_MAX_IMMIGRATION: Joi.number().default(100),
-  RATE_LIMIT_MAX_BANKING: Joi.number().default(50),
+  RATE_LIMIT_TTL_MS: Joi.number().empty('').default(60000),
+  RATE_LIMIT_MAX_GLOBAL: Joi.number().empty('').default(100),
+  RATE_LIMIT_MAX_IMMIGRATION: Joi.number().empty('').default(100),
+  RATE_LIMIT_MAX_BANKING: Joi.number().empty('').default(50),
 
   // AWS Secrets Manager
-  AWS_REGION: Joi.string().default('ap-south-1'),
-  AWS_RDS_SECRET_NAME: Joi.string().optional().allow(''),
+  AWS_REGION: Joi.string().empty('').default('ap-south-1'),
+  AWS_RDS_SECRET_NAME: Joi.string().empty('').optional().allow(''),
 
   // Database — DATABASE_URL (Neon) takes precedence over the discrete vars.
-  DATABASE_URL: Joi.string().optional(),
-  DATABASE_HOST: Joi.string().optional(),
-  DATABASE_PORT: Joi.number().default(5432),
-  DATABASE_USERNAME: Joi.string().optional(),
-  DATABASE_PASSWORD: Joi.string().optional(),
-  DATABASE_NAME: Joi.string().optional(),
+  DATABASE_URL: Joi.string().empty('').optional(),
+  DATABASE_HOST: Joi.string().empty('').optional(),
+  DATABASE_PORT: Joi.number().empty('').default(5432),
+  DATABASE_USERNAME: Joi.string().empty('').optional(),
+  DATABASE_PASSWORD: Joi.string().empty('').optional(),
+  DATABASE_NAME: Joi.string().empty('').optional(),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
-  JWT_EXPIRATION: Joi.string().default('1h'),
-  CRON_SECRET: Joi.string().optional(),
+  JWT_EXPIRATION: Joi.string().empty('').default('1h'),
+  CRON_SECRET: Joi.string().empty('').optional(),
 
   // Cache (Redis URL optional, falls back to memory)
-  REDIS_HOST: Joi.string().optional(),
-  REDIS_PORT: Joi.number().optional(),
+  REDIS_HOST: Joi.string().empty('').optional(),
+  REDIS_PORT: Joi.number().empty('').optional(),
 
   // AWS S3
-  AWS_ACCESS_KEY_ID: Joi.string().optional().allow(''),
-  AWS_SECRET_ACCESS_KEY: Joi.string().optional().allow(''),
-  AWS_S3_BUCKET: Joi.string().default('meru-documents'),
+  AWS_ACCESS_KEY_ID: Joi.string().empty('').optional().allow(''),
+  AWS_SECRET_ACCESS_KEY: Joi.string().empty('').optional().allow(''),
+  AWS_S3_BUCKET: Joi.string().empty('').default('meru-documents'),
 
   // Documents
-  DOCUMENT_ENCRYPTION_KEY: Joi.string().default(
+  DOCUMENT_ENCRYPTION_KEY: Joi.string().empty('').default(
     'default-encryption-key-32-chars!',
   ),
-  MAX_FILE_SIZE: Joi.number().default(52428800),
+  MAX_FILE_SIZE: Joi.number().empty('').default(52428800),
 });
 
 export const configuration = () => ({
