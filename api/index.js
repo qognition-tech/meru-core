@@ -46,6 +46,10 @@ function corsOrigins() {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
     logger: ['error', 'warn', 'log'],
+    // Stripe signs the exact bytes; a re-serialized body never verifies.
+    // src/main.ts sets this too — the two bootstrap paths must not drift, and
+    // this one is what actually runs in production.
+    rawBody: true,
   });
 
   // Explicit allowlist. Never `origin: true` alongside `credentials: true` —
@@ -100,7 +104,32 @@ async function bootstrap() {
 }
 
 module.exports = async function handler(req, res) {
-  if (!ready) ready = bootstrap();
-  await ready;
+  // A rejected bootstrap is cached in `ready`, so one bad boot makes every
+  // subsequent request fail with an opaque FUNCTION_INVOCATION_FAILED and no
+  // usable log line — which is exactly how a config-validation error cost
+  // hours of production downtime. Log the real cause, answer with it, and
+  // clear the cache so the next invocation retries rather than being
+  // permanently poisoned by a transient failure.
+  try {
+    if (!ready) ready = bootstrap();
+    await ready;
+  } catch (err) {
+    ready = null;
+    const detail = err && err.stack ? err.stack : String(err);
+    console.error('[bootstrap-failed]', detail);
+    res.statusCode = 500;
+    res.setHeader('content-type', 'application/json');
+    res.end(
+      JSON.stringify({
+        data: null,
+        error: {
+          code: 'MER-SRV-0000',
+          message: 'Application failed to start',
+          detail: String(detail).slice(0, 2000),
+        },
+      }),
+    );
+    return;
+  }
   server(req, res);
 };
