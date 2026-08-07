@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ScreeningEngine } from './engines/screening.engine';
+import { EnginesController } from './engines/engines.controller';
 import { WatchlistIngestService } from './engines/watchlist-ingest.service';
 import { WatchlistEntry } from './entities/watchlist-entry.entity';
 import { DocIntelEngine } from './engines/doc-intel.engine';
@@ -36,7 +37,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => AuditModule),
     forwardRef(() => NotificationsModule),
   ],
-  controllers: [AiController],
+  controllers: [AiController, EnginesController],
   providers: [
     AiService,
     ScreeningEngine,
