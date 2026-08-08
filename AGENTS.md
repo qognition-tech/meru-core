@@ -144,32 +144,37 @@ Still missing:
 | `GET /marketing/campaigns` | No MARKETING module exists. Arguably a category error: campaigns are vertical-specific, so per §3's 80/20 rule this belongs in a config pack or a vertical app, not the horizontal core. Decide before building |
 | `GET /communications/threads` | COM is a one-way delivery log; `notifications` has no thread key to group on |
 
-### DO THIS FIRST: migrate the vertical databases
+### Databases and watchlists — done, no action needed
 
-`payments`, `job_runs`, `screening_results` and the audit WORM triggers exist
-in the **control** database only. GOVX_DB_URL and IMMISTACK_DB_URL are
-Vercel-sensitive and could not be read from the session that wrote them.
+All three Neon databases are migrated and identical (27 migrations each,
+`payments` / `job_runs` / `screening_results`, no tenant table missing RLS,
+WORM triggers present). They turned out to sit on the **same Neon endpoint** —
+`govx` and `immistack` are database names on `ep-restless-thunder-azgspl7m`,
+not separate projects — so the owner URL reaches all three and no
+`/jobs/migrate` call was needed. Worth remembering: the vertical DB URLs are
+Vercel-sensitive and `vercel env pull` returns them empty, so that endpoint is
+the *only* route if the endpoint ever differs.
 
-```bash
-curl -X POST https://meru-core.vercel.app/api/v1/jobs/migrate/govx \
-     -H "Authorization: Bearer $CRON_SECRET"
-curl -X POST https://meru-core.vercel.app/api/v1/jobs/migrate/immistack \
-     -H "Authorization: Bearer $CRON_SECRET"
-```
+Sanctions lists are ingested: **20,210 entries per database** (19,199 OFAC SDN
++ 1,011 UN Consolidated). Screening matches real designations again.
 
-Until then a tenant routed to a vertical DB gets `relation "payments" does not
-exist`. Vertical DataSources do **not** run migrations on init — `synchronize`
-is false and there is no `migrationsRun` — so nothing does this automatically.
+### The defect loading real data exposed — `60a8326`
 
-**`watchlist_entries` is also empty**, so screening cannot match a real
-sanctioned name and the rescreen sweep correctly no-ops. That needs the
-external scheduler in §2.
+With `watchlist_entries` empty, screening had never been exercised against
+anything. Once 20k rows landed, **every invented name screened as
+`escalated`**: a Double Metaphone match awarded a flat 0.85, exactly the
+default threshold, so any phonetic collision became a hit.
 
-**Fixed already:** `GET /tenants/:id/stats` used to return zeros for other
-tenants (RLS-scoped to the caller). Now requires `platform_admin` for a
-different tenant and runs under `runAsGod` (`f84aff7`).
+Phonetic agreement is now corroboration, gated behind a Levenshtein floor —
+not Jaro-Winkler, whose prefix bonus rewards a shared forename and cannot
+separate "Margarethe Vandersloot"/"MARGARITA 1" (lev 0.36) from
+"mohammed ali"/"muhammad ali" (lev 0.83). 0/12 invented names flagged, 40/40
+real designations still hit, p95 104ms. `screening.engine.spec.ts` pins both
+directions.
 
----
+**The lesson generalises:** a feature whose data source is empty has not been
+tested, only executed. Everything downstream of `watchlist_entries` looked
+fine for as long as there was nothing in it.
 
 ## 5. Phase status
 
