@@ -51,6 +51,9 @@ import { AuditModule } from '../audit/audit.module';
   exports: [
     TenantSettingsService,
     ConfigPackService,
+    // Exported so `POST /jobs/packs/reload` can run the same load pass as boot
+    // and report what it did — see the loader's note on silent failure modes.
+    ConfigPackLoaderService,
     FeatureFlagService,
     BrandingService,
   ],

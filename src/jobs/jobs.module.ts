@@ -15,6 +15,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 import { AiModule } from '../ai/ai.module';
 import { IamModule } from '../iam/iam.module';
+import { TenantModule } from '../tenant/tenant.module';
 
 /**
  * JOBS — HTTP entrypoints for scheduled work.
@@ -35,6 +36,7 @@ import { IamModule } from '../iam/iam.module';
     AuditModule,
     AiModule,
     IamModule,
+    TenantModule,
   ],
   // JobStatusController FIRST: JobsController declares @Get(':job'), and
   // Express matches in registration order, so a later registration would

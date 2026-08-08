@@ -33,6 +33,7 @@ import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
 import { JobRunService } from './job-run.service';
 import { MigrateService, MigrateTarget } from './migrate.service';
+import { ConfigPackLoaderService } from '../tenant/services/config-pack-loader.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import { WatchlistIngestService } from '../ai/engines/watchlist-ingest.service';
 import { ScreeningEngine } from '../ai/engines/screening.engine';
@@ -167,6 +168,7 @@ export class JobsController {
     private readonly notificationDispatch: NotificationDispatchService,
     private readonly watchlistIngest: WatchlistIngestService,
     private readonly screeningEngine: ScreeningEngine,
+    private readonly configPackLoader: ConfigPackLoaderService,
   ) {}
 
   // ── Consolidated dispatcher ───────────────────────────────────────────────
@@ -191,6 +193,25 @@ export class JobsController {
       );
     }
     return this.migrateService.migrate(target as MigrateTarget);
+  }
+
+  @Post('packs/reload')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reload config packs from disk and report what changed',
+    description:
+      'Machine endpoint (CRON_SECRET). Runs the same loader as application ' +
+      'boot, but returns a per-pack report: file version, stored version read ' +
+      'back after the write, and whether the two match. Exists because the ' +
+      'loader used to be a boot-time side effect that logged and returned ' +
+      'nothing, and two of its failure modes are silent — the packs directory ' +
+      'missing from the deployment bundle, and an UPDATE filtered to zero rows ' +
+      'by config_packs RLS. Either leaves a pack permanently one version ' +
+      'behind the file that defines it, with no error anywhere.',
+  })
+  @ApiResponse({ status: 200, description: 'Load report' })
+  async reloadPacks() {
+    return this.configPackLoader.reload();
   }
 
   // Declared before the :job routes so "tick" is not swallowed as a job name.

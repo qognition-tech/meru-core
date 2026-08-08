@@ -10,6 +10,28 @@ import {
 import { ConfigPack } from '../entities/config-pack.entity';
 import { TenantContext } from '../../core/tenancy/tenant-context';
 
+/** What one load pass did, per pack and in aggregate. */
+export interface ConfigPackLoadReport {
+  /** Resolved directory, reported because "not found" is a real outcome here. */
+  packsDir: string;
+  packsDirExists: boolean;
+  filesFound: number;
+  inserted: number;
+  upgraded: number;
+  upToDate: number;
+  packs: Array<{
+    code: string;
+    fileVersion: string;
+    /** Version actually in the database after the write, read back. */
+    storedVersion: string | null;
+    outcome: 'inserted' | 'up-to-date' | 'upgraded';
+    /** False means the write did not take — see `reload`'s note on RLS. */
+    verified: boolean;
+    sections: string[];
+  }>;
+  errors: string[];
+}
+
 // Reads all JSON files from packages/config-packs/**/*.json at startup,
 // validates them with the Zod schema, and upserts into config_packs table.
 // This bridges the file-based authoring workflow (GitOps) with the runtime DB.
@@ -48,24 +70,57 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
       return;
     }
 
-    this.logger.log(`Loading config packs from ${this.packsDir}`);
+    const report = await this.reload();
+    this.logger.log(
+      `Config pack loader complete — dir: ${report.packsDir}, files: ${report.filesFound}, ` +
+        `inserted: ${report.inserted}, upgraded: ${report.upgraded}, ` +
+        `up-to-date: ${report.upToDate}, errors: ${report.errors.length}`,
+    );
+  }
 
+  /**
+   * Load every pack on disk and **report what happened**.
+   *
+   * This used to be a boot-time side effect that logged and returned nothing,
+   * which made it undiagnosable on serverless: cold-start logs are not where
+   * anyone looks, and two failure modes are silent by construction —
+   *
+   *  - the packs directory not being present in the bundle (the loader logs a
+   *    warning and cheerfully reports success over zero files), and
+   *  - an UPDATE that RLS filters to zero rows. `config_packs` is FORCE RLS
+   *    with `platform_global_write ... USING (app.rls_bypassed())`, and a
+   *    policy-filtered UPDATE is not an error in Postgres — it affects no rows
+   *    and returns cleanly. An initial INSERT can therefore succeed while every
+   *    later version upgrade silently does nothing, which presents as a pack
+   *    that is permanently one version behind the file that defines it.
+   *
+   * `verified` closes that second hole by reading the row back after writing
+   * and comparing versions, so a swallowed write is reported rather than
+   * assumed. Exposed over HTTP by `POST /jobs/packs/reload`.
+   */
+  async reload(): Promise<ConfigPackLoadReport> {
     // `config_packs` is a platform-global table: readable by every tenant but
     // writable only under an RLS bypass (see AddTenantRowLevelSecurity's
-    // platform_global_write policy). Boot-time seeding has no tenant, so the
-    // whole pass runs as system or every INSERT is rejected by the policy.
-    await TenantContext.runAsSystem('seed config packs from disk at boot', () =>
+    // platform_global_write policy). Seeding has no tenant, so the whole pass
+    // runs as system or every write is rejected by the policy.
+    return TenantContext.runAsSystem('load config packs from disk', () =>
       this.loadAll(),
     );
   }
 
-  private async loadAll(): Promise<void> {
+  private async loadAll(): Promise<ConfigPackLoadReport> {
     const files = this.findPackFiles(this.packsDir);
-    this.logger.log(`Found ${files.length} config pack file(s)`);
 
-    let loaded = 0;
-    let skipped = 0;
-    let errors = 0;
+    const report: ConfigPackLoadReport = {
+      packsDir: this.packsDir,
+      packsDirExists: fs.existsSync(this.packsDir),
+      filesFound: files.length,
+      inserted: 0,
+      upgraded: 0,
+      upToDate: 0,
+      packs: [],
+      errors: [],
+    };
 
     for (const file of files) {
       try {
@@ -73,26 +128,55 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
         const result = safeValidateConfigPack(raw);
 
         if (!result.success) {
-          this.logger.error(
-            `Invalid config pack ${file}: ${result.error.issues.map((i) => i.message).join(', ')}`,
+          report.errors.push(
+            `${file}: ${result.error.issues
+              .map((i) => `${i.path.join('.')} ${i.message}`)
+              .join('; ')}`,
           );
-          errors++;
           continue;
         }
 
         const outcome = await this.upsertPack(result.data);
-        if (outcome === 'inserted') loaded++;
-        else skipped++;
+        if (outcome === 'inserted') report.inserted++;
+        else if (outcome === 'upgraded') report.upgraded++;
+        else report.upToDate++;
+
+        // Read back. Without this the report would only say what was
+        // attempted, and an RLS-filtered write looks identical to a successful
+        // one from the writer's side.
+        const stored = await this.configPackRepo.findOne({
+          where: { code: result.data.code },
+        });
+
+        report.packs.push({
+          code: result.data.code,
+          fileVersion: result.data.version,
+          storedVersion: stored?.version ?? null,
+          outcome,
+          verified: stored?.version === result.data.version,
+          sections: Object.keys(
+            (stored?.schema as Record<string, unknown> | undefined) ?? {},
+          ).sort(),
+        });
+
+        if (stored && stored.version !== result.data.version) {
+          report.errors.push(
+            `${result.data.code}: write reported '${outcome}' but stored version is ` +
+              `${stored.version}, not ${result.data.version} — the write was almost ` +
+              `certainly filtered by RLS (config_packs is FORCE RLS and requires ` +
+              `app.rls_bypassed() to write).`,
+          );
+        }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Failed to load config pack ${file}: ${msg}`);
-        errors++;
+        report.errors.push(
+          `${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
-    this.logger.log(
-      `Config pack loader complete — inserted: ${loaded}, up-to-date: ${skipped}, errors: ${errors}`,
-    );
+    for (const error of report.errors) this.logger.error(error);
+
+    return report;
   }
 
   private findPackFiles(dir: string): string[] {
