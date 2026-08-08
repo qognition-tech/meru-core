@@ -117,23 +117,53 @@ another tenant → platform_admin + `runAsGod` + CRITICAL audit). The PUT is
 bounded by the plan allowance — an unguarded write there is a free
 self-service upgrade. Frontend contracts are in `meru-core-fe/BACKEND-HANDOFF.md`.
 
+**Also shipped 2026-08-08** — `dd6ea14`, `6cd1bfe`, `06d170b`, `3199dd3`,
+`3cdc939`. Live at 226 paths / 273 operations:
+
+- **`/payments`** — the firm's receivables, a resource distinct from BILL.
+  Explicitly *not* Stripe: Stripe is Meru billing the tenant; a firm settles
+  its client fees out of band and records them. Client-role callers are forced
+  to their own rows (404, not 403, on someone else's).
+- **`GET /documents/checklist`** — driven by the pack's `schema.documentTypes`.
+- **`GET /jobs/status`** — now honest, because `job_runs` persists last-run
+  state. This also fixed a live bug: the old in-memory `Map` meant every cold
+  start believed nothing had run, so daily jobs could re-run on each cold boot.
+- **Audit WORM** — `audit_logs` is append-only via triggers (not RLS, which a
+  BYPASSRLS owner would evade). Only `archived` may change; DELETE and TRUNCATE
+  are refused. Not full WORM: a superuser can drop the trigger. Real
+  immutability needs S3 Object Lock export, still outstanding.
+- **Scheduled rescreening** — `screening_results` persists every screening, and
+  a daily sweep re-checks anything older than the newest list ingest, flagging
+  `clear → hit`. It refuses to run on an empty watchlist rather than clearing
+  real hits against nothing.
+
 Still missing:
 
 | Missing | Needed by |
 |---|---|
-| `GET /payments` (per-client ledger) | ImmiStack client portal. BILL bills the *firm* for Meru, not clients for services |
-| `POST /payments/checkout` for a client token | `/billing/checkout` is `@Roles(platform_admin, firm_admin)` and buys the firm's tier |
-| `GET /jobs/status` (per-job last run) | Dashboard health — **see the trap below** |
 | `GET /marketing/campaigns` | No MARKETING module exists. Arguably a category error: campaigns are vertical-specific, so per §3's 80/20 rule this belongs in a config pack or a vertical app, not the horizontal core. Decide before building |
 | `GET /communications/threads` | COM is a one-way delivery log; `notifications` has no thread key to group on |
-| Document-checklist route | Visa document requirements are config-pack data not exposed |
 
-**`GET /jobs/status` is unbuilt on purpose.** `lastRun` in
-`src/jobs/jobs.controller.ts` is a per-instance `Map`, and every serverless
-invocation is a fresh process — the route would report "never run" for every
-job, forever. That renders in the God UI as a real answer, which is worse than
-a missing route. It needs a persisted `job_runs` table (platform-global, same
-RLS shape as `config_packs`) before the endpoint is worth having.
+### DO THIS FIRST: migrate the vertical databases
+
+`payments`, `job_runs`, `screening_results` and the audit WORM triggers exist
+in the **control** database only. GOVX_DB_URL and IMMISTACK_DB_URL are
+Vercel-sensitive and could not be read from the session that wrote them.
+
+```bash
+curl -X POST https://meru-core.vercel.app/api/v1/jobs/migrate/govx \
+     -H "Authorization: Bearer $CRON_SECRET"
+curl -X POST https://meru-core.vercel.app/api/v1/jobs/migrate/immistack \
+     -H "Authorization: Bearer $CRON_SECRET"
+```
+
+Until then a tenant routed to a vertical DB gets `relation "payments" does not
+exist`. Vertical DataSources do **not** run migrations on init — `synchronize`
+is false and there is no `migrationsRun` — so nothing does this automatically.
+
+**`watchlist_entries` is also empty**, so screening cannot match a real
+sanctioned name and the rescreen sweep correctly no-ops. That needs the
+external scheduler in §2.
 
 **Fixed already:** `GET /tenants/:id/stats` used to return zeros for other
 tenants (RLS-scoped to the caller). Now requires `platform_admin` for a
