@@ -49,7 +49,16 @@ export class WatchlistEntry {
   @Column({ length: 30, default: 'individual' })
   entityType: string;
 
-  @Column({ length: 2, nullable: true })
+  // `type` is explicit on purpose. TypeORM infers the column type from
+  // emitDecoratorMetadata, and a `string | null` union emits `design:type =
+  // Object`, which Postgres has no mapping for. Omitting it here threw
+  // DataTypeNotSupportedError during metadata build — which TypeORM reports as
+  // "Unable to connect to the database. Retrying (n)...", so it reads as a
+  // network fault. Ten retries at 3s then exceeded the serverless function's
+  // maxDuration, killing the process before it could throw: every route
+  // answered FUNCTION_INVOCATION_FAILED with no stack anywhere. Never rely on
+  // inference for a nullable column.
+  @Column({ type: 'varchar', length: 2, nullable: true })
   country: string | null;
 
   @Column({ type: 'text', array: true, default: () => "'{}'" })

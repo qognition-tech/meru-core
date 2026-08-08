@@ -80,7 +80,19 @@ import { ALL_ENTITIES } from './config/entities';
           synchronize: false, // Disabled for production - use migrations
 
           logging: isDevelopment,
-          retryAttempts: isDevelopment ? 3 : 10,
+
+          // Serverless gets ONE attempt. TypeORM funnels every DataSource
+          // failure — including non-retryable ones like a bad entity
+          // definition — through the same retry loop, logging each as
+          // "Unable to connect to the database. Retrying (n)...". Ten attempts
+          // at 3s spends 30s+ before the real error is ever thrown, which on a
+          // 60s-maxDuration function means the platform kills the process
+          // first: no stack, no log, just FUNCTION_INVOCATION_FAILED. That
+          // masked a DataTypeNotSupportedError as a connection fault and cost
+          // hours of downtime chasing TLS and env vars. Retrying also buys
+          // nothing here — a cold start that cannot reach Postgres should fail
+          // fast and let the next invocation try, not hold the caller open.
+          retryAttempts: isServerless ? 1 : isDevelopment ? 3 : 10,
           retryDelay: 3000,
           ssl: { rejectUnauthorized: false },
 
