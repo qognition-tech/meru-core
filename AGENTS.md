@@ -109,17 +109,31 @@ canned strings and typed them out to fake streaming — "47 active cases",
 Each is behind a `notImplemented()` seam in the relevant app, so the UI states
 the missing route rather than faking data.
 
+**Shipped 2026-08-08** — `1f68a85`, `6b28410`. Live and verified in production:
+`GET /tenants/:id/{entitlements,branding,connectors}`,
+`POST /tenants/:id/impersonate`, `PUT /tenants/me/entitlements`.
+The operator trio follows the `/tenants/:id/stats` rule (own tenant ordinary,
+another tenant → platform_admin + `runAsGod` + CRITICAL audit). The PUT is
+bounded by the plan allowance — an unguarded write there is a free
+self-service upgrade. Frontend contracts are in `meru-core-fe/BACKEND-HANDOFF.md`.
+
+Still missing:
+
 | Missing | Needed by |
 |---|---|
 | `GET /payments` (per-client ledger) | ImmiStack client portal. BILL bills the *firm* for Meru, not clients for services |
 | `POST /payments/checkout` for a client token | `/billing/checkout` is `@Roles(platform_admin, firm_admin)` and buys the firm's tier |
-| `PUT /tenants/me/entitlements` | Onboarding steps 2 & 7 — module/country pickers record a preference, not a grant |
-| `GET /tenants/:id/entitlements` \| `/branding` \| `/connectors` | Dashboard tenant detail — all three are caller-tenant-scoped only |
-| `POST /tenants/:id/impersonate` | Dashboard; nothing matches `/impersonat/i` in `src/` |
-| `GET /jobs/status` (per-job last run) | Dashboard health; times live in an in-memory Map and `/jobs/*` is cron-secret-guarded |
-| `GET /marketing/campaigns` | No MARKETING module exists |
-| `GET /communications/threads` | COM is a one-way delivery log |
+| `GET /jobs/status` (per-job last run) | Dashboard health — **see the trap below** |
+| `GET /marketing/campaigns` | No MARKETING module exists. Arguably a category error: campaigns are vertical-specific, so per §3's 80/20 rule this belongs in a config pack or a vertical app, not the horizontal core. Decide before building |
+| `GET /communications/threads` | COM is a one-way delivery log; `notifications` has no thread key to group on |
 | Document-checklist route | Visa document requirements are config-pack data not exposed |
+
+**`GET /jobs/status` is unbuilt on purpose.** `lastRun` in
+`src/jobs/jobs.controller.ts` is a per-instance `Map`, and every serverless
+invocation is a fresh process — the route would report "never run" for every
+job, forever. That renders in the God UI as a real answer, which is worse than
+a missing route. It needs a persisted `job_runs` table (platform-global, same
+RLS shape as `config_packs`) before the endpoint is worth having.
 
 **Fixed already:** `GET /tenants/:id/stats` used to return zeros for other
 tenants (RLS-scoped to the caller). Now requires `platform_admin` for a
@@ -142,10 +156,22 @@ onboarding persistence, detail pages, applicant KYC screening via
 `POST /engines/screening`. The duplicate `/platform` console was deleted. Not
 done: `POST /engines/doc-intel` (needs a document-picker flow).
 
-**P7–P9 — not started.** Collaboration/WebSocket, email automation + RFI
-advanced, WorldCheck/Dow Jones/Finacle adapters, Regulatory Radar →
-config-pack diffs + SME review queue, Elasticsearch behind the search facade,
-scheduled rescreening, voice transcription, WORM audit storage, e-signature.
+**P7–P9 — not started**, and three items in it are not purely engineering:
+
+- **Collaboration/WebSocket cannot run on this deployment at all.** Vercel
+  functions terminate per invocation; there is no process to hold a socket
+  open. Needs a separate always-on service or a hosted realtime provider —
+  decide the host before anyone writes a client.
+- **WorldCheck / Dow Jones / Finacle adapters need signed commercial
+  contracts.** The adapter interface can be built; the data cannot be obtained
+  in code, and a sandbox stub that renders like live screening is the failure
+  mode §6 warns about.
+- **E-signature and voice transcription need third-party API keys** that are
+  not provisioned (see §2).
+
+Buildable without any of the above: Regulatory Radar → config-pack diffs + SME
+review queue, Elasticsearch behind the search facade, scheduled rescreening,
+WORM audit storage, email automation + RFI advanced.
 
 ---
 
