@@ -177,9 +177,27 @@ function diagnostics() {
 
 module.exports = async function handler(req, res) {
   if (req.url && req.url.includes('__diag')) {
+    const payload = diagnostics();
+
+    // `?boot=1` attempts the real bootstrap inside THIS invocation and reports
+    // whatever it throws. Necessary because every Vercel invocation is a fresh
+    // process: the request that crashes and the request that asks about it
+    // never share memory, so a fatal recorded on one is invisible to the
+    // other. This is the only way to see the failure from outside.
+    if (req.url.includes('boot=1')) {
+      try {
+        await bootstrap();
+        payload.bootResult = 'BOOT OK';
+      } catch (err) {
+        payload.bootResult =
+          'BOOT FAILED: ' + (err && err.stack ? err.stack : String(err));
+      }
+      ready = null; // never cache a probe's outcome for real traffic
+    }
+
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(diagnostics(), null, 2));
+    res.end(JSON.stringify(payload, null, 2));
     return;
   }
 
