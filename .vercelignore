@@ -2,10 +2,11 @@
 # aws-sdk, @elastic/elasticsearch and openai.
 .git
 .github
-# Stale (May 2025) and out of sync with package.json — its presence makes Vercel
-# choose pnpm over npm, which then fails the lockfile specifier check.
-# package-lock.json is the maintained one (see Dockerfile).
-pnpm-lock.yaml
+# pnpm-lock.yaml is NOT ignored. It is now the only lockfile and the build runs
+# `pnpm install --frozen-lockfile`, which needs it present — excluding it makes
+# the install fail with ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE, whose
+# wording ("lockfile needs updates") describes a stale lockfile rather than a
+# missing one and reads as a problem with the committed file.
 docs
 infra
 test
