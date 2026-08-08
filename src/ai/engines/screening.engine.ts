@@ -23,6 +23,30 @@ const doubleMetaphoneCodes: (
 ) => [string, string] = require('talisman/phonetics/double-metaphone');
 import * as crypto from 'crypto';
 
+/**
+ * Minimum **Levenshtein** ratio before a phonetic code match may contribute.
+ *
+ * Phonetic codes over a full name are lossy enough that unrelated strings
+ * collide routinely, so they corroborate a near-miss rather than count as
+ * evidence on their own.
+ *
+ * Levenshtein specifically, NOT Jaro-Winkler. Jaro-Winkler weights a shared
+ * prefix heavily, which is exactly the wrong property here: two unrelated
+ * people sharing a forename score high on it. Measured against the real OFAC
+ * list, the surviving false positives were
+ *   "Margarethe Vandersloot"      vs "MARGARITA 1"        jw 0.840 / lev 0.364
+ *   "Dmitri Kowalczyk Rutherford" vs "DMITRIEV, Kirill …" jw 0.820 / lev 0.333
+ * while the transliteration cases these algorithms exist for were
+ *   "mohammed ali"   vs "muhammad ali"   jw 0.870 / lev 0.833
+ *   "mohamad hassan" vs "muhammad hasan" jw 0.914 / lev 0.786
+ *   "abdul rahman"   vs "abdulrahman"    jw 0.983 / lev 0.917
+ *
+ * Jaro-Winkler cannot separate those two groups; Levenshtein separates them
+ * cleanly, with every true case above 0.78 and every false one below 0.51.
+ * 0.70 sits in that gap with margin on both sides.
+ */
+const PHONETIC_CORROBORATION_FLOOR = 0.7;
+
 // ── Public types ──────────────────────────────────────────────────────────
 
 export interface ScreeningRequest {
@@ -335,19 +359,39 @@ export class ScreeningEngine {
       if (lev > (best?.score ?? 0))
         best = { score: lev, algorithm: 'levenshtein', candidate };
 
-      // 4. Phonetic. Double Metaphone first — it encodes an alternate
-      // pronunciation, so Mohammed / Muhammad / Mohamad all reduce to MHMT,
-      // which is the single most common family of near-misses on sanctions
-      // lists. Soundex is kept as a weaker fallback: it is English-tuned and
-      // four characters wide, so it agrees less often and is worth less when
-      // it does.
-      if (name.length > 2) {
+      // 4. Phonetic — CORROBORATING ONLY, never sufficient on its own.
+      //
+      // Double Metaphone encodes an alternate pronunciation, so Mohammed /
+      // Muhammad / Mohamad all reduce to MHMT: the most common family of
+      // near-misses on sanctions lists, and worth catching.
+      //
+      // But a phonetic code for a whole multi-word name is extremely lossy —
+      // it compresses to a handful of consonant symbols, and unrelated names
+      // collide constantly. This previously awarded a flat 0.85, which is
+      // exactly the default threshold, so ANY phonetic collision became a hit.
+      // Measured against the real OFAC list that made "Jane Quillingford
+      // Ordinary" match "ZHANG, Lei" and "ANGLO-CARIBBEAN CO., LTD." — every
+      // invented name screened as `escalated` with double-digit hits.
+      //
+      // That is not a cosmetic bug. A screening engine that flags everyone is
+      // indistinguishable from one that flags no one: the alerts get switched
+      // off, and the real designation goes through with them.
+      //
+      // So phonetic agreement now only counts when the strings are already
+      // lexically close. It promotes a borderline lexical match rather than
+      // manufacturing one from nothing.
+      // Gated on Levenshtein alone — see PHONETIC_CORROBORATION_FLOOR for why
+      // Jaro-Winkler cannot be used here.
+      if (name.length > 2 && lev >= PHONETIC_CORROBORATION_FLOOR) {
         if (this.phoneticallyEqual(name, candidate)) {
-          const score = 0.85;
+          const score = Math.max(0.85, Math.max(jw, lev));
           if (score > (best?.score ?? 0))
             best = { score, algorithm: 'double_metaphone', candidate };
         } else if (this.soundex(name) === this.soundex(candidate)) {
-          const score = 0.8; // below exact but above random
+          // Soundex is English-tuned and only four characters wide, so it
+          // agrees more loosely than Double Metaphone and is worth less when
+          // it does.
+          const score = Math.max(0.8, Math.max(jw, lev));
           if (score > (best?.score ?? 0))
             best = { score, algorithm: 'soundex', candidate };
         }
