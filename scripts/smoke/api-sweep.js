@@ -42,6 +42,19 @@ const PUBLIC = [
   /^\/tenants\/check-slug$/,
 ];
 
+/**
+ * Signature-authenticated machine endpoints.
+ *
+ * These cannot present a bearer token — Stripe signs the raw request bytes and
+ * verifies against STRIPE_WEBHOOK_SECRET instead — so 401 is the wrong
+ * expectation: they legitimately answer 400 (no signature header) or 503
+ * (secret unset). They are NOT added to PUBLIC, because PUBLIC skips a route
+ * entirely and the property worth checking here is stronger than "is it
+ * guarded": an unsigned caller must never get a 2xx, or anyone could forge a
+ * "payment succeeded". Asserted explicitly below.
+ */
+const SIGNED = [/^\/billing\/webhook$/];
+
 /** Cron/machine endpoints: must reject a *user* token, not just anonymous. */
 const MACHINE = [/^\/jobs\//, /^\/integrations\/vessel\/ais\//];
 
@@ -136,6 +149,9 @@ function isPublic(p) {
 function isMachine(p) {
   return MACHINE.some((re) => re.test(bare(p)));
 }
+function isSigned(p) {
+  return SIGNED.some((re) => re.test(bare(p)));
+}
 
 async function main() {
   console.log(`Target: ${BASE} (pacing ${MIN_GAP_MS}ms between calls)\n`);
@@ -223,6 +239,15 @@ async function main() {
     if (isMachine(p)) {
       record(res.status === 401, 'critical', `${method.toUpperCase()} ${p}`,
         `machine endpoint answered ${res.status} to an anonymous caller (want 401)`);
+      continue;
+    }
+
+    // Signature-authenticated: 401 is the wrong expectation, but a 2xx to an
+    // unsigned caller means forged events are being accepted.
+    if (isSigned(p)) {
+      record(!(res.status >= 200 && res.status < 300), 'critical',
+        `${method.toUpperCase()} ${p}`,
+        `signature-authenticated endpoint accepted an UNSIGNED request with ${res.status}`);
       continue;
     }
 

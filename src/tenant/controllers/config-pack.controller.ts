@@ -1,4 +1,6 @@
 import {
+  ForbiddenException,
+  Request,
   Controller,
   Get,
   Post,
@@ -23,6 +25,9 @@ import {
 import { PolicyGuard } from '../../iam/guards/policy.guard';
 import { Roles } from '../../iam/decorators/roles.decorator';
 import { ConfigPackService } from '../services/config-pack.service';
+import { TenancyService } from '../../core/tenancy/tenancy.service';
+import { PlatformRole } from '../../iam/enums/platform-role.enum';
+import type { AuthenticatedRequest } from '../../common/types';
 import type {
   CreateConfigPackDto,
   PinConfigPackDto,
@@ -48,7 +53,50 @@ import type {
 @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
 @ApiResponse({ status: 403, description: 'Insufficient role privileges' })
 export class ConfigPackController {
-  constructor(private readonly configPackService: ConfigPackService) {}
+  constructor(
+    private readonly configPackService: ConfigPackService,
+    private readonly tenancyService: TenancyService,
+  ) {}
+
+  /**
+   * Run work against another tenant's pins.
+   *
+   * `tenant_config_pins` is tenant-scoped, so every route here that names a
+   * `:tenantId` is a cross-tenant operation the moment that id is not the
+   * caller's. On the caller's RLS-bound connection those fail in two different
+   * and equally bad ways: a write is refused by the policy and surfaces as a
+   * 500 carrying the raw Postgres error, and a read simply returns **nothing**
+   * — which renders as "this tenant has no pins" and is the worse of the two,
+   * because an empty list looks like an answer.
+   *
+   * Pinning is how a tenant is version-locked to a vertical pack (CLAUDE.md
+   * §5.1), so this meant pinning any tenant but your own had never worked.
+   *
+   * Same rule as /tenants/:id/stats and the operator routes: own tenant is
+   * ordinary, another tenant needs platform_admin and goes through runAsGod,
+   * which writes a CRITICAL audit entry before the query runs.
+   */
+  private async forTenant<T>(
+    req: AuthenticatedRequest,
+    tenantId: string,
+    reason: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    if (tenantId === req.user.tenantId) return work();
+
+    if (!(req.user.roles ?? []).includes(PlatformRole.PLATFORM_ADMIN)) {
+      throw new ForbiddenException(
+        `${reason} for another tenant requires platform_admin`,
+      );
+    }
+
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      req.user.tenantId,
+      `${reason} for tenant ${tenantId} (God View)`,
+      work,
+    );
+  }
 
   // ========== CRUD ==========
 
@@ -153,10 +201,13 @@ export class ConfigPackController {
   @ApiParam({ name: 'tenantId', description: 'Tenant UUID' })
   @ApiResponse({ status: 201, description: 'Config pack pinned to tenant' })
   async pinToTenant(
+    @Request() req: AuthenticatedRequest,
     @Param('tenantId') tenantId: string,
     @Body() dto: PinConfigPackDto,
   ) {
-    return this.configPackService.pinToTenant(tenantId, dto);
+    return this.forTenant(req, tenantId, 'Pin config pack', () =>
+      this.configPackService.pinToTenant(tenantId, dto),
+    );
   }
 
   @Delete('pin/:tenantId/:configPackId')
@@ -167,18 +218,26 @@ export class ConfigPackController {
   @ApiParam({ name: 'configPackId', description: 'Config pack UUID' })
   @ApiResponse({ status: 204, description: 'Pin removed' })
   async unpinFromTenant(
+    @Request() req: AuthenticatedRequest,
     @Param('tenantId') tenantId: string,
     @Param('configPackId') configPackId: string,
   ) {
-    await this.configPackService.unpinFromTenant(tenantId, configPackId);
+    await this.forTenant(req, tenantId, 'Unpin config pack', () =>
+      this.configPackService.unpinFromTenant(tenantId, configPackId),
+    );
   }
 
   @Get('pin/:tenantId')
   @ApiOperation({ summary: 'List the config pack pins for a tenant' })
   @ApiParam({ name: 'tenantId', description: 'Tenant UUID' })
   @ApiResponse({ status: 200, description: 'Pins returned' })
-  async getTenantPins(@Param('tenantId') tenantId: string) {
-    return this.configPackService.getTenantPins(tenantId);
+  async getTenantPins(
+    @Request() req: AuthenticatedRequest,
+    @Param('tenantId') tenantId: string,
+  ) {
+    return this.forTenant(req, tenantId, 'Read config pack pins', () =>
+      this.configPackService.getTenantPins(tenantId),
+    );
   }
 
   @Get('effective/:tenantId/:code')
@@ -195,10 +254,13 @@ export class ConfigPackController {
   })
   @ApiResponse({ status: 200, description: 'Effective config returned' })
   async getTenantEffectiveConfig(
+    @Request() req: AuthenticatedRequest,
     @Param('tenantId') tenantId: string,
     @Param('code') code: string,
   ) {
-    return this.configPackService.getTenantEffectiveConfig(tenantId, code);
+    return this.forTenant(req, tenantId, 'Resolve effective config', () =>
+      this.configPackService.getTenantEffectiveConfig(tenantId, code),
+    );
   }
 
   // ========== PROMOTE ACROSS ENVIRONMENTS ==========
