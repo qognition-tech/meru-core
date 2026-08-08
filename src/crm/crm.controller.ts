@@ -25,6 +25,7 @@ import { CrmService } from './crm.service';
 import { CreateEntityDto } from './dto/create-entity.dto';
 import { ListEntitiesQueryDto, UpdateEntityDto } from './dto/update-entity.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { UserPayload } from '../common/types';
 import { paginated } from '../common/paginated';
 
@@ -66,9 +67,30 @@ export class CrmController {
     @Query() query: ListEntitiesQueryDto,
   ) {
     const user = req.user as UserPayload;
+
+    // A `client` is an applicant, not staff: they may see only records
+    // assigned to them. RLS isolates one tenant from another, it does NOT
+    // isolate users inside a tenant — so without this a client token
+    // received every case in the firm. ImmiStack filtered in the browser,
+    // which is presentation, not authorisation.
+    //
+    // Forced rather than defaulted: a client cannot widen it by passing
+    // ?assignedTo= for somebody else.
+    const scoped =
+      (user.roles ?? []).includes(PlatformRole.CLIENT) &&
+      !(user.roles ?? []).some((r) =>
+        [
+          PlatformRole.PLATFORM_ADMIN,
+          PlatformRole.FIRM_ADMIN,
+          PlatformRole.STAFF,
+        ].includes(r as PlatformRole),
+      )
+        ? { ...query, assignedTo: user.id }
+        : query;
+
     const { items, total, page, limit } = await this.crmService.listEntities(
       user.tenantId,
-      query,
+      scoped,
     );
     return paginated(items, total, page, limit);
   }
