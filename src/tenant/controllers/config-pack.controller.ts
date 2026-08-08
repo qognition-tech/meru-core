@@ -28,10 +28,13 @@ import { ConfigPackService } from '../services/config-pack.service';
 import { TenancyService } from '../../core/tenancy/tenancy.service';
 import { PlatformRole } from '../../iam/enums/platform-role.enum';
 import type { AuthenticatedRequest } from '../../common/types';
-import type {
+// Value import, NOT `import type`. A type-only import is erased, so
+// `design:paramtypes` degrades to `Object` and ValidationPipe silently
+// validates nothing — see the note in dto/config-pack.dto.ts.
+import {
   CreateConfigPackDto,
   PinConfigPackDto,
-} from '../services/config-pack.service';
+} from '../dto/config-pack.dto';
 
 /**
  * Config-pack administration (CLAUDE.md §4 — Layer 3/4 JSON injection).

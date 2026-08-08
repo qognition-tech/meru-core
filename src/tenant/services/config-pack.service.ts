@@ -11,23 +11,18 @@ import { ConfigPack } from '../entities/config-pack.entity';
 import { TenantConfigPin } from '../../iam/entities/tenant-config-pin.entity';
 import { AuditService } from '../../audit/audit.service';
 
-export interface CreateConfigPackDto {
-  code: string;
-  name: string;
-  description?: string;
-  version: string;
-  vertical?: string;
-  schema?: Record<string, any>;
-  defaults?: Record<string, any>;
-  uiConfig?: Record<string, any>;
-}
-
-export interface PinConfigPackDto {
-  configPackId: string;
-  pinnedVersion: string;
-  pinnedBy: string;
-  overrides?: Record<string, any>;
-}
+// Re-exported from dto/, which holds the decorated classes. These were
+// interfaces declared here, and a controller importing them as types got no
+// validation at all — see dto/config-pack.dto.ts. One definition, so the two
+// cannot drift.
+export {
+  CreateConfigPackDto,
+  PinConfigPackDto,
+} from '../dto/config-pack.dto';
+import type {
+  CreateConfigPackDto,
+  PinConfigPackDto,
+} from '../dto/config-pack.dto';
 
 @Injectable()
 export class ConfigPackService {
