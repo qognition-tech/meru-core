@@ -472,6 +472,60 @@ export class TenantProvisioningService {
   }
 
   /**
+   * Let a tenant admin choose which of their *entitled* modules are switched
+   * on, and which countries they operate in.
+   *
+   * The onboarding wizard needs somewhere to persist steps 2 and 7; without
+   * this the pickers recorded a preference nothing ever read. But "write your
+   * own entitlements" cannot mean what it says: entitlements are the billing
+   * grant, so an unchecked PUT here is a free self-service upgrade — a FREE
+   * tenant could award itself `sso` and `api_access` by editing a request
+   * body.
+   *
+   * So the plan allowance is the ceiling. A caller may deselect anything and
+   * may select anything their plan already includes; asking for a module the
+   * plan does not carry is a 400 that names the module, not a silent drop
+   * (which would leave the UI showing a feature the backend never granted).
+   *
+   * Country entries (`country:AU`) are exempt from the ceiling by design —
+   * they are a deployment choice made at provisioning, not a priced
+   * capability. Core modules are re-added unconditionally because they are
+   * never gated, so unchecking one in the UI must not be able to strand a
+   * tenant without `crm` or `documents`.
+   *
+   * Plan changes still go through /tenants/:id/upgrade. This route cannot
+   * change a plan, only what is enabled inside one.
+   */
+  async updateOwnEntitlements(
+    tenantId: string,
+    modules: string[],
+  ): Promise<Awaited<ReturnType<TenantProvisioningService['getEntitlements']>>> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
+
+    const allowance = PLAN_MODULES[tenant.plan] ?? CORE_MODULES;
+    const isCountry = (m: string) => m.startsWith('country:');
+
+    const refused = modules.filter(
+      (m) => !isCountry(m) && !allowance.includes(m),
+    );
+    if (refused.length) {
+      throw new BadRequestException(
+        `Plan '${tenant.plan}' does not include: ${refused.join(', ')}. ` +
+          `Upgrade the plan to enable them.`,
+      );
+    }
+
+    // Set, so a caller repeating a module cannot inflate the stored list.
+    const next = Array.from(new Set([...CORE_MODULES, ...modules]));
+
+    tenant.settings = { ...(tenant.settings ?? {}), modules: next } as never;
+    await this.tenantRepo.save(tenant);
+
+    return this.getEntitlements(tenantId);
+  }
+
+  /**
    * Cross-tenant aggregates for the God UI (`GET /platform/stats`). Caller
    * must wrap in runAsGod — this reads every tenant row.
    */

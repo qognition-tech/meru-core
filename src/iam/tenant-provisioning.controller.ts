@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -30,6 +31,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CheckSlugDto } from './dto/check-slug.dto';
 import { TenantPlan, TenantStatus } from './entities/tenant.entity';
 import { ProvisionTenantDto } from './dto/provision-tenant.dto';
+import { UpdateEntitlementsDto } from './dto/update-entitlements.dto';
 import { IamService } from './iam.service';
 import { Roles } from './decorators/roles.decorator';
 import { Public } from './decorators/public.decorator';
@@ -82,6 +84,35 @@ export class TenantProvisioningController {
   @ApiResponse({ status: 200, description: 'Entitlements retrieved' })
   async myEntitlements(@Request() req: AuthenticatedRequest) {
     return this.tenantProvisioningService.getEntitlements(req.user.tenantId);
+  }
+
+  @Put('me/entitlements')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Choose which entitled modules and countries are enabled',
+    description:
+      'Admin-only. The plan is the ceiling: you may enable anything your ' +
+      'plan already includes and disable anything you like, but asking for a ' +
+      'module outside the plan is a 400 rather than a silent drop. Core ' +
+      'modules stay on regardless. This cannot change the plan itself — use ' +
+      'PATCH /tenants/:id/upgrade for that.',
+  })
+  @ApiResponse({ status: 200, description: 'Entitlements updated' })
+  @ApiResponse({
+    status: 400,
+    description: 'A requested module is outside the current plan',
+  })
+  @ApiResponse({ status: 403, description: 'Requires an admin role' })
+  async updateMyEntitlements(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: UpdateEntitlementsDto,
+  ) {
+    return this.tenantProvisioningService.updateOwnEntitlements(
+      req.user.tenantId,
+      dto.modules,
+    );
   }
 
   @Post()
