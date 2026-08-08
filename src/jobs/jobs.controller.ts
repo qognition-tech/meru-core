@@ -36,6 +36,7 @@ import { MigrateService, MigrateTarget } from './migrate.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import { WatchlistIngestService } from '../ai/engines/watchlist-ingest.service';
 import { ScreeningEngine } from '../ai/engines/screening.engine';
+import { RescreeningService } from '../ai/engines/rescreening.service';
 
 export interface JobResult {
   job: string;
@@ -71,6 +72,10 @@ export const JOB_CADENCE_MINUTES = {
   // Sanctions lists change daily; screening against a stale list is the
   // failure mode that matters, so this runs with the daily sweep.
   'watchlist-ingest': 1440,
+  // Daily, and deliberately listed AFTER watchlist-ingest: TICK_SCOPES
+  // preserves this order, so the sweep runs against lists ingested moments
+  // earlier in the same tick rather than yesterday's.
+  'rescreening': 1440,
   'digest-emails': 1440,
 } as const;
 
@@ -158,6 +163,7 @@ export class JobsController {
     private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
     private readonly jobRunService: JobRunService,
+    private readonly rescreeningService: RescreeningService,
     private readonly notificationDispatch: NotificationDispatchService,
     private readonly watchlistIngest: WatchlistIngestService,
     private readonly screeningEngine: ScreeningEngine,
@@ -378,6 +384,11 @@ export class JobsController {
           this.screeningEngine.invalidateCache();
           return result;
         };
+      case 'rescreening':
+        // Re-checks names screened before the current list. Returns a
+        // `changed` array — a previously-clear name that now hits is the one
+        // output of this job somebody must act on.
+        return () => this.rescreeningService.sweep();
       case 'digest-emails':
         return () => this.notificationsService.sendDigestEmails();
     }

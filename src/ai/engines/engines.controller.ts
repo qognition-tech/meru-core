@@ -20,6 +20,7 @@ import { ScreeningEngine } from './screening.engine';
 import { DocIntelEngine } from './doc-intel.engine';
 import { VesselTrackingEngine } from './vessel-tracking.engine';
 import { RegulatoryRadarEngine } from './regulatory-radar.engine';
+import { RescreeningService } from './rescreening.service';
 import { WatchlistIngestService } from './watchlist-ingest.service';
 import {
   ScreenRequestDto,
@@ -59,6 +60,7 @@ export class EnginesController {
     private readonly vessel: VesselTrackingEngine,
     private readonly radar: RegulatoryRadarEngine,
     private readonly watchlist: WatchlistIngestService,
+    private readonly rescreening: RescreeningService,
   ) {}
 
   // ── Screening ─────────────────────────────────────────────────────────────
@@ -77,15 +79,23 @@ export class EnginesController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: ScreenRequestDto,
   ) {
-    return this.screening.screen(
-      {
-        ...dto,
-        // Never trust a tenantId from the body — it is the caller's identity,
-        // not their input.
-        tenantId: req.user.tenantId,
-      },
-      dto.threshold ?? 0.85,
-    );
+    const request = {
+      ...dto,
+      // Never trust a tenantId from the body — it is the caller's identity,
+      // not their input.
+      tenantId: req.user.tenantId,
+    };
+
+    const result = await this.screening.screen(request, dto.threshold ?? 0.85);
+
+    // Recorded so the rescreen sweep can revisit it. Awaited rather than
+    // fire-and-forget: on a serverless runtime the invocation may be frozen
+    // the moment the response is written, and a detached promise would be
+    // lost — leaving a screening that is never rescreened, which is exactly
+    // the failure this record exists to prevent. `record` never throws.
+    await this.rescreening.record(req.user.tenantId, request, result);
+
+    return result;
   }
 
   @Get('screening/watchlist-status')

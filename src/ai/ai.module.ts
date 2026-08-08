@@ -6,6 +6,8 @@ import { ScreeningEngine } from './engines/screening.engine';
 import { EnginesController } from './engines/engines.controller';
 import { WatchlistIngestService } from './engines/watchlist-ingest.service';
 import { WatchlistEntry } from './entities/watchlist-entry.entity';
+import { ScreeningResult } from './entities/screening-result.entity';
+import { RescreeningService } from './engines/rescreening.service';
 import { DocIntelEngine } from './engines/doc-intel.engine';
 import { DecisionEngine } from './engines/decision.engine';
 import { CommsEngine } from './engines/comms.engine';
@@ -25,7 +27,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AiPrompt, AiEmbedding, WatchlistEntry]),
+    TypeOrmModule.forFeature([
+      AiPrompt,
+      AiEmbedding,
+      WatchlistEntry,
+      ScreeningResult,
+    ]),
     CoreModule,
     forwardRef(() => CrmModule),
     forwardRef(() => WorkflowModule),
@@ -39,6 +46,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
   ],
   controllers: [AiController, EnginesController],
   providers: [
+    RescreeningService,
     AiService,
     ScreeningEngine,
     WatchlistIngestService,
@@ -49,6 +57,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     VesselTrackingEngine,
   ],
   exports: [
+    RescreeningService,
     AiService,
     ScreeningEngine,
     WatchlistIngestService,
