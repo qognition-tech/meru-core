@@ -68,6 +68,9 @@ import { AiModule } from '../ai/ai.module';
   ],
   exports: [
     IntegrationsService,
+    // Consumed by OperatorModule so the God UI can read another tenant's
+    // connector state; the tenant-scoped controller stays the only writer.
+    ConnectorsService,
     AuHomeAffairsAdapter,
     UaeCentralBankAdapter,
     SaSamaAdapter,

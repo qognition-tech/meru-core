@@ -68,6 +68,7 @@ import { SamlService } from './services/saml.service';
   ],
   exports: [
     IamService,
+    TenantProvisioningService,
     PolicyGuard,
     JwtAuthGuard,
     JwtStrategy,

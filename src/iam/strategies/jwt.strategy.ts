@@ -26,6 +26,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // is created before the token is signed. Absent on tokens issued before
       // that change — treated as "unknown", never as a match.
       sessionId: payload.sid,
+      // Only ever set from the signed token, never from a header or body: an
+      // attacker who could assert impersonation would be able to launder their
+      // own actions under someone else's name in the audit log.
+      impersonatedBy: payload.imp,
     };
   }
 }

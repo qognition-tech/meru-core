@@ -1131,6 +1131,74 @@ export class IamService {
   }
 
   /**
+   * Mint a short-lived token that lets a platform operator act inside another
+   * tenant, for support ("the firm says this case will not open").
+   *
+   * Deliberately NOT `issueSession`, in three ways:
+   *
+   * - **No refresh token.** Impersonation must expire on its own. A refresh
+   *   token would let a support session outlive the incident it was opened
+   *   for, and nothing would show it was still alive.
+   * - **No session row.** The impersonated user's own device list is theirs;
+   *   an operator's support session appearing in it invites them to revoke
+   *   something they do not understand, and makes "sessions" mean two things.
+   * - **15 minutes, not an hour.** Long enough to diagnose, short enough that
+   *   a forgotten browser tab is not standing access to a customer's data.
+   *
+   * The `imp` claim rides along so every action taken with this token names
+   * the operator behind it. Caller MUST wrap this in `TenancyService.runAsGod`
+   * — the user lookup below crosses a tenant boundary, and an unaudited
+   * impersonation is exactly the thing CLAUDE.md §6.4 forbids.
+   */
+  async issueImpersonationToken(
+    targetTenantId: string,
+    operator: { id: string; tenantId: string },
+  ): Promise<{
+    access_token: string;
+    expires_in: number;
+    token_type: string;
+    impersonating: { userId: string; email: string; tenantId: string };
+  }> {
+    // `roles` is a simple-array column on the user, not a relation — no
+    // `relations: ['roles']` here, which would throw at query time.
+    const target = await this.userRepo.findOne({
+      where: { tenantId: targetTenantId, status: UserStatus.ACTIVE },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!target) {
+      throw new BadRequestException(
+        `Tenant ${targetTenantId} has no active user to impersonate`,
+      );
+    }
+
+    const roles = target.roles ?? [];
+
+    const accessToken = this.jwtService.sign(
+      {
+        sub: target.id,
+        email: target.email,
+        tenantId: target.tenantId,
+        roles,
+        role: this.resolvePrimaryRole(roles),
+        imp: { operatorId: operator.id, operatorTenantId: operator.tenantId },
+      },
+      { expiresIn: '15m' },
+    );
+
+    return {
+      access_token: accessToken,
+      expires_in: 900,
+      token_type: 'Bearer',
+      impersonating: {
+        userId: target.id,
+        email: target.email,
+        tenantId: target.tenantId,
+      },
+    };
+  }
+
+  /**
    * The caller's own active sessions, newest first.
    *
    * Scoped to `userId` from the validated JWT — there is no parameter here a

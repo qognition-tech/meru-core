@@ -13,6 +13,7 @@ import { AppConfigModule } from './config/config.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { IamModule } from './iam/iam.module';
+import { OperatorModule } from './iam/operator.module';
 import { TenantModule } from './tenant/tenant.module';
 import { CrmModule } from './crm/crm.module';
 import { SearchModule } from './search/search.module';
@@ -108,6 +109,7 @@ import { ALL_ENTITIES } from './config/entities';
     }),
 
     IamModule,
+    OperatorModule,
     TenantModule,
     CrmModule,
     SearchModule,

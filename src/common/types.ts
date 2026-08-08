@@ -134,6 +134,14 @@ export interface JwtPayload {
   role?: string;
   /** Session id this token was issued against. See IamService.issueSession. */
   sid?: string;
+  /**
+   * Set only on impersonation tokens: the platform operator acting as this
+   * user. Carried in the token so that every downstream audit entry can name
+   * the human behind the action — an impersonated session that looks
+   * identical to a real one makes the audit log actively misleading, which is
+   * worse than not having impersonation at all (CLAUDE.md §6.5).
+   */
+  imp?: { operatorId: string; operatorTenantId: string };
 }
 
 export interface UserPayload {
@@ -143,6 +151,12 @@ export interface UserPayload {
   roles: string[];
   mfaEnabled?: boolean;
   apiKeyId?: string;
+  /**
+   * Present when the caller is a platform operator acting as this user. Read
+   * from the token's `imp` claim so audit entries can record who really acted;
+   * never set from request input.
+   */
+  impersonatedBy?: { operatorId: string; operatorTenantId: string };
 }
 
 export interface TenantInfo {
