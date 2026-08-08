@@ -31,6 +31,7 @@ import { AuditService } from '../audit/audit.service';
 import { RegulatoryRadarEngine } from '../ai/engines/regulatory-radar.engine';
 import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
+import { JobRunService } from './job-run.service';
 import { MigrateService, MigrateTarget } from './migrate.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import { WatchlistIngestService } from '../ai/engines/watchlist-ingest.service';
@@ -54,7 +55,7 @@ export interface TickResult {
 }
 
 /** Every scheduled job, and how many minutes it wants between runs. */
-const JOB_CADENCE_MINUTES = {
+export const JOB_CADENCE_MINUTES = {
   'queue-drain': 1,
   'scheduled-jobs': 1,
   'recurring-tasks': 1,
@@ -156,6 +157,7 @@ export class JobsController {
     private readonly auditService: AuditService,
     private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
+    private readonly jobRunService: JobRunService,
     private readonly notificationDispatch: NotificationDispatchService,
     private readonly watchlistIngest: WatchlistIngestService,
     private readonly screeningEngine: ScreeningEngine,
@@ -253,8 +255,14 @@ export class JobsController {
     const deferred: string[] = [];
     const failed: { job: string; message: string }[] = [];
 
+    // Durable, so cadence actually holds across instances. The in-memory map
+    // is kept as a same-invocation fallback only: if the table cannot be read
+    // the tick still runs, it just loses de-duplication, which is safe because
+    // every handler is idempotent.
+    const persisted = await this.jobRunService.lastRunMap();
+
     for (const job of TICK_SCOPES[scope]) {
-      const last = this.lastRun.get(job);
+      const last = persisted.get(job) ?? this.lastRun.get(job);
       const cadenceMs = JOB_CADENCE_MINUTES[job] * 60_000;
 
       if (last !== undefined && Date.now() - last < cadenceMs) {
@@ -268,13 +276,25 @@ export class JobsController {
       }
 
       try {
-        ran.push(await this.run(job, this.handlerFor(job)));
+        const result = await this.run(job, this.handlerFor(job));
+        ran.push(result);
         this.lastRun.set(job, Date.now());
+        await this.jobRunService.record(job, {
+          status: 'ok',
+          durationMs: result.durationMs,
+        });
       } catch (error) {
         // A failing job must not abort the rest of the tick.
         const message =
           error instanceof Error ? error.message : String(error ?? 'unknown');
         failed.push({ job, message });
+        // Recorded too. A job that fails every time would otherwise look
+        // identical to one that was never scheduled — both simply absent.
+        await this.jobRunService.record(job, {
+          status: 'failed',
+          durationMs: 0,
+          error: message,
+        });
       }
     }
 
@@ -303,9 +323,24 @@ export class JobsController {
       );
     }
 
-    const result = await this.run(job, this.handlerFor(job as JobName));
-    this.lastRun.set(job as JobName, Date.now());
-    return result;
+    try {
+      const result = await this.run(job, this.handlerFor(job as JobName));
+      this.lastRun.set(job as JobName, Date.now());
+      await this.jobRunService.record(job, {
+        status: 'ok',
+        durationMs: result.durationMs,
+      });
+      return result;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? 'unknown');
+      await this.jobRunService.record(job, {
+        status: 'failed',
+        durationMs: 0,
+        error: message,
+      });
+      throw error;
+    }
   }
 
   private handlerFor(job: JobName): () => Promise<unknown> {

@@ -1,5 +1,9 @@
 import { MigrateService } from './migrate.service';
+import { JobRun } from './entities/job-run.entity';
+import { JobRunService } from './job-run.service';
+import { JobStatusController } from './job-status.controller';
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobsController } from './jobs.controller';
 import { CronSecretGuard } from './cron-secret.guard';
 import { WorkflowModule } from '../workflow/workflow.module';
@@ -10,6 +14,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 import { AiModule } from '../ai/ai.module';
+import { IamModule } from '../iam/iam.module';
 
 /**
  * JOBS — HTTP entrypoints for scheduled work.
@@ -20,6 +25,7 @@ import { AiModule } from '../ai/ai.module';
  */
 @Module({
   imports: [
+    TypeOrmModule.forFeature([JobRun]),
     WorkflowModule,
     BillingModule,
     QueueModule,
@@ -28,8 +34,12 @@ import { AiModule } from '../ai/ai.module';
     AnalyticsModule,
     AuditModule,
     AiModule,
+    IamModule,
   ],
-  controllers: [JobsController],
-  providers: [CronSecretGuard, MigrateService],
+  // JobStatusController FIRST: JobsController declares @Get(':job'), and
+  // Express matches in registration order, so a later registration would
+  // have "status" swallowed as a job name.
+  controllers: [JobStatusController, JobsController],
+  providers: [CronSecretGuard, MigrateService, JobRunService],
 })
 export class JobsModule {}

@@ -39,6 +39,7 @@ import { AgentRun } from '../orchestration/entities/agent-run.entity';
 import { VesselPosition } from '../integrations/entities/vessel-position.entity';
 import { TenantConnector } from '../integrations/entities/tenant-connector.entity';
 import { Payment } from '../billing/entities/payment.entity';
+import { JobRun } from '../jobs/entities/job-run.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import {
   Notification,
@@ -89,6 +90,7 @@ export const ALL_ENTITIES = [
   VesselPosition,
   TenantConnector,
   Payment,
+  JobRun,
   // Search & AI
   SearchIndex,
   AiPrompt,
