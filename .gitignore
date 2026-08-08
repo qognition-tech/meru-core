@@ -4,6 +4,14 @@
 /build
 .next/
 
+# pnpm is the package manager (see package.json "packageManager"). A stray
+# package-lock.json makes the deployed dependency tree ambiguous: Vercel picks
+# an installer by sniffing lockfiles, so two of them means the build can
+# resolve a different graph than anyone tested. Ignored so `npm install` run by
+# habit cannot quietly reintroduce one.
+package-lock.json
+yarn.lock
+
 # Logs
 logs
 *.log
