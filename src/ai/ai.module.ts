@@ -25,6 +25,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
   imports: [
@@ -47,6 +48,9 @@ import { VerticalPackModule } from '../tenant/vertical-pack.module';
     // Layer 4: the vertical's prompt library. Not forwardRef'd — the resolver
     // module has one provider and one entity, so there is no cycle to break.
     VerticalPackModule,
+    // Per-tenant AI provider credentials live in the connector registry, so a
+    // tenant can bring its own key or point at a self-hosted endpoint.
+    forwardRef(() => IntegrationsModule),
   ],
   controllers: [AiController, EnginesController],
   providers: [

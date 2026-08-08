@@ -15,6 +15,7 @@ import { BillingService } from '../billing/billing.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AuditService } from '../audit/audit.service';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { ConnectorsService } from '../integrations/services/connectors.service';
 
 /**
  * Regression cover for the defect this fixed: `POST /ai/execute` answered
@@ -35,6 +36,7 @@ import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 describe('AiService prompt resolution', () => {
   const promptFindOne = jest.fn();
   const sectionWithPack = jest.fn();
+  const resolveAiProvider = jest.fn();
   let service: AiService;
 
   const packPrompt = (over: Record<string, unknown> = {}) => ({
@@ -50,6 +52,8 @@ describe('AiService prompt resolution', () => {
   beforeEach(async () => {
     promptFindOne.mockReset();
     sectionWithPack.mockReset();
+    resolveAiProvider.mockReset();
+    resolveAiProvider.mockResolvedValue(null);
     delete process.env.OPENAI_API_KEY;
 
     const stub = {};
@@ -70,6 +74,12 @@ describe('AiService prompt resolution', () => {
         { provide: AnalyticsService, useValue: stub },
         { provide: AuditService, useValue: stub },
         { provide: VerticalPackService, useValue: { sectionWithPack } },
+        // No tenant AI provider connected, so resolution falls through to the
+        // platform client — which is unset here, and that is the assertion.
+        {
+          provide: ConnectorsService,
+          useValue: { resolveAiProvider: resolveAiProvider },
+        },
       ],
     }).compile();
 
@@ -90,7 +100,7 @@ describe('AiService prompt resolution', () => {
         input: 'hello',
         tenantId: 't1',
       }),
-    ).rejects.toThrow(/OPENAI_API_KEY unset/);
+    ).rejects.toThrow(/no AI provider connected/);
   });
 
   it('prefers a tenant row over the pack entry', async () => {
@@ -107,7 +117,7 @@ describe('AiService prompt resolution', () => {
         input: 'hello',
         tenantId: 't1',
       }),
-    ).rejects.toThrow(/OPENAI_API_KEY unset/);
+    ).rejects.toThrow(/no AI provider connected/);
 
     // The pack must not even be consulted — otherwise an override is only a
     // preference and the precedence is untested.
@@ -187,6 +197,6 @@ describe('AiService prompt resolution', () => {
         input: 'hello',
         tenantId: 't1',
       }),
-    ).rejects.toThrow(/OPENAI_API_KEY unset/);
+    ).rejects.toThrow(/no AI provider connected/);
   });
 });

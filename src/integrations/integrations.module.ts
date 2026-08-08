@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { IntegrationAdapter } from './entities/integration-adapter.entity';
 import { IamModule } from '../iam/iam.module';
@@ -44,7 +44,11 @@ import { AiModule } from '../ai/ai.module';
     ]),
     IamModule,
     // VesselTrackingEngine and ScreeningEngine (CLAUDE.md §3.2, §3.4).
-    AiModule,
+    // forwardRef on BOTH sides: AiModule now imports this module back, because
+    // per-tenant AI provider credentials live in the connector registry. A Nest
+    // cycle guarded on only one side still resolves to an undefined provider at
+    // runtime rather than failing the build.
+    forwardRef(() => AiModule),
   ],
   controllers: [
     IntegrationsController,

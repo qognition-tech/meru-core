@@ -27,6 +27,7 @@ import { BillingService } from '../billing/billing.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AuditService } from '../audit/audit.service';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { ConnectorsService } from '../integrations/services/connectors.service';
 import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
 
 /**
@@ -123,6 +124,8 @@ export class AiService {
     @Inject(forwardRef(() => AuditService))
     private auditService: AuditService,
     private readonly packs: VerticalPackService,
+    @Inject(forwardRef(() => ConnectorsService))
+    private readonly connectors: ConnectorsService,
   ) {
     if (process.env.OPENAI_API_KEY) {
       this.openaiClient = new OpenAI({
@@ -173,11 +176,11 @@ export class AiService {
     try {
       switch (prompt.preferredProvider) {
         case ModelProvider.OPENAI:
-          return await this.executeOpenAI(fullPrompt, prompt);
+          return await this.executeOpenAI(fullPrompt, prompt, request.tenantId);
         case ModelProvider.LOCAL:
-          return await this.executeLocal(fullPrompt, prompt);
+          return await this.executeLocal(fullPrompt, prompt, request.tenantId);
         default:
-          return await this.executeOpenAI(fullPrompt, prompt);
+          return await this.executeOpenAI(fullPrompt, prompt, request.tenantId);
       }
     } catch (error: unknown) {
       this.logger.error(`AI execution failed: ${errorMessage(error)}`);
@@ -462,26 +465,83 @@ export class AiService {
     return builtPrompt;
   }
 
-  private async executeOpenAI(
-    fullPrompt: string,
-    prompt: ResolvedPrompt,
-  ): Promise<AiResponse> {
+  /**
+   * The client to use for one request: the tenant's own connected provider if
+   * it has one, otherwise the platform key.
+   *
+   * Tenant-first matters for more than convenience. A firm that supplies its own
+   * key pays its own inference bill, keeps its prompts inside its own vendor
+   * relationship, and can point `custom-openai-compatible` at a self-hosted
+   * model when data residency forbids sending case data to a US endpoint. That
+   * last one is a compliance requirement in several of the corridor countries,
+   * not a preference.
+   *
+   * Not cached: a key revoked in the UI must stop working on the next request,
+   * and one connector lookup is cheap next to a model call.
+   */
+  private async clientFor(tenantId?: string): Promise<{
+    client: OpenAI;
+    defaultModel: string | null;
+    source: 'tenant_connector' | 'platform';
+  }> {
+    if (tenantId) {
+      const provider = await this.connectors.resolveAiProvider(tenantId);
+      if (provider?.apiKey || provider?.baseUrl) {
+        return {
+          client: new OpenAI({
+            // An OpenAI-compatible endpoint may legitimately need no key (a
+            // self-hosted vLLM on a private network). The SDK still requires a
+            // non-empty string, so send a placeholder rather than refusing a
+            // valid configuration.
+            apiKey: provider.apiKey ?? 'not-required',
+            baseURL: provider.baseUrl ?? undefined,
+            maxRetries: 3,
+            timeout: 30000,
+          }),
+          defaultModel: provider.model,
+          source: 'tenant_connector',
+        };
+      }
+    }
+
     if (!this.openaiClient) {
-      // 503, not a bare Error. An unset OPENAI_API_KEY is a deployment gap,
+      // 503, not a bare Error. A missing model credential is a deployment gap,
       // not a bug in the request — a 500 tells the caller they broke something
       // and tells the on-call engineer to look for a crash. 503 says the
       // dependency is missing, which is what is actually true and what a
-      // client should retry against.
+      // client should retry against. The message now names both remedies,
+      // because a tenant admin can fix this themselves and should be told so.
       throw new ServiceUnavailableException(
-        'AI is not configured on this deployment (OPENAI_API_KEY unset).',
+        'AI is not configured: this tenant has no AI provider connected ' +
+          '(PUT /integrations/connectors/openai) and the platform has no ' +
+          'OPENAI_API_KEY set.',
       );
     }
 
+    return {
+      client: this.openaiClient,
+      defaultModel: null,
+      source: 'platform',
+    };
+  }
+
+  private async executeOpenAI(
+    fullPrompt: string,
+    prompt: ResolvedPrompt,
+    tenantId?: string,
+  ): Promise<AiResponse> {
+    const { client, defaultModel } = await this.clientFor(tenantId);
+
     const config = prompt.modelConfig || {};
+    // Precedence: the prompt's own model, then the tenant provider's, then the
+    // platform default. A pack that pins a model is being deliberate — usually
+    // because the prompt was tuned against it — so it outranks a tenant-level
+    // preference.
+    const model = config.model || defaultModel || 'gpt-4o-mini';
 
     try {
-      const response = await this.openaiClient.chat.completions.create({
-        model: config.model || 'gpt-4o-mini',
+      const response = await client.chat.completions.create({
+        model,
         messages: [{ role: 'user', content: fullPrompt }],
         temperature: config.temperature ?? 0.7,
         max_tokens: config.maxTokens ?? 500,
@@ -492,7 +552,7 @@ export class AiService {
 
       return {
         result,
-        model: config.model || 'gpt-4o-mini',
+        model,
         provider: ModelProvider.OPENAI,
         tokensUsed: response.usage?.total_tokens,
         cached: false,
@@ -508,11 +568,16 @@ export class AiService {
   private async executeLocal(
     fullPrompt: string,
     prompt: ResolvedPrompt,
+    tenantId?: string,
   ): Promise<AiResponse> {
+    // A pack asking for `local` is asking for a self-hosted model, which is
+    // exactly what the `custom-openai-compatible` connector provides — so this
+    // is no longer a dead end, it just routes through the tenant's endpoint if
+    // one is connected.
     this.logger.warn(
-      'Local model execution not yet implemented, falling back to OpenAI',
+      'Local provider requested; routing through the tenant connector or platform client',
     );
-    return this.executeOpenAI(fullPrompt, prompt);
+    return this.executeOpenAI(fullPrompt, prompt, tenantId);
   }
 
   private cosineSimilarity(vecA: number[], vecB: number[]): number {
