@@ -38,6 +38,7 @@ import { DashboardWidget } from '../analytics/entities/dashboard-widget.entity';
 import { AgentRun } from '../orchestration/entities/agent-run.entity';
 import { VesselPosition } from '../integrations/entities/vessel-position.entity';
 import { TenantConnector } from '../integrations/entities/tenant-connector.entity';
+import { Payment } from '../billing/entities/payment.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import {
   Notification,
@@ -87,6 +88,7 @@ export const ALL_ENTITIES = [
   IntegrationAdapter,
   VesselPosition,
   TenantConnector,
+  Payment,
   // Search & AI
   SearchIndex,
   AiPrompt,

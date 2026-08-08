@@ -12,6 +12,9 @@ import { SearchModule } from '../search/search.module';
 import { StripeService } from './stripe.service';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { Tenant } from '../iam/entities/tenant.entity';
+import { Payment } from './entities/payment.entity';
+import { PaymentsService } from './payments.service';
+import { PaymentsController } from './payments.controller';
 
 @Module({
   imports: [
@@ -23,11 +26,12 @@ import { Tenant } from '../iam/entities/tenant.entity';
       Invoice,
       InvoiceItem,
       Tenant,
+      Payment,
     ]),
     SearchModule,
   ],
-  controllers: [BillingController, StripeWebhookController],
-  providers: [BillingService, StripeService],
-  exports: [BillingService, StripeService],
+  controllers: [BillingController, StripeWebhookController, PaymentsController],
+  providers: [BillingService, StripeService, PaymentsService],
+  exports: [BillingService, StripeService, PaymentsService],
 })
 export class BillingModule {}
