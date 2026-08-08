@@ -23,6 +23,7 @@ import { AddGovxEntityTypes1754800000000 } from '../migrations/1754800000000-Add
 import { AddWatchlistEntries1754900000000 } from '../migrations/1754900000000-AddWatchlistEntries';
 import { AddPayments1755000000000 } from '../migrations/1755000000000-AddPayments';
 import { AddJobRuns1755100000000 } from '../migrations/1755100000000-AddJobRuns';
+import { AddAuditWormEnforcement1755200000000 } from '../migrations/1755200000000-AddAuditWormEnforcement';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -57,4 +58,5 @@ export const ALL_MIGRATIONS = [
   AddWatchlistEntries1754900000000,
   AddPayments1755000000000,
   AddJobRuns1755100000000,
+  AddAuditWormEnforcement1755200000000,
 ];
