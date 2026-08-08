@@ -44,6 +44,14 @@ function corsOrigins() {
       ];
 }
 
+// Required lazily *inside* bootstrap, but referenced here so esbuild still
+// sees the paths and bundles dist/ into the function. Without these the
+// lazy require would resolve to nothing at runtime.
+require.resolve('../dist/src/app.module');
+require.resolve('../dist/src/core/filters/http-exception.filter');
+require.resolve('../dist/src/core/interceptors/response-envelope.interceptor');
+require.resolve('../dist/src/swagger');
+
 async function bootstrap() {
   const { AppModule } = require('../dist/src/app.module');
   const {
@@ -113,7 +121,46 @@ async function bootstrap() {
   await app.init();
 }
 
+/**
+ * Pre-boot diagnostic. Answers before Nest is constructed, so it still works
+ * when the application cannot start — which is the only time anyone needs it.
+ *
+ * Reports whether a variable is SET and how long its value is. Never the
+ * value: this endpoint is unauthenticated by necessity (auth lives inside the
+ * app that isn't booting) and a leaked DATABASE_URL is worse than an outage.
+ */
+function diagnostics() {
+  const names = [
+    'NODE_ENV', 'VERTICAL', 'PORT',
+    'DATABASE_URL', 'DATABASE_APP_URL',
+    'GOVX_DB_URL', 'GOVX_DB_APP_URL',
+    'IMMISTACK_DB_URL', 'IMMISTACK_DB_APP_URL',
+    'JWT_SECRET', 'CRON_SECRET', 'CREDENTIALS_ENCRYPTION_KEY',
+    'CORS_ALLOWED_ORIGINS', 'RESEND_API_KEY', 'STRIPE_SECRET_KEY',
+  ];
+  const env = {};
+  for (const n of names) {
+    const v = process.env[n];
+    env[n] = v === undefined ? 'UNSET' : v === '' ? 'EMPTY' : `set(${v.length})`;
+  }
+  let distLoads = 'unknown';
+  try {
+    require.resolve('../dist/src/app.module');
+    distLoads = 'resolvable';
+  } catch (e) {
+    distLoads = 'MISSING: ' + e.message;
+  }
+  return { node: process.version, env, distLoads };
+}
+
 module.exports = async function handler(req, res) {
+  if (req.url && req.url.includes('__diag')) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(diagnostics(), null, 2));
+    return;
+  }
+
   // A rejected bootstrap is cached in `ready`, so one bad boot makes every
   // subsequent request fail with an opaque FUNCTION_INVOCATION_FAILED and no
   // usable log line — which is exactly how a config-validation error cost
