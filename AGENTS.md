@@ -5,72 +5,61 @@ architecture; this holds *what is happening right now*.
 
 ---
 
-## 0. Where the code lives — IMPORTANT
+## 0. Where the code lives
 
-**Work from `~/dev/meru-core` and `~/dev/meru-core-fe`.**
-
-The copies in `~/Documents/GitHub/` are **unusable**. That path is iCloud Drive
-and the account is at ~2 KB free quota, so macOS evicted file contents and they
-can never rehydrate. Files report correct sizes but every read returns 0 bytes,
-including `.git` objects — which is why `git` reports "not a repository" there.
-
-Do **not** run git in the `~/Documents` copies. With the object store
-unreadable, a `pull`/`checkout`/`gc` risks destroying refs rather than
-recovering anything. Delete them once the quota is freed.
-
-Everything is safely on GitHub. `~/dev` clones are current.
+`~/Documents/GitHub/meru-core` and `~/Documents/GitHub/meru-core-fe` are
+readable again and in sync with `~/dev` and with `origin/main` (verified
+2026-08-08: identical HEADs, `.git` intact, 188 source files readable).
+The evicted copies were moved aside as `*.BROKEN` — delete those once the
+iCloud quota is freed. Either clone is safe to work in; do not edit both.
 
 ---
 
-## 1. Production is DOWN
+## 1. Production is UP (restored 2026-08-08)
 
-`https://meru-core.vercel.app` returns `FUNCTION_INVOCATION_FAILED` (500) on
-every route including `/health`. It was healthy earlier the same day —
-verified with real JSON responses from `/tenants/me/entitlements`,
-`/integrations/connectors`, `/tenant/branding`, `/platform/stats`.
+`https://meru-core.vercel.app` serves `/health` 200 with `database: "up"`,
+Swagger UI at `/api`, and 216 paths / 261 operations at `/api-json`. The
+runtime connects as `meru_app` with `bypassrls: false`, so RLS is enforced.
 
-### What makes this hard
+### What it actually was — `615a8db`
 
-The process dies before anything useful is logged. Every Vercel error entry
-contains only an unrelated `pg` SSL deprecation warning, plus
-`Node.js process exited with exit status: 1`. `api/index.js` required the Nest
-bundle at module scope, and `ConfigModule` runs Joi validation at *import*
-time — so a bad env var throws before any handler or try/catch exists.
+`WatchlistEntry.country` was declared `string | null` with **no explicit
+`type`** on its `@Column`. TypeORM infers column types from
+`emitDecoratorMetadata`, and a nullable union emits `design:type = Object`,
+which Postgres has no mapping for. Metadata build threw
+`DataTypeNotSupportedError`.
 
-### Fixes shipped (none restored service)
+**Why it cost hours:** TypeORM raises that through its connection-retry loop,
+logging it as `Unable to connect to the database. Retrying (1)...`. The error
+message named the one subsystem that was never broken, which is why four
+consecutive fixes went after Joi validation, `sslmode`, esbuild bundling and
+the Elasticsearch ping. `__diag?db=1` proved both roles connect in 31–48ms.
 
-| Commit | Change | Outcome |
-|---|---|---|
-| `940e8ef` | Joi `.empty('')` on 26 rules — an empty env var no longer fails validation | Did not fix |
-| `6d9bc38` | Strip `sslmode` from Postgres URLs (newer `pg` treats `require` as `verify-full`, overriding `rejectUnauthorized:false`) | Did not fix |
-| `5415b25` | try/catch + `rawBody:true` in `api/index.js` | Did not fix |
-| `09f03a9` | Move requires inside `bootstrap()` so throws are catchable | Did not fix |
-| `32de5b7` | **`GET /api/v1/__diag`** — pre-boot diagnostic | **← check this** |
+In production the loop ran 10 attempts at 3s, so the process spent 30s+ before
+it could throw and Vercel killed it first — no stack, no log, and
+`__diag?boot=1` dying too *despite being wrapped in try/catch*. **A boot probe
+that is itself killed means a hang or a timeout, never an exception.** That
+single observation is what localised it.
 
-### NEXT STEP — do this first
+`retryAttempts` is now 1 on serverless: retrying a non-retryable metadata error
+ten times only guarantees the cause is never reported before teardown.
 
-```bash
-curl -s https://meru-core.vercel.app/api/v1/__diag
-```
+### Lesson worth keeping
 
-Returns `{node, env:{VAR: "set(N)"|"EMPTY"|"UNSET"}, distLoads}` for the DB,
-JWT, cron and Stripe vars. It answers before Nest boots, so it works while the
-app is down. It reports presence and length only, never values.
+Never let TypeORM infer a nullable column's type. `scripts/` has no linter for
+this yet — a scan for `@Column` without `type:` on a `| null` property found
+exactly one occurrence, and it was this one.
 
-### Leading hypothesis
+### Build/deploy shape — `8a53466`, `8a70e22`
 
-`DATABASE_APP_URL` is empty/unset in Vercel → config falls back to
-`DATABASE_URL` (the Neon **owner** role, which holds `BYPASSRLS`) →
-`assertRlsEnforceable()` in `src/core/tenancy/rls.datasource.ts` **throws in
-production by design** rather than serve traffic that only appears
-tenant-isolated → boot fails → every route 500s.
-
-If `__diag` shows `DATABASE_APP_URL: EMPTY|UNSET`, that is the bug. Fix by
-setting it to the `meru_app` connection string (regenerate with
-`node scripts/provision-rls-role.js --write-env` using the owner URL).
-
-If it shows both DB URLs set, the hypothesis is wrong — read `distLoads`
-next; `MISSING` there means an esbuild bundling failure, not config.
+pnpm is the only package manager (`packageManager: pnpm@10.26.2`,
+`pnpm install --frozen-lockfile`). `package-lock.json` is deleted and
+gitignored. Two traps already hit:
+- `.vercelignore` used to exclude `pnpm-lock.yaml`; with `--frozen-lockfile`
+  that fails as `ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE`, which reads
+  like a stale lockfile rather than a missing one.
+- pnpm 10 skips postinstall scripts unless named. `bcrypt` is native — see
+  `pnpm.onlyBuiltDependencies` in package.json. Dropping it breaks every login.
 
 ### Rollback note
 
@@ -98,12 +87,12 @@ rollback likely needs the Vercel dashboard.
 
 ## 3. Open bugs, highest severity first
 
-**Cross-client data exposure inside a tenant.** `GET /crm/entities` has no
-server-side owner filter, so a `client`-role token receives **every case in the
-firm**. ImmiStack's `fetchMyCase` filters in the browser — that is
-presentation, not authorisation. RLS isolates tenants from each other; it does
-not isolate users within a tenant. **Fix server-side**: scope the query by
-`assignedTo`/owner when the caller's role is `client`.
+**Cross-client data exposure inside a tenant.** *(Fixed — `32147ed`.)*
+`GET /crm/entities` had no server-side owner filter, so a `client`-role token
+received every case in the firm; ImmiStack's `fetchMyCase` filtered in the
+browser, which is presentation, not authorisation. Worth remembering as a
+category: **RLS isolates tenants from each other, not users within a tenant.**
+Any new list endpoint needs its own intra-tenant scoping.
 
 **Onboarding created unusable accounts.** (Fixed in FE.) `POST /tenants/signup`
 requires a password; the wizard generated random bytes and discarded them, and
