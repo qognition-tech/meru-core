@@ -34,6 +34,28 @@ const { randomUUID } = require('node:crypto');
 const server = express();
 let ready = null;
 
+/**
+ * Node exits the process on an unhandled rejection (default since v15), and
+ * TypeORM's connection retry loop can reject outside the promise the
+ * bootstrap awaits. The result on Vercel is `exit status: 1` and
+ * FUNCTION_INVOCATION_FAILED with the real cause never reaching a log — the
+ * exact signature of this outage, which survived four fixes aimed at config
+ * and TLS because neither was the problem.
+ *
+ * Recording it here does not paper over the failure: bootstrap still rejects
+ * and the handler still answers 500. It only ensures the reason is written
+ * down before the runtime tears the process apart.
+ */
+let lastFatal = null;
+process.on('unhandledRejection', (reason) => {
+  lastFatal = reason && reason.stack ? reason.stack : String(reason);
+  console.error('[unhandled-rejection]', lastFatal);
+});
+process.on('uncaughtException', (err) => {
+  lastFatal = err && err.stack ? err.stack : String(err);
+  console.error('[uncaught-exception]', lastFatal);
+});
+
 function corsOrigins() {
   return process.env.CORS_ALLOWED_ORIGINS
     ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((o) => o.trim())
@@ -150,7 +172,7 @@ function diagnostics() {
   } catch (e) {
     distLoads = 'MISSING: ' + e.message;
   }
-  return { node: process.version, env, distLoads };
+  return { node: process.version, env, distLoads, lastFatal };
 }
 
 module.exports = async function handler(req, res) {
@@ -172,7 +194,8 @@ module.exports = async function handler(req, res) {
     await ready;
   } catch (err) {
     ready = null;
-    const detail = err && err.stack ? err.stack : String(err);
+    const detail = (err && err.stack ? err.stack : String(err)) +
+      (lastFatal ? `\n--- earlier fatal ---\n${lastFatal}` : '');
     console.error('[bootstrap-failed]', detail);
     res.statusCode = 500;
     res.setHeader('content-type', 'application/json');
