@@ -184,6 +184,48 @@ module.exports = async function handler(req, res) {
     // process: the request that crashes and the request that asks about it
     // never share memory, so a fatal recorded on one is invisible to the
     // other. This is the only way to see the failure from outside.
+    // `?db=1` opens a raw pg connection with a SHORT timeout and reports the
+    // outcome. bootstrap() cannot tell us this: TypeORM retries a failed
+    // connection ten times at three-second intervals, which exceeds the
+    // function's maxDuration, so the runtime kills the process before
+    // anything throws — no stack, no log, just FUNCTION_INVOCATION_FAILED.
+    // A bounded probe distinguishes "cannot reach the database" from
+    // "reached it and something else broke".
+    if (req.url.includes('db=1')) {
+      const { Client } = require('pg');
+      const targets = {
+        DATABASE_APP_URL: process.env.DATABASE_APP_URL,
+        DATABASE_URL: process.env.DATABASE_URL,
+      };
+      payload.db = {};
+      for (const [name, raw] of Object.entries(targets)) {
+        if (!raw) { payload.db[name] = 'UNSET'; continue; }
+        const started = Date.now();
+        const client = new Client({
+          connectionString: raw,
+          ssl: { rejectUnauthorized: false },
+          connectionTimeoutMillis: 8000,
+          query_timeout: 8000,
+        });
+        try {
+          await client.connect();
+          const r = await client.query(
+            'SELECT current_user AS u, rolbypassrls FROM pg_roles WHERE rolname = current_user',
+          );
+          payload.db[name] = {
+            ok: true,
+            ms: Date.now() - started,
+            user: r.rows[0] && r.rows[0].u,
+            bypassrls: r.rows[0] && r.rows[0].rolbypassrls,
+          };
+        } catch (e) {
+          payload.db[name] = { ok: false, ms: Date.now() - started, error: String(e.message).slice(0, 300) };
+        } finally {
+          try { await client.end(); } catch (_) {}
+        }
+      }
+    }
+
     if (req.url.includes('boot=1')) {
       try {
         await bootstrap();
