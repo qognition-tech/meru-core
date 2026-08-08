@@ -3,6 +3,7 @@ import {
   Logger,
   Inject,
   forwardRef,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +26,26 @@ import { DocumentsService } from '../documents/documents.service';
 import { BillingService } from '../billing/billing.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AuditService } from '../audit/audit.service';
+import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
+
+/**
+ * A prompt the gateway can execute, whichever layer it came from.
+ *
+ * `AiPrompt` (a tenant's own row) and a config-pack `prompts[]` entry describe
+ * the same thing with different field names, and the execution path only ever
+ * needed three of those fields. Normalising here keeps `executeOpenAI` from
+ * caring which layer won, and `source` keeps that decision visible in a log
+ * when a tenant swears it is running a prompt it overrode.
+ */
+interface ResolvedPrompt {
+  key: string;
+  prompt: string;
+  preferredProvider: ModelProvider;
+  modelConfig: { model?: string; temperature?: number; maxTokens?: number };
+  source: 'tenant_override' | 'config_pack';
+  packCode?: string;
+}
 
 export interface AiRequest {
   category: PromptCategory;
@@ -101,6 +122,7 @@ export class AiService {
     private analyticsService: AnalyticsService,
     @Inject(forwardRef(() => AuditService))
     private auditService: AuditService,
+    private readonly packs: VerticalPackService,
   ) {
     if (process.env.OPENAI_API_KEY) {
       this.openaiClient = new OpenAI({
@@ -118,11 +140,31 @@ export class AiService {
   }
 
   async execute(request: AiRequest): Promise<AiResponse> {
-    const prompt = await this.findPrompt(request);
+    const { prompt, reason, packCode } = await this.resolvePrompt(request);
 
     if (!prompt) {
-      throw new Error(
-        `Prompt not found: ${request.category}${request.key ? `/${request.key}` : ''}`,
+      const wanted = `${request.category}${request.key ? `/${request.key}` : ''}`;
+
+      // These are two different failures and they used to be the same bare
+      // `Error`, which the exception filter rendered as a 500. In production
+      // that meant every single `POST /ai/execute` answered
+      // `500 Prompt not found` — an internal-fault code for what was really an
+      // unpopulated library, on a route recorded as shipped.
+      //
+      //  - Nothing anywhere defines prompts → the deployment is unconfigured.
+      //    503, and name the pack so it is actionable.
+      //  - Prompts exist but not this one → the caller asked for something
+      //    that does not exist. 404.
+      if (reason === 'no_library') {
+        throw new ServiceUnavailableException(
+          packCode
+            ? `No AI prompts are configured: config pack '${packCode}' defines none, and this tenant has no prompt overrides. Add a prompts[] entry to the pack.`
+            : 'No AI prompts are configured for this tenant’s vertical (no config pack resolved).',
+        );
+      }
+
+      throw new NotFoundException(
+        `No AI prompt matches '${wanted}'${packCode ? ` in config pack '${packCode}' or this tenant's overrides` : ''}.`,
       );
     }
 
@@ -299,27 +341,106 @@ export class AiService {
     });
   }
 
-  private async findPrompt(request: AiRequest): Promise<AiPrompt | null> {
-    if (request.key) {
-      return this.promptRepo.findOne({
-        where: {
-          key: request.key,
-          category: request.category,
+  /**
+   * Two layers, in precedence order: a tenant's own `ai_prompts` rows, then the
+   * vertical's config-pack library.
+   *
+   * The pack layer is what makes the gateway work at all. `ai_prompts` is a
+   * per-tenant table that has to be seeded per tenant, and nobody ever seeded
+   * it — production served `[]` from `GET /ai/prompts` and a 500 from every
+   * `POST /ai/execute`. A pack ships with the vertical, so a tenant inherits a
+   * working library the moment its pack is pinned, and `ai_prompts` goes back to
+   * being what it should always have been: the override.
+   *
+   * `reason` distinguishes "nothing is configured anywhere" from "that specific
+   * prompt does not exist", because the caller's next action differs and a
+   * single "not found" tells them nothing about which one they are looking at.
+   */
+  private async resolvePrompt(request: AiRequest): Promise<{
+    prompt: ResolvedPrompt | null;
+    reason: 'found' | 'no_library' | 'no_match';
+    packCode?: string;
+  }> {
+    // ── Layer 1: tenant override ────────────────────────────────────────
+    const where: FindOptionsWhere<AiPrompt> = { category: request.category };
+    if (request.key) where.key = request.key;
+    else if (request.tenantId) where.tenantId = request.tenantId;
+
+    const row = await this.promptRepo.findOne({ where });
+    if (row) {
+      return {
+        prompt: {
+          key: row.key,
+          prompt: row.prompt,
+          preferredProvider: row.preferredProvider,
+          modelConfig: row.modelConfig ?? {},
+          source: 'tenant_override',
         },
-      });
+        reason: 'found',
+      };
     }
 
-    const where: FindOptionsWhere<AiPrompt> = {
-      category: request.category,
+    // ── Layer 2: the vertical's pack ────────────────────────────────────
+    const { pack, section } = await this.packs.sectionWithPack<PackPrompt[]>(
+      request.vertical ?? null,
+      'prompts',
+    );
+    const library = Array.isArray(section) ? section : [];
+
+    if (library.length === 0) {
+      return { prompt: null, reason: 'no_library', packCode: pack?.code };
+    }
+
+    const candidates = library.filter((p) => p.category === request.category);
+    const match = request.key
+      ? candidates.find((p) => p.key === request.key)
+      : // No key named: the category default, falling back to the first entry
+        // in the category so a pack that forgot the flag still answers rather
+        // than 404-ing on a prompt it plainly contains.
+        (candidates.find((p) => p.isCategoryDefault) ?? candidates[0]);
+
+    if (!match) {
+      return { prompt: null, reason: 'no_match', packCode: pack?.code };
+    }
+
+    return {
+      prompt: {
+        key: match.key,
+        prompt: match.prompt,
+        preferredProvider: this.toProvider(match.provider),
+        modelConfig: {
+          model: match.model,
+          temperature: match.temperature,
+          maxTokens: match.maxTokens,
+        },
+        source: 'config_pack',
+        packCode: pack?.code,
+      },
+      reason: 'found',
     };
-    if (request.tenantId) {
-      where.tenantId = request.tenantId;
-    }
-
-    return this.promptRepo.findOne({ where });
   }
 
-  private buildPrompt(prompt: AiPrompt, request: AiRequest): string {
+  /**
+   * Pack `provider` strings are the same three words as `ModelProvider`, but a
+   * pack is authored by hand and validated by Zod, not by this enum. Mapping
+   * explicitly means an unexpected value degrades to OpenAI rather than
+   * reaching the switch in `execute` as an unmatched case.
+   */
+  private toProvider(provider: string): ModelProvider {
+    switch (provider) {
+      case 'anthropic':
+        // No Anthropic client is constructed yet; the pack may legitimately
+        // ask for it, so route to the working provider instead of failing.
+        return ModelProvider.OPENAI;
+      case 'local':
+        return ModelProvider.LOCAL;
+      case 'openai':
+      default:
+        return ModelProvider.OPENAI;
+    }
+  }
+
+  private buildPrompt(prompt: ResolvedPrompt, request: AiRequest): string {
     let builtPrompt = prompt.prompt;
 
     builtPrompt = builtPrompt.replace('{{INPUT}}', request.input || '');
@@ -343,7 +464,7 @@ export class AiService {
 
   private async executeOpenAI(
     fullPrompt: string,
-    prompt: AiPrompt,
+    prompt: ResolvedPrompt,
   ): Promise<AiResponse> {
     if (!this.openaiClient) {
       // 503, not a bare Error. An unset OPENAI_API_KEY is a deployment gap,
@@ -386,7 +507,7 @@ export class AiService {
 
   private async executeLocal(
     fullPrompt: string,
-    prompt: AiPrompt,
+    prompt: ResolvedPrompt,
   ): Promise<AiResponse> {
     this.logger.warn(
       'Local model execution not yet implemented, falling back to OpenAI',

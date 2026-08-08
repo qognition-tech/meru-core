@@ -9,6 +9,7 @@ import {
   NotificationPreference,
   NotificationTemplate,
 } from './entities/notification.entity';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
 
 @Module({
   imports: [
@@ -18,6 +19,8 @@ import {
       NotificationTemplate,
       User,
     ]),
+    // Layer 4: the vertical's message templates.
+    VerticalPackModule,
   ],
   providers: [NotificationsService, NotificationDispatchService],
   controllers: [NotificationsController],

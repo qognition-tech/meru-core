@@ -28,7 +28,8 @@
     "rls:verify": "node scripts/verify-tenant-isolation.js",
     "smoke:routes": "bash scripts/smoke/api-routes.sh",
     "smoke:tenancy": "bash scripts/smoke/cross-tenant.sh",
-    "smoke:sweep": "node scripts/smoke/api-sweep.js"
+    "smoke:sweep": "node scripts/smoke/api-sweep.js",
+    "packs:schema": "ts-node -r tsconfig-paths/register scripts/generate-pack-schema.ts"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.3.1",

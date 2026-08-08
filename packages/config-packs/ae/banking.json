@@ -1,8 +1,8 @@
 {
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
-  "description": "UAE banking governance, risk & compliance \u2014 covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.1.0",
+  "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
+  "version": "1.2.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -281,12 +281,12 @@
           "transitions": [
             {
               "to": "document_collection",
-              "label": "Clear \u2014 Proceed",
+              "label": "Clear — Proceed",
               "condition": "screening.riskLevel !== 'critical'"
             },
             {
               "to": "enhanced_due_diligence",
-              "label": "Hit \u2014 Escalate to EDD",
+              "label": "Hit — Escalate to EDD",
               "condition": "screening.riskLevel === 'critical'"
             }
           ]
@@ -315,7 +315,7 @@
           "transitions": [
             {
               "to": "mlro_review",
-              "label": "EDD Complete \u2014 Escalate to MLRO"
+              "label": "EDD Complete — Escalate to MLRO"
             },
             {
               "to": "rejected",
@@ -504,7 +504,7 @@
   "metadata": {
     "author": "Meru Platform Team",
     "lastReviewedAt": "2026-05-01T00:00:00Z",
-    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions \u2014 AML/CFT, 2021"
+    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions — AML/CFT, 2021"
   },
   "entityTypes": [
     {
@@ -913,5 +913,366 @@
         }
       ]
     }
-  ]
+  ],
+  "prompts": [
+    {
+      "key": "entity_summary",
+      "category": "entity_analysis",
+      "description": "Plain-language summary of one banking governance and compliance record for a staff member.",
+      "prompt": "You are a banking governance and compliance operations assistant. Summarise the record below for a staff member who has thirty seconds to read it. Lead with what needs a decision, then state the current status, then anything overdue. Do not speculate about facts that are not in the record; say \"not recorded\" instead.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "risk_review",
+      "category": "entity_analysis",
+      "description": "Flag concerns on a record without inventing severity.",
+      "prompt": "Review this banking governance and compliance record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "document_review",
+      "category": "document_processing",
+      "description": "Assess a supplied document against what the record expects.",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "document_extraction",
+      "category": "data_extraction",
+      "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "maxTokens": 1200,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "form_validation",
+      "category": "validation",
+      "description": "Explain validation failures in human terms. Keyed by AiService.validateFormData.",
+      "prompt": "The submitted form data failed one or more validation rules. For each failure, explain in one sentence what is wrong and what the person should change, addressed to them, in plain language and without jargon. Do not invent rules that are not in the list.\n\nRules:\n{{VALIDATIONRULES}}\n\nSubmitted data:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "next_action",
+      "category": "workflow_decision",
+      "description": "Recommend the next workflow step. Advisory only.",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 500,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "assistant_command",
+      "category": "entity_analysis",
+      "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
+      "prompt": "You are the banking governance and compliance assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what obligations are due this month\", \"explain this screening hit\", \"which breaches are unreported\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.3,
+      "maxTokens": 1000,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "screening_match_rationale",
+      "category": "entity_analysis",
+      "description": "Explain a screening hit for the match-review workflow.",
+      "prompt": "Explain this screening match to a compliance officer deciding true match versus false positive. State which fields agree and which differ, and what the match score and algorithm do and do not establish — a phonetic match is weaker evidence than an exact one, and a high score on a common name is weaker than the number suggests. Do not recommend a disposition; the officer decides.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nMatch:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "obligation_impact",
+      "category": "workflow_decision",
+      "description": "Assess a regulatory change against a tracked obligation.",
+      "prompt": "Assess how the regulatory change below affects the obligation described. State: whether the obligation's requirement, deadline or evidence changes; what specifically changes; and what the institution must do differently. If the change does not affect this obligation, say so plainly rather than manufacturing a connection.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nObligation:\n{{CONTEXT}}\n\nRegulatory change:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 1100,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    }
+  ],
+  "messaging": {
+    "templates": [
+      {
+        "key": "user_invite",
+        "name": "Team invitation",
+        "channel": "email",
+        "subject": "You have been invited to {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "inviterName",
+          "productName",
+          "inviteUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "password_reset",
+        "name": "Password reset",
+        "channel": "email",
+        "subject": "Reset your {{productName}} password",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "productName",
+          "resetUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "task_assigned",
+        "name": "Task assigned",
+        "channel": "email",
+        "subject": "{{taskTitle}} — assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "taskDescription",
+          "assignerName",
+          "dueDate",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "task_overdue",
+        "name": "Task overdue",
+        "channel": "email",
+        "subject": "Overdue: {{taskTitle}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "dueDate",
+          "daysOverdue",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "document_request",
+        "name": "Documents requested",
+        "channel": "email",
+        "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "documentCount",
+          "documentList",
+          "uploadUrl"
+        ]
+      },
+      {
+        "key": "document_received",
+        "name": "Document received",
+        "channel": "email",
+        "subject": "We received {{documentName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "documentName",
+          "entityLabel",
+          "outstandingLine"
+        ]
+      },
+      {
+        "key": "payment_due",
+        "name": "Payment due",
+        "channel": "email",
+        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "reference",
+          "paymentInstructions"
+        ]
+      },
+      {
+        "key": "payment_overdue",
+        "name": "Payment overdue",
+        "channel": "email",
+        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "daysOverdue",
+          "reference"
+        ]
+      },
+      {
+        "key": "payment_received",
+        "name": "Payment receipt",
+        "channel": "email",
+        "subject": "Receipt — {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "paidDate",
+          "reference",
+          "balanceLine"
+        ]
+      },
+      {
+        "key": "status_change",
+        "name": "Matter status change",
+        "channel": "email",
+        "subject": "{{entityLabel}} is now {{newStatus}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "oldStatus",
+          "newStatus",
+          "changedAt",
+          "nextStepLine",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "sla_breach_internal",
+        "name": "SLA breach (internal)",
+        "channel": "email",
+        "subject": "SLA breached: {{entityLabel}} at {{stepName}}",
+        "body": "{{entityLabel}} has been at {{stepName}} for {{hoursElapsed}} hours against an SLA of {{slaHours}} hours.\n\nAssigned to: {{assigneeName}}\nEscalation: {{escalationTarget}}\n\nOpen it here: {{entityUrl}}",
+        "variables": [
+          "entityLabel",
+          "stepName",
+          "hoursElapsed",
+          "slaHours",
+          "assigneeName",
+          "escalationTarget",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "welcome_client",
+        "name": "Client portal welcome",
+        "channel": "email",
+        "subject": "Welcome to the {{firmName}} client portal",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "portalUrl",
+          "contactName",
+          "contactEmail"
+        ]
+      },
+      {
+        "key": "generic_notification_sms",
+        "name": "Short notification (SMS)",
+        "channel": "sms",
+        "subject": "",
+        "body": "{{firmName}}: {{message}} {{shortUrl}}",
+        "variables": [
+          "firmName",
+          "message",
+          "shortUrl"
+        ]
+      },
+      {
+        "key": "screening_hit_alert",
+        "name": "Screening hit (internal)",
+        "channel": "email",
+        "subject": "Screening hit: {{subjectName}} ({{severity}})",
+        "body": "A screening run flagged {{subjectName}}.\n\nHighest match: {{matchScore}} via {{algorithm}} against {{listName}}\nSeverity: {{severity}}\nMatches: {{matchCount}}\n\nThis is a potential match requiring review, not a determination. Review it here: {{reviewUrl}}",
+        "variables": [
+          "subjectName",
+          "matchScore",
+          "algorithm",
+          "listName",
+          "severity",
+          "matchCount",
+          "reviewUrl"
+        ]
+      },
+      {
+        "key": "obligation_due",
+        "name": "Obligation due",
+        "channel": "email",
+        "subject": "{{obligationTitle}} due {{dueDate}}",
+        "body": "{{obligationTitle}} is due on {{dueDate}} ({{daysRemaining}} days).\n\nRegulator: {{regulatorName}}\nOwner: {{ownerName}}\nEvidence required: {{evidenceRequired}}\n\nOpen it here: {{obligationUrl}}",
+        "variables": [
+          "obligationTitle",
+          "dueDate",
+          "daysRemaining",
+          "regulatorName",
+          "ownerName",
+          "evidenceRequired",
+          "obligationUrl"
+        ]
+      },
+      {
+        "key": "breach_escalation",
+        "name": "Breach escalation",
+        "channel": "email",
+        "subject": "Breach {{breachReference}} escalated — {{severity}}",
+        "body": "Breach {{breachReference}} has been escalated to {{escalationTarget}}.\n\nSeverity: {{severity}}\nIdentified: {{identifiedAt}}\nReporting deadline: {{reportingDeadline}}\nSummary: {{summary}}\n\nOpen it here: {{breachUrl}}",
+        "variables": [
+          "breachReference",
+          "severity",
+          "identifiedAt",
+          "reportingDeadline",
+          "summary",
+          "escalationTarget",
+          "breachUrl"
+        ]
+      }
+    ]
+  }
 }

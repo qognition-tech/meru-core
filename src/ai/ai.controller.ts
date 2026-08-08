@@ -57,6 +57,11 @@ export class AiController {
     return this.aiService.execute({
       ...aiRequest,
       tenantId: req.user.tenantId,
+      // The prompt library lives in the tenant's vertical pack, so the vertical
+      // is what selects it. PolicyGuard has already resolved and attached it
+      // (policy.guard.ts:53); an explicit `vertical` in the body still wins so
+      // an operator can target another vertical's prompt deliberately.
+      vertical: aiRequest.vertical ?? (req.tenantVertical as VerticalType),
     });
   }
 

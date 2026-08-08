@@ -140,6 +140,9 @@ export class NotificationsController {
       templateKey,
       body.recipientId,
       body.variables,
+      // Templates default from the vertical's config pack, so the vertical is
+      // what selects them. PolicyGuard already resolved it onto the request.
+      req.tenantVertical,
     );
     return notification;
   }
@@ -382,6 +385,7 @@ export class NotificationsController {
     const templates = await this.notificationsService.getTemplates(
       req.user.tenantId,
       type,
+      req.tenantVertical,
     );
     return templates;
   }

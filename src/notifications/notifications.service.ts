@@ -13,6 +13,8 @@ import {
 } from './entities/notification.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import type { PackMessageTemplate } from '../../packages/config-packs/_schema/pack.schema';
 
 export interface SendNotificationOptions {
   tenantId: string;
@@ -25,6 +27,14 @@ export interface SendNotificationOptions {
   metadata?: Record<string, any>;
   templateData?: {
     templateId?: string;
+    /**
+     * The pack template key. Recorded because a pack-sourced template has no
+     * row and therefore no `templateId` — without the key there would be no way
+     * to tell afterwards which template rendered a given message.
+     */
+    templateKey?: string;
+    /** Which layer supplied the template, for the same reason. */
+    source?: 'tenant_override' | 'config_pack';
     variables?: Record<string, any>;
     locale?: string;
   };
@@ -42,6 +52,7 @@ export class NotificationsService {
     @InjectRepository(NotificationTemplate)
     private templateRepo: Repository<NotificationTemplate>,
     private eventEmitter: EventEmitter2,
+    private readonly packs: VerticalPackService,
   ) {}
 
   // ==================== NOTIFICATION CREATION ====================
@@ -118,23 +129,39 @@ export class NotificationsService {
     return results;
   }
 
+  /**
+   * Render a template and queue it.
+   *
+   * Two layers, tenant-first, for the same reason as the AI prompt library:
+   * `notification_templates` is per-tenant and has to be seeded per tenant, and
+   * on production it was empty — `GET /notifications/templates` returned `[]`,
+   * so every template-driven message threw `Template not found` no matter
+   * whether a mail transport was configured. The vertical's config pack now
+   * supplies the defaults, so a tenant has working templates from the moment
+   * its pack is pinned, and a DB row is an override rather than a prerequisite.
+   *
+   * `vertical` is optional so existing callers keep compiling; pass it when the
+   * caller knows it, or the pack layer cannot be consulted and behaviour is the
+   * old DB-only lookup.
+   */
   async sendFromTemplate(
     tenantId: string,
     templateKey: string,
     recipientId: string,
     variables: Record<string, any>,
+    vertical?: string | null,
   ): Promise<Notification | null> {
-    const template = await this.templateRepo.findOne({
-      where: { key: templateKey, tenantId },
-    });
+    const resolved = await this.resolveTemplate(
+      tenantId,
+      templateKey,
+      vertical ?? null,
+    );
 
-    if (!template) {
-      throw new NotFoundException(`Template not found: ${templateKey}`);
-    }
-
-    // Replace variables in template
-    let content = template.content;
-    let subject = template.subject;
+    // Replace variables in template. Both layers render identically — the
+    // substitution must not depend on where the template came from, or an
+    // override silently changes how placeholders behave.
+    let content = resolved.body;
+    let subject = resolved.subject;
 
     Object.entries(variables).forEach(([key, value]) => {
       const regex = new RegExp(`{{${key}}}`, 'g');
@@ -144,12 +171,72 @@ export class NotificationsService {
 
     return this.sendNotification({
       tenantId,
-      type: template.type as unknown as NotificationType,
+      type: resolved.channel as unknown as NotificationType,
       recipientId,
       subject,
       content,
-      templateData: { templateId: template.id, variables },
+      templateData: {
+        templateId: resolved.templateId,
+        templateKey,
+        source: resolved.source,
+        variables,
+      },
     });
+  }
+
+  /**
+   * Tenant row → vertical pack. Throws only when neither has it, and says
+   * which layers were checked: "Template not found" on its own sent whoever
+   * hit it looking for a bug in the caller rather than for an unpopulated
+   * table and an un-authored pack.
+   */
+  private async resolveTemplate(
+    tenantId: string,
+    templateKey: string,
+    vertical: string | null,
+  ): Promise<{
+    subject: string;
+    body: string;
+    channel: string;
+    templateId?: string;
+    source: 'tenant_override' | 'config_pack';
+  }> {
+    const row = await this.templateRepo.findOne({
+      where: { key: templateKey, tenantId },
+    });
+
+    if (row) {
+      return {
+        subject: row.subject,
+        body: row.content,
+        channel: String(row.type),
+        templateId: row.id,
+        source: 'tenant_override',
+      };
+    }
+
+    const { pack, section } = await this.packs.sectionWithPack<{
+      templates?: PackMessageTemplate[];
+    }>(vertical, 'messaging');
+
+    const templates = section?.templates ?? [];
+    const match = templates.find((t) => t.key === templateKey);
+
+    if (!match) {
+      throw new NotFoundException(
+        `No message template '${templateKey}' — not in this tenant's overrides` +
+          (pack
+            ? `, and config pack '${pack.code}' defines ${templates.length} template(s).`
+            : ', and no config pack resolved for this vertical.'),
+      );
+    }
+
+    return {
+      subject: match.subject,
+      body: match.body,
+      channel: match.channel,
+      source: 'config_pack',
+    };
   }
 
   // ==================== NOTIFICATION QUERY ====================
@@ -291,14 +378,71 @@ export class NotificationsService {
     return this.templateRepo.save(template);
   }
 
+  /**
+   * Every template available to the tenant: its own rows, plus the vertical
+   * pack's, with a tenant row of the same key shadowing the pack entry.
+   *
+   * Returning only DB rows is what made this endpoint report `[]` on a tenant
+   * that could in fact render nine templates — and an empty list here reads to
+   * a UI as "this tenant has no templates", which is a different and false
+   * statement. `source` is on every row so an operator can see which layer a
+   * template came from before editing the wrong one.
+   */
   async getTemplates(
     tenantId: string,
     type?: string,
-  ): Promise<NotificationTemplate[]> {
-    const where: any = { tenantId };
+    vertical?: string | null,
+  ): Promise<
+    Array<{
+      id: string | null;
+      key: string;
+      name: string;
+      type: string;
+      subject: string;
+      content: string;
+      variables: string[];
+      source: 'tenant_override' | 'config_pack';
+    }>
+  > {
+    const where: Record<string, unknown> = { tenantId };
     if (type) where.type = type;
 
-    return this.templateRepo.find({ where });
+    const rows = await this.templateRepo.find({ where });
+    const overridden = new Set(rows.map((r) => r.key));
+
+    const packSection = await this.packs.section<{
+      templates?: PackMessageTemplate[];
+    }>(vertical ?? null, 'messaging');
+
+    const packTemplates = (packSection?.templates ?? [])
+      .filter((t) => !overridden.has(t.key))
+      .filter((t) => !type || t.channel === type);
+
+    return [
+      ...rows.map((r) => ({
+        id: r.id,
+        key: r.key,
+        name: r.name,
+        type: String(r.type),
+        subject: r.subject,
+        content: r.content,
+        variables: r.variables ?? [],
+        source: 'tenant_override' as const,
+      })),
+      ...packTemplates.map((t) => ({
+        // Null, not a fabricated id: a pack template has no row, and handing
+        // back an id that PATCH would 404 on is worse than admitting there
+        // isn't one. Editing one means creating an override.
+        id: null,
+        key: t.key,
+        name: t.name,
+        type: t.channel,
+        subject: t.subject,
+        content: t.body,
+        variables: t.variables ?? [],
+        source: 'config_pack' as const,
+      })),
+    ];
   }
 
   // ==================== SCHEDULED JOBS ====================

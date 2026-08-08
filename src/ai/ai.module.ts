@@ -24,6 +24,7 @@ import { BillingModule } from '../billing/billing.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
 
 @Module({
   imports: [
@@ -43,6 +44,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
     forwardRef(() => AnalyticsModule),
     forwardRef(() => AuditModule),
     forwardRef(() => NotificationsModule),
+    // Layer 4: the vertical's prompt library. Not forwardRef'd — the resolver
+    // module has one provider and one entity, so there is no cycle to break.
+    VerticalPackModule,
   ],
   controllers: [AiController, EnginesController],
   providers: [

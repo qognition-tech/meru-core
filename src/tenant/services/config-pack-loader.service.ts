@@ -141,6 +141,15 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
         // way to the database — the UI would never see it.
         entityTypes: def.entityTypes ?? [],
         regulators: def.regulators ?? [],
+        // Same hazard as entityTypes: this list is the *only* thing that
+        // reaches the database. A section added to the Zod schema but not
+        // named here validates cleanly, loads without error, and then does
+        // not exist at runtime — which is indistinguishable from an authoring
+        // mistake in the pack. `config-pack-loader.service.spec.ts` asserts
+        // every optional section round-trips, so adding one to the schema and
+        // forgetting it here fails a test rather than shipping.
+        prompts: def.prompts ?? [],
+        messaging: def.messaging ?? { templates: [] },
         country: def.country,
         locales: def.locales,
         metadata: def.metadata ?? {},

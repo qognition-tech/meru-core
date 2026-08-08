@@ -1,8 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigPack } from '../tenant/entities/config-pack.entity';
+import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { Document } from './entities/document.entity';
+
+/** The `documentTypes` shape as authored in a pack. */
+interface PackDocumentType {
+  key: string;
+  label: string;
+  required?: boolean;
+  acceptedFormats?: string[];
+  maxSizeMb?: number;
+  aiExtraction?: { enabled?: boolean; fields?: string[] };
+}
 
 /**
  * One entry in the checklist: what the regulator wants, and whether it is in.
@@ -34,8 +44,7 @@ export interface ChecklistItem {
 @Injectable()
 export class DocumentChecklistService {
   constructor(
-    @InjectRepository(ConfigPack)
-    private readonly configPackRepo: Repository<ConfigPack>,
+    private readonly packs: VerticalPackService,
     @InjectRepository(Document)
     private readonly documentRepo: Repository<Document>,
   ) {}
@@ -58,14 +67,14 @@ export class DocumentChecklistService {
       );
     }
 
-    // Highest active version for the vertical. Sorted in SQL rather than by
-    // picking the first row: `findAll` order is not guaranteed, and quietly
-    // serving an older pack's checklist is indistinguishable from serving the
-    // right one until a regulator's new requirement never appears.
-    const pack = await this.configPackRepo.findOne({
-      where: { vertical, isActive: true },
-      order: { version: 'DESC' },
-    });
+    // Resolution — including the highest-version tiebreak, which matters
+    // because serving an older pack's checklist looks exactly like serving the
+    // right one until a new regulator requirement never appears — is
+    // VerticalPackService's job, shared with the AI prompt library and COM
+    // templates rather than reimplemented here.
+    const { pack, section } = await this.packs.sectionWithPack<
+      PackDocumentType[]
+    >(vertical, 'documentTypes');
 
     if (!pack) {
       throw new NotFoundException(
@@ -73,18 +82,7 @@ export class DocumentChecklistService {
       );
     }
 
-    const schema = (pack.schema ?? {}) as {
-      documentTypes?: Array<{
-        key: string;
-        label: string;
-        required?: boolean;
-        acceptedFormats?: string[];
-        maxSizeMb?: number;
-        aiExtraction?: { enabled?: boolean; fields?: string[] };
-      }>;
-    };
-
-    const types = schema.documentTypes ?? [];
+    const types = Array.isArray(section) ? section : [];
 
     // No entity named → report the requirements without pretending to know
     // what has been supplied. `uploaded: null` is deliberately not `false`:

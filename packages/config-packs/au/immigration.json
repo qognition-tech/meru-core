@@ -2,11 +2,12 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "vertical": "immigration",
   "country": "AU",
-  "locales": ["en-AU"],
-
+  "locales": [
+    "en-AU"
+  ],
   "regulators": [
     {
       "id": "au-home-affairs",
@@ -28,40 +29,75 @@
       "documentation": "https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/check-conditions-online"
     }
   ],
-
   "roles": [
     {
       "key": "firm_admin",
       "label": "Firm Administrator",
-      "permissions": ["tenant:manage", "cases:all", "users:manage", "billing:view", "reports:all"]
+      "permissions": [
+        "tenant:manage",
+        "cases:all",
+        "users:manage",
+        "billing:view",
+        "reports:all"
+      ]
     },
     {
       "key": "migration_agent",
       "label": "Migration Agent",
-      "permissions": ["cases:read", "cases:write", "cases:submit", "documents:all", "clients:read", "clients:write"]
+      "permissions": [
+        "cases:read",
+        "cases:write",
+        "cases:submit",
+        "documents:all",
+        "clients:read",
+        "clients:write"
+      ]
     },
     {
       "key": "case_coordinator",
       "label": "Case Coordinator",
-      "permissions": ["cases:read", "cases:write", "documents:read", "documents:upload", "clients:read"]
+      "permissions": [
+        "cases:read",
+        "cases:write",
+        "documents:read",
+        "documents:upload",
+        "clients:read"
+      ]
     },
     {
       "key": "client_portal",
       "label": "Client (Self-Service)",
-      "permissions": ["cases:own:read", "documents:own:upload", "profile:own:edit"]
+      "permissions": [
+        "cases:own:read",
+        "documents:own:upload",
+        "profile:own:edit"
+      ]
     }
   ],
-
   "documentTypes": [
     {
       "key": "passport",
       "label": "Passport",
       "required": true,
-      "acceptedFormats": ["pdf", "jpg", "jpeg", "png"],
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "jpeg",
+        "png"
+      ],
       "maxSizeMb": 10,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["passportNumber", "firstName", "lastName", "dateOfBirth", "nationality", "issueDate", "expiryDate", "mrz"]
+        "fields": [
+          "passportNumber",
+          "firstName",
+          "lastName",
+          "dateOfBirth",
+          "nationality",
+          "issueDate",
+          "expiryDate",
+          "mrz"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": true,
@@ -73,11 +109,19 @@
       "key": "skills_assessment",
       "label": "Skills Assessment",
       "required": false,
-      "acceptedFormats": ["pdf"],
+      "acceptedFormats": [
+        "pdf"
+      ],
       "maxSizeMb": 20,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["assessingBody", "occupation", "anzscoCode", "assessmentDate", "outcome"]
+        "fields": [
+          "assessingBody",
+          "occupation",
+          "anzscoCode",
+          "assessmentDate",
+          "outcome"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": false,
@@ -89,11 +133,22 @@
       "key": "employment_contract",
       "label": "Employment Contract / Sponsorship Letter",
       "required": false,
-      "acceptedFormats": ["pdf", "docx"],
+      "acceptedFormats": [
+        "pdf",
+        "docx"
+      ],
       "maxSizeMb": 15,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["employerName", "employerAbn", "positionTitle", "anzscoCode", "salary", "startDate", "fullTime"]
+        "fields": [
+          "employerName",
+          "employerAbn",
+          "positionTitle",
+          "anzscoCode",
+          "salary",
+          "startDate",
+          "fullTime"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": false,
@@ -105,11 +160,17 @@
       "key": "health_assessment",
       "label": "Health Assessment (HAP ID)",
       "required": false,
-      "acceptedFormats": ["pdf"],
+      "acceptedFormats": [
+        "pdf"
+      ],
       "maxSizeMb": 20,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["hapId", "examinationDate", "outcome"]
+        "fields": [
+          "hapId",
+          "examinationDate",
+          "outcome"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": false,
@@ -121,11 +182,18 @@
       "key": "police_clearance",
       "label": "Police Clearance Certificate",
       "required": false,
-      "acceptedFormats": ["pdf"],
+      "acceptedFormats": [
+        "pdf"
+      ],
       "maxSizeMb": 10,
       "aiExtraction": {
         "enabled": true,
-        "fields": ["issueCountry", "issueDate", "applicantName", "outcome"]
+        "fields": [
+          "issueCountry",
+          "issueDate",
+          "applicantName",
+          "outcome"
+        ]
       },
       "fraudChecks": {
         "exifAnalysis": true,
@@ -134,7 +202,6 @@
       }
     }
   ],
-
   "workflows": [
     {
       "id": "482-tss-employer-sponsored",
@@ -148,18 +215,64 @@
           "assignedRole": "case_coordinator",
           "slaHours": 24,
           "formFields": [
-            { "key": "applicantFirstName", "label": "First Name", "type": "text", "required": true },
-            { "key": "applicantLastName", "label": "Last Name", "type": "text", "required": true },
-            { "key": "passportNumber", "label": "Passport Number", "type": "text", "required": true },
-            { "key": "nationality", "label": "Nationality", "type": "country", "required": true },
-            { "key": "dateOfBirth", "label": "Date of Birth", "type": "date", "required": true },
-            { "key": "currentVisaType", "label": "Current Visa Subclass", "type": "text" },
-            { "key": "targetOccupation", "label": "Nominated Occupation", "type": "text", "required": true },
-            { "key": "anzscoCode", "label": "ANZSCO Code", "type": "text" },
-            { "key": "sponsorAbn", "label": "Sponsor ABN", "type": "text", "required": true }
+            {
+              "key": "applicantFirstName",
+              "label": "First Name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "applicantLastName",
+              "label": "Last Name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "passportNumber",
+              "label": "Passport Number",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "nationality",
+              "label": "Nationality",
+              "type": "country",
+              "required": true
+            },
+            {
+              "key": "dateOfBirth",
+              "label": "Date of Birth",
+              "type": "date",
+              "required": true
+            },
+            {
+              "key": "currentVisaType",
+              "label": "Current Visa Subclass",
+              "type": "text"
+            },
+            {
+              "key": "targetOccupation",
+              "label": "Nominated Occupation",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "anzscoCode",
+              "label": "ANZSCO Code",
+              "type": "text"
+            },
+            {
+              "key": "sponsorAbn",
+              "label": "Sponsor ABN",
+              "type": "text",
+              "required": true
+            }
           ],
           "transitions": [
-            { "to": "eligibility_check", "label": "Proceed to Eligibility" }
+            {
+              "to": "eligibility_check",
+              "label": "Proceed to Eligibility"
+            }
           ]
         },
         {
@@ -169,8 +282,14 @@
           "assignedRole": "migration_agent",
           "slaHours": 48,
           "transitions": [
-            { "to": "document_collection", "label": "Eligible — Collect Documents" },
-            { "to": "intake", "label": "Return — More Info Needed" }
+            {
+              "to": "document_collection",
+              "label": "Eligible — Collect Documents"
+            },
+            {
+              "to": "intake",
+              "label": "Return — More Info Needed"
+            }
           ]
         },
         {
@@ -179,9 +298,16 @@
           "type": "document",
           "assignedRole": "client_portal",
           "slaHours": 168,
-          "requiredDocuments": ["passport", "employment_contract", "skills_assessment"],
+          "requiredDocuments": [
+            "passport",
+            "employment_contract",
+            "skills_assessment"
+          ],
           "transitions": [
-            { "to": "agent_review", "label": "Documents Submitted" }
+            {
+              "to": "agent_review",
+              "label": "Documents Submitted"
+            }
           ]
         },
         {
@@ -191,8 +317,14 @@
           "assignedRole": "migration_agent",
           "slaHours": 72,
           "transitions": [
-            { "to": "lodgement", "label": "Approve for Lodgement" },
-            { "to": "document_collection", "label": "Request More Docs" }
+            {
+              "to": "lodgement",
+              "label": "Approve for Lodgement"
+            },
+            {
+              "to": "document_collection",
+              "label": "Request More Docs"
+            }
           ]
         },
         {
@@ -204,10 +336,16 @@
           "apiAction": {
             "adapterId": "au-home-affairs",
             "method": "lodgeApplication",
-            "params": { "visaSubclass": "482", "stream": "short-term" }
+            "params": {
+              "visaSubclass": "482",
+              "stream": "short-term"
+            }
           },
           "transitions": [
-            { "to": "dha_processing", "label": "Lodged Successfully" }
+            {
+              "to": "dha_processing",
+              "label": "Lodged Successfully"
+            }
           ]
         },
         {
@@ -216,8 +354,14 @@
           "type": "review",
           "slaHours": 2160,
           "transitions": [
-            { "to": "granted", "label": "Visa Granted" },
-            { "to": "refused", "label": "Visa Refused" }
+            {
+              "to": "granted",
+              "label": "Visa Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Visa Refused"
+            }
           ]
         },
         {
@@ -231,28 +375,36 @@
           "name": "Visa Refused — Review Options",
           "type": "review",
           "transitions": [
-            { "to": "lodgement", "label": "Re-apply" }
+            {
+              "to": "lodgement",
+              "label": "Re-apply"
+            }
           ]
         }
       ]
     }
   ],
-
   "screening": {
     "enabled": false,
-    "lists": ["ofac", "un"],
+    "lists": [
+      "ofac",
+      "un"
+    ],
     "threshold": 0.85,
     "autoEscalate": true,
     "pepCheck": false,
     "adverseMedia": false
   },
-
   "compliance": {
     "dataResidency": "AU",
     "retentionYears": 7,
     "encryptionRequired": true,
     "auditRequired": true,
-    "regulatoryFrameworks": ["Migration Act 1958", "Privacy Act 1988", "GDPR-adjacent"],
+    "regulatoryFrameworks": [
+      "Migration Act 1958",
+      "Privacy Act 1988",
+      "GDPR-adjacent"
+    ],
     "reportingObligations": [
       {
         "trigger": "visa_lodged",
@@ -262,25 +414,396 @@
       }
     ]
   },
-
   "kpis": [
-    { "key": "active_cases", "label": "Active Cases", "unit": "count" },
-    { "key": "avg_processing_days", "label": "Avg. Processing Days", "unit": "days", "target": 90, "alert": { "threshold": 120, "direction": "above" } },
-    { "key": "grant_rate", "label": "Grant Rate", "unit": "percentage", "target": 95, "alert": { "threshold": 85, "direction": "below" } },
-    { "key": "sla_compliance", "label": "SLA Compliance", "unit": "percentage", "target": 95 },
-    { "key": "document_completeness", "label": "Document Completeness", "unit": "percentage", "target": 100 }
+    {
+      "key": "active_cases",
+      "label": "Active Cases",
+      "unit": "count"
+    },
+    {
+      "key": "avg_processing_days",
+      "label": "Avg. Processing Days",
+      "unit": "days",
+      "target": 90,
+      "alert": {
+        "threshold": 120,
+        "direction": "above"
+      }
+    },
+    {
+      "key": "grant_rate",
+      "label": "Grant Rate",
+      "unit": "percentage",
+      "target": 95,
+      "alert": {
+        "threshold": 85,
+        "direction": "below"
+      }
+    },
+    {
+      "key": "sla_compliance",
+      "label": "SLA Compliance",
+      "unit": "percentage",
+      "target": 95
+    },
+    {
+      "key": "document_completeness",
+      "label": "Document Completeness",
+      "unit": "percentage",
+      "target": 100
+    }
   ],
-
   "uiConfig": {
     "primaryColor": "#0052A5",
     "supportEmail": "support@immistack.com",
     "termsUrl": "https://immistack.com/terms",
     "helpUrl": "https://help.immistack.com/au"
   },
-
   "metadata": {
     "author": "Meru Platform Team",
     "lastReviewedAt": "2026-05-01T00:00:00Z",
     "regulatoryReference": "Migration Regulations 1994, Schedule 2, Subclass 482"
+  },
+  "prompts": [
+    {
+      "key": "entity_summary",
+      "category": "entity_analysis",
+      "description": "Plain-language summary of one immigration case management record for a staff member.",
+      "prompt": "You are a immigration case management operations assistant. Summarise the record below for a staff member who has thirty seconds to read it. Lead with what needs a decision, then state the current status, then anything overdue. Do not speculate about facts that are not in the record; say \"not recorded\" instead.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "risk_review",
+      "category": "entity_analysis",
+      "description": "Flag concerns on a record without inventing severity.",
+      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "document_review",
+      "category": "document_processing",
+      "description": "Assess a supplied document against what the record expects.",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "document_extraction",
+      "category": "data_extraction",
+      "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "maxTokens": 1200,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "form_validation",
+      "category": "validation",
+      "description": "Explain validation failures in human terms. Keyed by AiService.validateFormData.",
+      "prompt": "The submitted form data failed one or more validation rules. For each failure, explain in one sentence what is wrong and what the person should change, addressed to them, in plain language and without jargon. Do not invent rules that are not in the list.\n\nRules:\n{{VALIDATIONRULES}}\n\nSubmitted data:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "next_action",
+      "category": "workflow_decision",
+      "description": "Recommend the next workflow step. Advisory only.",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 500,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "assistant_command",
+      "category": "entity_analysis",
+      "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
+      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.3,
+      "maxTokens": 1000,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "visa_eligibility_note",
+      "category": "entity_analysis",
+      "description": "Draft an eligibility note for an applicant against a visa subclass.",
+      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent — it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 1200,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "client_status_update",
+      "category": "workflow_decision",
+      "description": "Draft a client-facing status update from case state.",
+      "prompt": "Write a short, warm status update to the client about their application, using only the case state below. Say where the application is, what happens next, and what (if anything) you need from them. Do not estimate a decision date, do not predict an outcome, and do not mention internal notes or staff names.\n\nCase state:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.4,
+      "maxTokens": 600,
+      "requireCitations": false,
+      "isCategoryDefault": false
+    }
+  ],
+  "messaging": {
+    "templates": [
+      {
+        "key": "user_invite",
+        "name": "Team invitation",
+        "channel": "email",
+        "subject": "You have been invited to {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "inviterName",
+          "productName",
+          "inviteUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "password_reset",
+        "name": "Password reset",
+        "channel": "email",
+        "subject": "Reset your {{productName}} password",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "productName",
+          "resetUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "task_assigned",
+        "name": "Task assigned",
+        "channel": "email",
+        "subject": "{{taskTitle}} — assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "taskDescription",
+          "assignerName",
+          "dueDate",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "task_overdue",
+        "name": "Task overdue",
+        "channel": "email",
+        "subject": "Overdue: {{taskTitle}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "dueDate",
+          "daysOverdue",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "document_request",
+        "name": "Documents requested",
+        "channel": "email",
+        "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "documentCount",
+          "documentList",
+          "uploadUrl"
+        ]
+      },
+      {
+        "key": "document_received",
+        "name": "Document received",
+        "channel": "email",
+        "subject": "We received {{documentName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "documentName",
+          "entityLabel",
+          "outstandingLine"
+        ]
+      },
+      {
+        "key": "payment_due",
+        "name": "Payment due",
+        "channel": "email",
+        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "reference",
+          "paymentInstructions"
+        ]
+      },
+      {
+        "key": "payment_overdue",
+        "name": "Payment overdue",
+        "channel": "email",
+        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "daysOverdue",
+          "reference"
+        ]
+      },
+      {
+        "key": "payment_received",
+        "name": "Payment receipt",
+        "channel": "email",
+        "subject": "Receipt — {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "paidDate",
+          "reference",
+          "balanceLine"
+        ]
+      },
+      {
+        "key": "status_change",
+        "name": "Case status change",
+        "channel": "email",
+        "subject": "{{entityLabel}} is now {{newStatus}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "oldStatus",
+          "newStatus",
+          "changedAt",
+          "nextStepLine",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "sla_breach_internal",
+        "name": "SLA breach (internal)",
+        "channel": "email",
+        "subject": "SLA breached: {{entityLabel}} at {{stepName}}",
+        "body": "{{entityLabel}} has been at {{stepName}} for {{hoursElapsed}} hours against an SLA of {{slaHours}} hours.\n\nAssigned to: {{assigneeName}}\nEscalation: {{escalationTarget}}\n\nOpen it here: {{entityUrl}}",
+        "variables": [
+          "entityLabel",
+          "stepName",
+          "hoursElapsed",
+          "slaHours",
+          "assigneeName",
+          "escalationTarget",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "welcome_client",
+        "name": "Client portal welcome",
+        "channel": "email",
+        "subject": "Welcome to the {{firmName}} client portal",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "portalUrl",
+          "contactName",
+          "contactEmail"
+        ]
+      },
+      {
+        "key": "generic_notification_sms",
+        "name": "Short notification (SMS)",
+        "channel": "sms",
+        "subject": "",
+        "body": "{{firmName}}: {{message}} {{shortUrl}}",
+        "variables": [
+          "firmName",
+          "message",
+          "shortUrl"
+        ]
+      },
+      {
+        "key": "visa_expiry_warning",
+        "name": "Visa expiry warning",
+        "channel": "email",
+        "subject": "Your visa expires on {{expiryDate}} ({{daysRemaining}} days)",
+        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} — {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us — treat your grant notice as correct, not this email.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "visaSubclass",
+          "expiryDate",
+          "daysRemaining",
+          "contactName"
+        ]
+      },
+      {
+        "key": "lodgement_confirmation",
+        "name": "Application lodged",
+        "channel": "email",
+        "subject": "{{visaSubclass}} application lodged — {{referenceNumber}}",
+        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "visaSubclass",
+          "lodgedDate",
+          "referenceNumber"
+        ]
+      }
+    ]
   }
 }

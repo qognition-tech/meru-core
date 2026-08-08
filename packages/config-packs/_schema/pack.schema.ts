@@ -133,6 +133,75 @@ const ComplianceRulesSchema = z.object({
   })).optional(),
 });
 
+// ── AI prompt library ─────────────────────────────────────────────────────
+
+/**
+ * The vertical's prompt library. This is Layer 4 for the AI gateway.
+ *
+ * It lives in the pack rather than in `ai_prompts` rows because a per-tenant
+ * table has to be seeded per tenant, and it was not: `GET /ai/prompts`
+ * returned `[]` on production and `POST /ai/execute` answered every request
+ * with `500 Prompt not found`, for every tenant, while the route was recorded
+ * as shipped. A pack ships with the vertical, so a new tenant inherits a
+ * working library the moment it is pinned — nothing to remember, nothing to
+ * seed. `ai_prompts` remains as the per-tenant *override* layer.
+ *
+ * `requireCitations` defaults true: CLAUDE.md §6.3 makes citation enforcement
+ * a condition of shipping AI at all, so an author has to opt a prompt *out*
+ * deliberately rather than forget to opt it in.
+ */
+const PromptSchema = z.object({
+  key: z.string().min(1),
+  category: z.enum([
+    'entity_analysis',
+    'document_processing',
+    'workflow_decision',
+    'data_extraction',
+    'validation',
+  ]),
+  description: z.string().optional(),
+  /**
+   * Supports `{{INPUT}}`, `{{VERTICAL}}`, `{{TENANT_ID}}` and any
+   * `{{UPPERCASED_CONTEXT_KEY}}` the caller passes in `context`.
+   */
+  prompt: z.string().min(20),
+  provider: z.enum(['openai', 'anthropic', 'local']).default('openai'),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  requireCitations: z.boolean().default(true),
+  /**
+   * The one to use when a caller names a category but no key. Exactly one per
+   * category should set it; the resolver takes the first and is deterministic
+   * about which, but two defaults in one category is an authoring error.
+   */
+  isCategoryDefault: z.boolean().default(false),
+});
+
+// ── Messaging: templates and sequences ────────────────────────────────────
+
+/**
+ * Outbound message templates, same reasoning as the prompt library above —
+ * `notification_templates` was also empty in production, which made every
+ * "email template" feature in both specs non-functional regardless of whether
+ * a mail transport was configured.
+ */
+const MessageTemplateSchema = z.object({
+  key: z.string().min(1),
+  name: z.string().min(1),
+  channel: z.enum(['email', 'sms', 'push', 'in_app']).default('email'),
+  /** Ignored for sms/push; kept required for email so none ships subject-less. */
+  subject: z.string().default(''),
+  /** Plain-text body. `{{variable}}` placeholders. */
+  body: z.string().min(1),
+  htmlBody: z.string().optional(),
+  /**
+   * Declared placeholder names. Used to tell a caller which variables a
+   * template expects instead of silently rendering `{{firstName}}` to a client.
+   */
+  variables: z.array(z.string()).default([]),
+});
+
 // ── Top-level config pack schema ──────────────────────────────────────────
 
 export const ConfigPackSchema = z.object({
@@ -163,6 +232,20 @@ export const ConfigPackSchema = z.object({
   screening: ScreeningConfigSchema.optional(),
   compliance: ComplianceRulesSchema.optional(),
   kpis: z.array(KpiSchema).optional(),
+
+  /** The vertical's AI prompt library — see PromptSchema. */
+  prompts: z.array(PromptSchema).optional(),
+
+  /**
+   * Outbound messaging. `sequences[]` (multi-step automation) is the next
+   * addition here; templates land first because they are what the empty
+   * `notification_templates` table was blocking.
+   */
+  messaging: z
+    .object({
+      templates: z.array(MessageTemplateSchema).default([]),
+    })
+    .optional(),
 
   /**
    * Per-entity-type vocabulary: what core stores as `knowledge_article` is
@@ -210,6 +293,10 @@ export const ConfigPackSchema = z.object({
 });
 
 export type ConfigPackDefinition = z.infer<typeof ConfigPackSchema>;
+
+/** Section types the core modules read at runtime. */
+export type PackPrompt = z.infer<typeof PromptSchema>;
+export type PackMessageTemplate = z.infer<typeof MessageTemplateSchema>;
 
 export function validateConfigPack(raw: unknown): ConfigPackDefinition {
   return ConfigPackSchema.parse(raw);

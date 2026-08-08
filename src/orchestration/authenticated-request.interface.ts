@@ -16,4 +16,12 @@ export interface AuthenticatedUser {
 
 export interface AuthenticatedRequest extends Request {
   user: AuthenticatedUser;
+  /**
+   * The tenant's vertical, resolved and attached by `PolicyGuard` so callers
+   * do not repeat the lookup (see policy.guard.ts:53). Present on any route
+   * guarded by `PolicyGuard`, absent otherwise — which is why it is optional
+   * and why a consumer must have an answer for `undefined` rather than
+   * assuming a default vertical.
+   */
+  tenantVertical?: string;
 }
