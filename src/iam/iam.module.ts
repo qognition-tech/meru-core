@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -23,6 +23,7 @@ import { CoreModule } from '../core/core.module';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningController } from './tenant-provisioning.controller';
 import { PlatformController } from './platform.controller';
+import { TenantModule } from '../tenant/tenant.module';
 import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { AuditModule } from '../audit/audit.module';
 import { SamlService } from './services/saml.service';
@@ -50,6 +51,11 @@ import { SamlService } from './services/saml.service';
     }),
     CoreModule,
     AuditModule,
+    // forwardRef: OperatorModule already wires IamModule and TenantModule
+    // together, and TenantModule reaches Billing and Audit. A plain import here
+    // is fine today but one edge away from a cycle, and a Nest cycle surfaces
+    // as an undefined injected provider at runtime rather than a build error.
+    forwardRef(() => TenantModule),
   ],
   controllers: [
     IamController,
