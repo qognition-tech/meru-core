@@ -24,6 +24,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
+import { DocumentChecklistService } from './document-checklist.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
@@ -38,7 +39,10 @@ import { paginated } from '../common/paginated';
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class DocumentsController {
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    private readonly documentChecklistService: DocumentChecklistService,
+  ) {}
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
@@ -112,6 +116,38 @@ export class DocumentsController {
     );
 
     return result;
+  }
+
+  @Get('checklist')
+  @ApiOperation({
+    summary: 'Which documents a case still needs, per the config pack',
+    description:
+      'Requirements come from the tenant vertical\'s config pack ' +
+      '(`schema.documentTypes`), never from code — a hardcoded checklist ' +
+      'means a pack update silently stops reaching users. Pass ?entityId= to ' +
+      'mark what has already been supplied; without it every item reports ' +
+      '`uploaded: null` ("not asked"), which must not render the same as ' +
+      '`false` ("missing").',
+  })
+  @ApiQuery({
+    name: 'entityId',
+    required: false,
+    description: 'Case/matter id to check uploads against',
+  })
+  @ApiResponse({ status: 200, description: 'Checklist retrieved' })
+  @ApiResponse({
+    status: 404,
+    description: 'No active config pack for this vertical',
+  })
+  async checklist(
+    @Request() req: AuthenticatedRequest & { tenantVertical?: string | null },
+    @Query('entityId') entityId?: string,
+  ) {
+    return this.documentChecklistService.forEntity(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      entityId,
+    );
   }
 
   @Get()

@@ -18,6 +18,8 @@ import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { DocumentHubService } from './document-hub.service';
 import { Document } from './entities/document.entity';
+import { ConfigPack } from '../tenant/entities/config-pack.entity';
+import { DocumentChecklistService } from './document-checklist.service';
 import { DocumentVersion } from './entities/document-version.entity';
 import { DocumentMetadata } from './entities/document-metadata.entity';
 import { User } from '../iam/entities/user.entity';
@@ -31,6 +33,7 @@ import { AuditModule } from '../audit/audit.module';
   imports: [
     TypeOrmModule.forFeature([
       Document,
+      ConfigPack,
       DocumentVersion,
       DocumentMetadata,
       User,
@@ -60,7 +63,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [DocumentsController],
-  providers: [DocumentsService, DocumentHubService],
+  providers: [DocumentsService, DocumentHubService, DocumentChecklistService],
   exports: [DocumentsService, DocumentHubService],
 })
 export class DocumentsModule {}
