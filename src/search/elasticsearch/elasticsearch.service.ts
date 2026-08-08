@@ -57,13 +57,33 @@ export class ElasticsearchService implements OnModuleInit {
     this.client = new Client({
       node: `http://${host}`,
       auth: username && password ? { username, password } : undefined,
+      // Bounded on purpose. The client defaults to 3 retries at a 30s request
+      // timeout, so a host that silently drops packets (rather than refusing
+      // the connection) blocks onModuleInit for ~90 seconds. On a serverless
+      // runtime that exceeds the function's maxDuration, so the platform kills
+      // the process during app.init(): no exception, no log, every route
+      // answering FUNCTION_INVOCATION_FAILED. The catch below cannot help,
+      // because nothing throws — it hangs.
+      requestTimeout: 3000,
+      pingTimeout: 3000,
+      maxRetries: 0,
     });
 
     try {
-      await this.client.ping();
+      // Belt and braces: even a bounded client can stall on DNS, which no
+      // client-level timeout covers. Elasticsearch is optional — SRCH falls
+      // back to Postgres — so a slow probe must never delay boot.
+      await Promise.race([
+        this.client.ping(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('ping timed out after 5s')), 5000),
+        ),
+      ]);
       this.logger.log('Elasticsearch connected successfully');
     } catch (error) {
-      this.logger.error('Elasticsearch connection failed:', error.message);
+      this.logger.warn(
+        `Elasticsearch unavailable, continuing without it: ${error.message}`,
+      );
     }
   }
 
