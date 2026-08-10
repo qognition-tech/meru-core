@@ -6,6 +6,7 @@ import { UniversalEntity } from './entities/universal-entity.entity';
 import { EntityRelation } from './entities/entity-relation.entity';
 import { EntityRelationService } from './entity-relation.service';
 import { TenantModule } from '../tenant/tenant.module';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
 import { CoreModule } from '../core/core.module';
 import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
@@ -18,6 +19,10 @@ import { AuditModule } from '../audit/audit.module';
   imports: [
     TypeOrmModule.forFeature([UniversalEntity, EntityRelation]),
     TenantModule,
+    // `EntityRelationService` reads the pack's `relationships[]`. TenantModule
+    // does not export `VerticalPackService`, so without this the app does not
+    // boot at all — Nest reports an unresolvable dependency and exits.
+    VerticalPackModule,
     CoreModule,
     SearchModule,
     DocumentsModule,
