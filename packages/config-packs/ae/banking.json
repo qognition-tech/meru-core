@@ -1,8 +1,8 @@
 {
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
-  "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.6.0",
+  "description": "UAE banking governance, risk & compliance \u2014 covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
+  "version": "1.7.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -282,12 +282,12 @@
           "transitions": [
             {
               "to": "document_collection",
-              "label": "Clear — Proceed",
+              "label": "Clear \u2014 Proceed",
               "condition": "screening.riskLevel !== 'critical'"
             },
             {
               "to": "enhanced_due_diligence",
-              "label": "Hit — Escalate to EDD",
+              "label": "Hit \u2014 Escalate to EDD",
               "condition": "screening.riskLevel === 'critical'"
             }
           ]
@@ -316,7 +316,7 @@
           "transitions": [
             {
               "to": "mlro_review",
-              "label": "EDD Complete — Escalate to MLRO"
+              "label": "EDD Complete \u2014 Escalate to MLRO"
             },
             {
               "to": "rejected",
@@ -458,17 +458,61 @@
     {
       "key": "active_cases",
       "label": "Active Onboarding Cases",
-      "unit": "count"
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
     },
     {
       "key": "screening_hits",
       "label": "Screening Hits (30d)",
-      "unit": "count"
+      "unit": "count",
+      "metric": {
+        "source": "screening_match",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
     },
     {
       "key": "sar_filed",
       "label": "SARs Filed (30d)",
-      "unit": "count"
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "==": [
+            {
+              "var": "sarFiled"
+            },
+            true
+          ]
+        }
+      }
     },
     {
       "key": "avg_kyc_days",
@@ -478,6 +522,23 @@
       "alert": {
         "threshold": 10,
         "direction": "above"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "average_days",
+        "field": "createdAt",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        },
+        "until": "updatedAt"
       }
     },
     {
@@ -487,13 +548,60 @@
       "alert": {
         "threshold": 60,
         "direction": "above"
+      },
+      "metric": {
+        "source": "screening_match",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "status"
+            },
+            "closed"
+          ]
+        },
+        "of": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        }
       }
     },
     {
       "key": "sla_compliance",
       "label": "SLA Compliance",
       "unit": "percentage",
-      "target": 95
+      "target": 95,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "or": [
+            {
+              "==": [
+                {
+                  "var": "dueDate"
+                },
+                null
+              ]
+            },
+            {
+              ">=": [
+                {
+                  "var": "dueDate_daysUntil"
+                },
+                0
+              ]
+            }
+          ]
+        }
+      }
     }
   ],
   "uiConfig": {
@@ -505,7 +613,7 @@
   "metadata": {
     "author": "Meru Platform Team",
     "lastReviewedAt": "2026-05-01T00:00:00Z",
-    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions — AML/CFT, 2021"
+    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions \u2014 AML/CFT, 2021"
   },
   "entityTypes": [
     {
@@ -932,7 +1040,7 @@
       "key": "risk_review",
       "category": "entity_analysis",
       "description": "Flag concerns on a record without inventing severity.",
-      "prompt": "Review this banking governance and compliance record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "prompt": "Review this banking governance and compliance record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent \u2014 an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -944,7 +1052,7 @@
       "key": "document_review",
       "category": "document_processing",
       "description": "Assess a supplied document against what the record expects.",
-      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document \u2014 do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -956,7 +1064,7 @@
       "key": "document_extraction",
       "category": "data_extraction",
       "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
-      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain \u2014 never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.0,
@@ -980,7 +1088,7 @@
       "key": "next_action",
       "category": "workflow_decision",
       "description": "Recommend the next workflow step. Advisory only.",
-      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides \u2014 do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.2,
@@ -992,7 +1100,7 @@
       "key": "assistant_command",
       "category": "entity_analysis",
       "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
-      "prompt": "You are the banking governance and compliance assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what obligations are due this month\", \"explain this screening hit\", \"which breaches are unreported\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "prompt": "You are the banking governance and compliance assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it \u2014 do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what obligations are due this month\", \"explain this screening hit\", \"which breaches are unreported\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.3,
@@ -1004,7 +1112,7 @@
       "key": "screening_match_rationale",
       "category": "entity_analysis",
       "description": "Explain a screening hit for the match-review workflow.",
-      "prompt": "Explain this screening match to a compliance officer deciding true match versus false positive. State which fields agree and which differ, and what the match score and algorithm do and do not establish — a phonetic match is weaker evidence than an exact one, and a high score on a common name is weaker than the number suggests. Do not recommend a disposition; the officer decides.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nMatch:\n{{INPUT}}",
+      "prompt": "Explain this screening match to a compliance officer deciding true match versus false positive. State which fields agree and which differ, and what the match score and algorithm do and do not establish \u2014 a phonetic match is weaker evidence than an exact one, and a high score on a common name is weaker than the number suggests. Do not recommend a disposition; the officer decides.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nMatch:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -1032,7 +1140,7 @@
         "name": "Team invitation",
         "channel": "email",
         "subject": "You have been invited to {{firmName}}",
-        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation \u2014 the link cannot be reused.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1047,7 +1155,7 @@
         "name": "Password reset",
         "channel": "email",
         "subject": "Reset your {{productName}} password",
-        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email \u2014 your password has not changed. If you get these repeatedly, tell your administrator.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1060,8 +1168,8 @@
         "key": "task_assigned",
         "name": "Task assigned",
         "channel": "email",
-        "subject": "{{taskTitle}} — assigned to you",
-        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "subject": "{{taskTitle}} \u2014 assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1078,7 +1186,7 @@
         "name": "Task overdue",
         "channel": "email",
         "subject": "Overdue: {{taskTitle}}",
-        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1094,7 +1202,7 @@
         "name": "Documents requested",
         "channel": "email",
         "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
-        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us \u2014 it may not have been recorded against your file.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1109,7 +1217,7 @@
         "name": "Document received",
         "channel": "email",
         "subject": "We received {{documentName}}",
-        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet \u2014 we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1122,8 +1230,8 @@
         "key": "payment_due",
         "name": "Payment due",
         "channel": "email",
-        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
-        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
+        "subject": "{{firmName}} \u2014 {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1138,8 +1246,8 @@
         "key": "payment_overdue",
         "name": "Payment overdue",
         "channel": "email",
-        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
-        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
+        "subject": "Overdue: {{amountFormatted}} \u2014 {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us \u2014 tell us before the work stops rather than after.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1154,8 +1262,8 @@
         "key": "payment_received",
         "name": "Payment receipt",
         "channel": "email",
-        "subject": "Receipt — {{amountFormatted}} received",
-        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
+        "subject": "Receipt \u2014 {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1171,7 +1279,7 @@
         "name": "Matter status change",
         "channel": "email",
         "subject": "{{entityLabel}} is now {{newStatus}}",
-        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1204,7 +1312,7 @@
         "name": "Client portal welcome",
         "channel": "email",
         "subject": "Welcome to the {{firmName}} client portal",
-        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1262,7 +1370,7 @@
         "key": "breach_escalation",
         "name": "Breach escalation",
         "channel": "email",
-        "subject": "Breach {{breachReference}} escalated — {{severity}}",
+        "subject": "Breach {{breachReference}} escalated \u2014 {{severity}}",
         "body": "Breach {{breachReference}} has been escalated to {{escalationTarget}}.\n\nSeverity: {{severity}}\nIdentified: {{identifiedAt}}\nReporting deadline: {{reportingDeadline}}\nSummary: {{summary}}\n\nOpen it here: {{breachUrl}}",
         "variables": [
           "breachReference",
@@ -1663,6 +1771,435 @@
       "cardinality": "one_to_many",
       "inverseLabel": "Counterparties",
       "blocksCompletion": false
+    }
+  ],
+  "navigation": [
+    {
+      "key": "home",
+      "label": "Dashboard",
+      "path": "/",
+      "icon": "layout-dashboard",
+      "portal": "staff",
+      "order": 10,
+      "roles": []
+    },
+    {
+      "key": "screening",
+      "label": "Sanctions Screening",
+      "path": "/screening",
+      "icon": "shield-check",
+      "portal": "staff",
+      "order": 20,
+      "roles": []
+    },
+    {
+      "key": "match_review",
+      "label": "Match Review",
+      "path": "/match-review",
+      "icon": "search-check",
+      "portal": "staff",
+      "order": 30,
+      "roles": []
+    },
+    {
+      "key": "counterparties",
+      "label": "Counterparties",
+      "path": "/counterparties",
+      "icon": "building-2",
+      "portal": "staff",
+      "order": 40,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "trade_finance",
+      "label": "Trade Finance",
+      "path": "/trade-finance",
+      "icon": "ship",
+      "portal": "staff",
+      "order": 50,
+      "roles": []
+    },
+    {
+      "key": "vessels",
+      "label": "Vessel Tracking",
+      "path": "/vessels",
+      "icon": "anchor",
+      "portal": "staff",
+      "order": 60,
+      "roles": []
+    },
+    {
+      "key": "obligations",
+      "label": "Obligations",
+      "path": "/obligations",
+      "icon": "clipboard-check",
+      "portal": "staff",
+      "order": 70,
+      "roles": []
+    },
+    {
+      "key": "breaches",
+      "label": "Breaches",
+      "path": "/breaches",
+      "icon": "triangle-alert",
+      "portal": "staff",
+      "order": 80,
+      "roles": []
+    },
+    {
+      "key": "vendor_dd",
+      "label": "Vendor Due Diligence",
+      "path": "/vendor-dd",
+      "icon": "handshake",
+      "portal": "staff",
+      "order": 90,
+      "roles": []
+    },
+    {
+      "key": "control_testing",
+      "label": "Control Testing",
+      "path": "/control-testing",
+      "icon": "test-tube",
+      "portal": "staff",
+      "order": 100,
+      "roles": []
+    },
+    {
+      "key": "risk_workshop",
+      "label": "Risk Workshop",
+      "path": "/risk-workshop",
+      "icon": "activity",
+      "portal": "staff",
+      "order": 110,
+      "roles": []
+    },
+    {
+      "key": "rfi",
+      "label": "RFI",
+      "path": "/rfi",
+      "icon": "message-square-quote",
+      "portal": "staff",
+      "order": 120,
+      "module": "forms",
+      "roles": []
+    },
+    {
+      "key": "turnover",
+      "label": "Turnover Monitoring",
+      "path": "/turnover",
+      "icon": "trending-up",
+      "portal": "staff",
+      "order": 130,
+      "roles": []
+    },
+    {
+      "key": "roadmap",
+      "label": "Milestones & Roadmap",
+      "path": "/roadmap",
+      "icon": "map",
+      "portal": "staff",
+      "order": 140,
+      "roles": []
+    },
+    {
+      "key": "knowledge_base",
+      "label": "Knowledge Base",
+      "path": "/knowledge-base",
+      "icon": "book-open",
+      "portal": "staff",
+      "order": 150,
+      "roles": []
+    },
+    {
+      "key": "training",
+      "label": "Training",
+      "path": "/training",
+      "icon": "graduation-cap",
+      "portal": "staff",
+      "order": 160,
+      "roles": []
+    },
+    {
+      "key": "documents",
+      "label": "Documents",
+      "path": "/documents",
+      "icon": "folder",
+      "portal": "staff",
+      "order": 170,
+      "module": "documents",
+      "roles": []
+    },
+    {
+      "key": "tasks",
+      "label": "Tasks",
+      "path": "/tasks",
+      "icon": "check-square",
+      "portal": "staff",
+      "order": 180,
+      "module": "tasks",
+      "roles": []
+    },
+    {
+      "key": "communications",
+      "label": "Communications",
+      "path": "/communications",
+      "icon": "mail",
+      "portal": "staff",
+      "order": 190,
+      "module": "communications",
+      "roles": []
+    },
+    {
+      "key": "reports",
+      "label": "Reports",
+      "path": "/reports",
+      "icon": "bar-chart-3",
+      "portal": "staff",
+      "order": 200,
+      "roles": []
+    },
+    {
+      "key": "audit",
+      "label": "Audit Trail",
+      "path": "/audit",
+      "icon": "scroll-text",
+      "portal": "staff",
+      "order": 210,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "settings",
+      "label": "Settings",
+      "path": "/settings",
+      "icon": "settings",
+      "portal": "admin",
+      "order": 900,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "billing",
+      "label": "Billing",
+      "path": "/settings/billing",
+      "icon": "credit-card",
+      "portal": "admin",
+      "order": 910,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "users",
+      "label": "Users & Roles",
+      "path": "/settings/users",
+      "icon": "users",
+      "portal": "admin",
+      "order": 920,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "connectors",
+      "label": "Regulator Connectors",
+      "path": "/settings/connectors",
+      "icon": "plug",
+      "portal": "admin",
+      "order": 930,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    }
+  ],
+  "dashboards": [
+    {
+      "key": "compliance_home",
+      "label": "Compliance Overview",
+      "portal": "staff",
+      "roles": [],
+      "widgets": [
+        {
+          "key": "open_matches",
+          "label": "Matches Awaiting Review",
+          "type": "kpi",
+          "source": "screening_hits",
+          "span": 3
+        },
+        {
+          "key": "sars",
+          "label": "SARs Filed",
+          "type": "kpi",
+          "source": "sar_filed",
+          "span": 3
+        },
+        {
+          "key": "avg_kyc",
+          "label": "Avg. KYC Days",
+          "type": "kpi",
+          "source": "avg_kyc_days",
+          "span": 3
+        },
+        {
+          "key": "fp_rate",
+          "label": "False Positive Rate",
+          "type": "kpi",
+          "source": "false_positive_rate",
+          "span": 3
+        },
+        {
+          "key": "breaches_open",
+          "label": "Open Breaches",
+          "type": "count",
+          "source": "breach",
+          "when": {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress",
+                "blocked"
+              ]
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "obligations_due",
+          "label": "Obligations Due in 30 Days",
+          "type": "count",
+          "source": "obligation",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "dueDate_daysUntil"
+                  },
+                  30
+                ]
+              },
+              {
+                "!=": [
+                  {
+                    "var": "status"
+                  },
+                  "closed"
+                ]
+              }
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "vendors_high",
+          "label": "High-Risk Vendors",
+          "type": "count",
+          "source": "vendor",
+          "when": {
+            "in": [
+              {
+                "var": "riskTier"
+              },
+              [
+                "high",
+                "critical"
+              ]
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "match_by_status",
+          "label": "Match Review by Status",
+          "type": "chart",
+          "source": "screening_match",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "escalated_matches",
+          "label": "Escalated Matches",
+          "type": "list",
+          "source": "screening_match",
+          "when": {
+            "==": [
+              {
+                "var": "status"
+              },
+              "blocked"
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
+    },
+    {
+      "key": "mlro_home",
+      "label": "MLRO Board",
+      "portal": "admin",
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ],
+      "widgets": [
+        {
+          "key": "sla",
+          "label": "SLA Compliance",
+          "type": "kpi",
+          "source": "sla_compliance",
+          "span": 4
+        },
+        {
+          "key": "active_cases",
+          "label": "Active Cases",
+          "type": "kpi",
+          "source": "active_cases",
+          "span": 4
+        },
+        {
+          "key": "turnover_records",
+          "label": "Turnover Records",
+          "type": "count",
+          "source": "turnover_record",
+          "span": 4
+        },
+        {
+          "key": "control_by_status",
+          "label": "Control Tests by Status",
+          "type": "chart",
+          "source": "control_test",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "rfi_open",
+          "label": "Open RFIs",
+          "type": "list",
+          "source": "rfi",
+          "when": {
+            "!=": [
+              {
+                "var": "status"
+              },
+              "closed"
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
     }
   ]
 }

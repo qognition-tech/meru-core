@@ -13,20 +13,33 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
+import { PackDashboardService } from './pack-dashboard.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CreateReportDto, CreateWidgetDto } from './dto/analytics.dto';
 import type { DashboardWidget } from './entities/dashboard-widget.entity';
+import type { AuthenticatedRequest } from '../common/types';
+import {
+  PackUiService,
+  type Portal,
+} from '../tenant/services/pack-ui.service';
+
+const PORTALS: Portal[] = ['admin', 'staff', 'client', 'platform'];
 
 @ApiTags('analytics')
 @Controller('analytics')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class AnalyticsController {
-  constructor(private analyticsService: AnalyticsService) {}
+  constructor(
+    private analyticsService: AnalyticsService,
+    private readonly packDashboards: PackDashboardService,
+    private readonly packUi: PackUiService,
+  ) {}
 
   // ==================== REPORTS ====================
 
@@ -96,6 +109,60 @@ export class AnalyticsController {
       },
     );
     return result;
+  }
+
+  // ==================== PACK-DRIVEN DASHBOARDS ====================
+  //
+  // Distinct from the `widgets` CRUD below, which is a tenant's own saved
+  // widgets. These are the vertical's dashboards, declared in the config pack
+  // and resolved against the caller's data — nothing here is stored per tenant.
+
+  @Get('dashboards')
+  @ApiOperation({
+    summary: "List the dashboards the caller's config pack defines",
+    description:
+      'Definitions only, filtered to the caller by portal, role and ' +
+      'entitlement. An empty array means the pack declares none — not that ' +
+      'dashboards are unavailable.',
+  })
+  @ApiQuery({ name: 'portal', required: false, enum: PORTALS })
+  async listPackDashboards(
+    @Request() req: AuthenticatedRequest,
+    @Query('portal') portal?: Portal,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      portal ?? null,
+    );
+    return this.packDashboards.list(req.tenantVertical ?? null, audience);
+  }
+
+  @Get('dashboards/:key')
+  @ApiOperation({
+    summary: 'Resolve one pack dashboard against the tenant data',
+    description:
+      'Every widget carries `value`, and a null `value` carries an ' +
+      '`unavailableReason`. A widget whose scan hit its cap reports ' +
+      '`truncated: true`, and its count is a lower bound.',
+  })
+  @ApiParam({ name: 'key', description: 'Dashboard key from the config pack' })
+  @ApiResponse({ status: 404, description: 'No such dashboard for this caller' })
+  async getPackDashboard(
+    @Request() req: AuthenticatedRequest,
+    @Param('key') key: string,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      null,
+    );
+    return this.packDashboards.resolve(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      key,
+      audience,
+    );
   }
 
   // ==================== WIDGETS ====================

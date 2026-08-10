@@ -25,6 +25,7 @@ import {
 import { PolicyGuard } from '../../iam/guards/policy.guard';
 import { Roles } from '../../iam/decorators/roles.decorator';
 import { ConfigPackService } from '../services/config-pack.service';
+import { PackUiService, type Portal } from '../services/pack-ui.service';
 import { TenancyService } from '../../core/tenancy/tenancy.service';
 import { PlatformRole } from '../../iam/enums/platform-role.enum';
 import type { AuthenticatedRequest } from '../../common/types';
@@ -59,6 +60,7 @@ export class ConfigPackController {
   constructor(
     private readonly configPackService: ConfigPackService,
     private readonly tenancyService: TenancyService,
+    private readonly packUi: PackUiService,
   ) {}
 
   /**
@@ -99,6 +101,62 @@ export class ConfigPackController {
       `${reason} for tenant ${tenantId} (God View)`,
       work,
     );
+  }
+
+  // ========== THE CALLER'S OWN UI CONFIG ==========
+  //
+  // Two-segment literal paths, so they cannot be swallowed by `@Get(':id')`
+  // below. These are the routes the three portals call on every page load.
+
+  @Get('me/navigation')
+  @ApiOperation({
+    summary: "The sidebar for the caller's vertical, filtered to the caller",
+    description:
+      'Filtered by portal, role and entitled module, ordered as the pack ' +
+      'declares. Cosmetic only — hiding an item is not an access control, ' +
+      'and every route behind one enforces its own.',
+  })
+  @ApiQuery({
+    name: 'portal',
+    required: false,
+    enum: ['admin', 'staff', 'client', 'platform'],
+  })
+  @ApiResponse({ status: 200, description: 'Navigation items returned' })
+  async getMyNavigation(
+    @Request() req: AuthenticatedRequest,
+    @Query('portal') portal?: Portal,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      portal ?? null,
+    );
+    return this.packUi.navigationFor(req.tenantVertical ?? null, audience);
+  }
+
+  @Get('me/dashboards')
+  @ApiOperation({
+    summary: "The dashboards the caller's vertical declares",
+    description:
+      'Definitions only. `GET /analytics/dashboards/:key` resolves one ' +
+      'against the tenant data.',
+  })
+  @ApiQuery({
+    name: 'portal',
+    required: false,
+    enum: ['admin', 'staff', 'client', 'platform'],
+  })
+  @ApiResponse({ status: 200, description: 'Dashboard definitions returned' })
+  async getMyDashboards(
+    @Request() req: AuthenticatedRequest,
+    @Query('portal') portal?: Portal,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      portal ?? null,
+    );
+    return this.packUi.dashboardsFor(req.tenantVertical ?? null, audience);
   }
 
   // ========== CRUD ==========

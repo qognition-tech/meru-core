@@ -548,6 +548,36 @@
               "threshold",
               "direction"
             ]
+          },
+          "metric": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "aggregate": {
+                "type": "string",
+                "enum": [
+                  "count",
+                  "percentage",
+                  "average_days",
+                  "sum"
+                ]
+              },
+              "when": {},
+              "of": {},
+              "field": {
+                "type": "string"
+              },
+              "until": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "aggregate"
+            ]
           }
         },
         "required": [
@@ -1205,6 +1235,15 @@
                   "type": "string"
                 },
                 "when": {},
+                "groupBy": {
+                  "type": "string"
+                },
+                "limit": {
+                  "default": 10,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50
+                },
                 "span": {
                   "default": 4,
                   "type": "integer",

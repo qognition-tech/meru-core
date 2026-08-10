@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenantSetting } from './entities/tenant-setting.entity';
 import { ConfigPack } from './entities/config-pack.entity';
@@ -17,6 +17,9 @@ import { Tenant } from '../iam/entities/tenant.entity';
 import { CoreModule } from '../core/core.module';
 import { BillingModule } from '../billing/billing.module';
 import { AuditModule } from '../audit/audit.module';
+import { IamModule } from '../iam/iam.module';
+import { VerticalPackModule } from './vertical-pack.module';
+import { PackUiService } from './services/pack-ui.service';
 
 // TCM (Tenant Config Management) — CLAUDE.md §2 row 2.
 // Owns: tenant settings, config packs (vertical/country JSON), feature flags,
@@ -34,6 +37,12 @@ import { AuditModule } from '../audit/audit.module';
     CoreModule,
     BillingModule,
     AuditModule,
+    VerticalPackModule,
+    // The mirror of IamModule's own `forwardRef(() => TenantModule)`. Nav
+    // filtering needs the entitlement list, and that computation
+    // (`settings.modules ?? plan defaults`) belongs to IAM — a second copy
+    // here would diverge the first time a plan gains a module.
+    forwardRef(() => IamModule),
   ],
   controllers: [
     TenantController,
@@ -47,6 +56,7 @@ import { AuditModule } from '../audit/audit.module';
     ConfigPackLoaderService,
     FeatureFlagService,
     BrandingService,
+    PackUiService,
   ],
   exports: [
     TenantSettingsService,
@@ -56,6 +66,9 @@ import { AuditModule } from '../audit/audit.module';
     ConfigPackLoaderService,
     FeatureFlagService,
     BrandingService,
+    // Exported for BI, which resolves the same dashboard definitions and then
+    // computes their numbers.
+    PackUiService,
   ],
 })
 export class TenantModule {}

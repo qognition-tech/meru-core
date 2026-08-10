@@ -107,12 +107,44 @@ const RegulatorSchema = z
 
 // ── KPI definition ────────────────────────────────────────────────────────
 
+/**
+ * How a KPI gets its number.
+ *
+ * Optional, and its absence is meaningful: a KPI with a label, a unit and a
+ * target but no `metric` is a *declared* indicator nothing computes. That was
+ * every KPI in both packs until now — which is why "KPI & Performance
+ * Monitoring" rendered targets against blanks. A KPI with no metric resolves to
+ * `value: null` with a reason, never to zero: a zero is a measurement, and
+ * showing one for an unmeasured indicator is the same failure mode as a green
+ * screening result from an empty watchlist.
+ */
+const KpiMetricSchema = z.object({
+  /** Entity type the figure is computed over. */
+  source: z.string().min(1),
+  aggregate: z.enum(['count', 'percentage', 'average_days', 'sum']),
+  /** Which records count. Absent means every record of `source`. */
+  when: z.unknown().optional(),
+  /**
+   * `percentage` only: the population the numerator is a share of. Absent
+   * means every record of `source`.
+   */
+  of: z.unknown().optional(),
+  /** `sum`: the numeric field. `average_days`: the earlier date field. */
+  field: z.string().optional(),
+  /**
+   * `average_days` only: the later date field. Absent means now, which is what
+   * "average age of an open case" wants.
+   */
+  until: z.string().optional(),
+});
+
 const KpiSchema = z.object({
   key: z.string(),
   label: z.string(),
   unit: z.enum(['count', 'percentage', 'days', 'hours', 'currency', 'score']),
   target: z.number().optional(),
   alert: z.object({ threshold: z.number(), direction: z.enum(['above', 'below']) }).optional(),
+  metric: KpiMetricSchema.optional(),
 });
 
 // ── Role definition ───────────────────────────────────────────────────────
@@ -449,9 +481,21 @@ const NavItemSchema = z.object({
   /** App-relative path. */
   path: z.string(),
   icon: z.string().optional(),
-  /** Entitlement module gating this item, e.g. `payments`. */
+  /**
+   * Entitlement module gating this item, e.g. `payments`. Matched against the
+   * tenant's entitlement list, so it must be an entitlement name (`crm`,
+   * `cases`, `tasks`, `documents`, `payments`, `communications`, `forms`,
+   * `ai_automation`, `advanced_analytics`) — *not* an `entityTypes[].module`,
+   * which is the pack's own grouping and gates nothing.
+   */
   module: z.string().optional(),
-  /** Roles that may see it. Empty means all. */
+  /**
+   * Roles that may see it, matched against the roles the caller's token
+   * actually carries — `platform_admin`, `firm_admin`, `staff`, `client`.
+   * Authoring a vertical role here (`mlro`, `migration_agent`) hides the item
+   * from everyone, which looks exactly like a pack that failed to load.
+   * Empty means all.
+   */
   roles: z.array(z.string()).default([]),
   /** Which portal it belongs to. */
   portal: z.enum(['admin', 'staff', 'client', 'platform']).default('staff'),
@@ -470,10 +514,21 @@ const DashboardSchema = z.object({
         label: z.string(),
         /** `kpi` reads a `kpis[]` entry; the others read entities. */
         type: z.enum(['kpi', 'count', 'list', 'chart', 'checklist']),
-        /** For `kpi`: the kpis[] key. Otherwise the entity type to query. */
+        /**
+         * `kpi`: the kpis[] key. `checklist`: ignored — the checklist is the
+         * pack's own `documentTypes`. Otherwise the entity type to query.
+         */
         source: z.string(),
         /** JsonLogic filter over the source entities. */
         when: z.unknown().optional(),
+        /**
+         * `chart` only: the field to group by. Top-level columns (`status`,
+         * `assignedTo`, `type`) or a `verticalAttributes` key. Defaults to
+         * `status`, which is the dimension every workable entity type has.
+         */
+        groupBy: z.string().optional(),
+        /** `list` only: how many rows. */
+        limit: z.number().int().min(1).max(50).default(10),
         /** Grid width in twelfths. */
         span: z.number().int().min(1).max(12).default(4),
       }),

@@ -1,8 +1,8 @@
 {
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
-  "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.6.0",
+  "description": "Australian immigration and visa management pack \u2014 covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
+  "version": "1.7.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -207,7 +207,7 @@
   "workflows": [
     {
       "id": "482-tss-employer-sponsored",
-      "name": "482 TSS Visa — Employer Sponsored",
+      "name": "482 TSS Visa \u2014 Employer Sponsored",
       "entityType": "case",
       "steps": [
         {
@@ -286,11 +286,11 @@
           "transitions": [
             {
               "to": "document_collection",
-              "label": "Eligible — Collect Documents"
+              "label": "Eligible \u2014 Collect Documents"
             },
             {
               "to": "intake",
-              "label": "Return — More Info Needed"
+              "label": "Return \u2014 More Info Needed"
             }
           ]
         },
@@ -374,7 +374,7 @@
         },
         {
           "id": "refused",
-          "name": "Visa Refused — Review Options",
+          "name": "Visa Refused \u2014 Review Options",
           "type": "review",
           "transitions": [
             {
@@ -420,7 +420,23 @@
     {
       "key": "active_cases",
       "label": "Active Cases",
-      "unit": "count"
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
     },
     {
       "key": "avg_processing_days",
@@ -430,6 +446,23 @@
       "alert": {
         "threshold": 120,
         "direction": "above"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "average_days",
+        "field": "createdAt",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        },
+        "until": "updatedAt"
       }
     },
     {
@@ -440,19 +473,78 @@
       "alert": {
         "threshold": 85,
         "direction": "below"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "status"
+            },
+            "resolved"
+          ]
+        },
+        "of": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        }
       }
     },
     {
       "key": "sla_compliance",
       "label": "SLA Compliance",
       "unit": "percentage",
-      "target": 95
+      "target": 95,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "or": [
+            {
+              "==": [
+                {
+                  "var": "dueDate"
+                },
+                null
+              ]
+            },
+            {
+              ">=": [
+                {
+                  "var": "dueDate_daysUntil"
+                },
+                0
+              ]
+            }
+          ]
+        }
+      }
     },
     {
       "key": "document_completeness",
       "label": "Document Completeness",
       "unit": "percentage",
-      "target": 100
+      "target": 100,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "documentsComplete"
+            },
+            true
+          ]
+        }
+      }
     }
   ],
   "uiConfig": {
@@ -483,7 +575,7 @@
       "key": "risk_review",
       "category": "entity_analysis",
       "description": "Flag concerns on a record without inventing severity.",
-      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent \u2014 an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -495,7 +587,7 @@
       "key": "document_review",
       "category": "document_processing",
       "description": "Assess a supplied document against what the record expects.",
-      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document \u2014 do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -507,7 +599,7 @@
       "key": "document_extraction",
       "category": "data_extraction",
       "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
-      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain \u2014 never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.0,
@@ -531,7 +623,7 @@
       "key": "next_action",
       "category": "workflow_decision",
       "description": "Recommend the next workflow step. Advisory only.",
-      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides \u2014 do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.2,
@@ -543,7 +635,7 @@
       "key": "assistant_command",
       "category": "entity_analysis",
       "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
-      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it \u2014 do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.3,
@@ -555,7 +647,7 @@
       "key": "visa_eligibility_note",
       "category": "entity_analysis",
       "description": "Draft an eligibility note for an applicant against a visa subclass.",
-      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent — it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
+      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent \u2014 it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.2,
@@ -583,7 +675,7 @@
         "name": "Team invitation",
         "channel": "email",
         "subject": "You have been invited to {{firmName}}",
-        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation \u2014 the link cannot be reused.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -598,7 +690,7 @@
         "name": "Password reset",
         "channel": "email",
         "subject": "Reset your {{productName}} password",
-        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email \u2014 your password has not changed. If you get these repeatedly, tell your administrator.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -611,8 +703,8 @@
         "key": "task_assigned",
         "name": "Task assigned",
         "channel": "email",
-        "subject": "{{taskTitle}} — assigned to you",
-        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "subject": "{{taskTitle}} \u2014 assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -629,7 +721,7 @@
         "name": "Task overdue",
         "channel": "email",
         "subject": "Overdue: {{taskTitle}}",
-        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -645,7 +737,7 @@
         "name": "Documents requested",
         "channel": "email",
         "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
-        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us \u2014 it may not have been recorded against your file.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -660,7 +752,7 @@
         "name": "Document received",
         "channel": "email",
         "subject": "We received {{documentName}}",
-        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet \u2014 we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -673,8 +765,8 @@
         "key": "payment_due",
         "name": "Payment due",
         "channel": "email",
-        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
-        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
+        "subject": "{{firmName}} \u2014 {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -689,8 +781,8 @@
         "key": "payment_overdue",
         "name": "Payment overdue",
         "channel": "email",
-        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
-        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
+        "subject": "Overdue: {{amountFormatted}} \u2014 {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us \u2014 tell us before the work stops rather than after.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -705,8 +797,8 @@
         "key": "payment_received",
         "name": "Payment receipt",
         "channel": "email",
-        "subject": "Receipt — {{amountFormatted}} received",
-        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
+        "subject": "Receipt \u2014 {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -722,7 +814,7 @@
         "name": "Case status change",
         "channel": "email",
         "subject": "{{entityLabel}} is now {{newStatus}}",
-        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -755,7 +847,7 @@
         "name": "Client portal welcome",
         "channel": "email",
         "subject": "Welcome to the {{firmName}} client portal",
-        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -782,7 +874,7 @@
         "name": "Visa expiry warning",
         "channel": "email",
         "subject": "Your visa expires on {{expiryDate}} ({{daysRemaining}} days)",
-        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} — {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us — treat your grant notice as correct, not this email.\n\n— {{firmName}}",
+        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} \u2014 {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us \u2014 treat your grant notice as correct, not this email.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -796,8 +888,8 @@
         "key": "lodgement_confirmation",
         "name": "Application lodged",
         "channel": "email",
-        "subject": "{{visaSubclass}} application lodged — {{referenceNumber}}",
-        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n— {{firmName}}",
+        "subject": "{{visaSubclass}} application lodged \u2014 {{referenceNumber}}",
+        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n\u2014 {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1003,7 +1095,7 @@
   "fees": [
     {
       "key": "gov_482_primary",
-      "label": "Subclass 482 application charge — primary applicant",
+      "label": "Subclass 482 application charge \u2014 primary applicant",
       "kind": "government",
       "amountMinor": 305000,
       "currency": "AUD",
@@ -1014,7 +1106,7 @@
     },
     {
       "key": "gov_482_dependent",
-      "label": "Subclass 482 application charge — each dependent",
+      "label": "Subclass 482 application charge \u2014 each dependent",
       "kind": "government",
       "amountMinor": 153000,
       "currency": "AUD",
@@ -1025,7 +1117,7 @@
     },
     {
       "key": "firm_professional_482",
-      "label": "Professional fees — subclass 482",
+      "label": "Professional fees \u2014 subclass 482",
       "kind": "firm",
       "amountMinor": 350000,
       "currency": "AUD",
@@ -1062,7 +1154,7 @@
     },
     {
       "key": "staged_482",
-      "label": "Staged — engagement, lodgement, decision",
+      "label": "Staged \u2014 engagement, lodgement, decision",
       "type": "stage_gated",
       "stages": [
         {
@@ -1224,6 +1316,387 @@
       "cardinality": "one_to_many",
       "inverseLabel": "Attached to",
       "blocksCompletion": false
+    }
+  ],
+  "navigation": [
+    {
+      "key": "home",
+      "label": "Dashboard",
+      "path": "/",
+      "icon": "layout-dashboard",
+      "portal": "staff",
+      "order": 10,
+      "roles": []
+    },
+    {
+      "key": "leads",
+      "label": "Leads",
+      "path": "/leads",
+      "icon": "user-plus",
+      "portal": "staff",
+      "order": 20,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "clients",
+      "label": "Clients",
+      "path": "/clients",
+      "icon": "users",
+      "portal": "staff",
+      "order": 30,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "cases",
+      "label": "Cases",
+      "path": "/cases",
+      "icon": "briefcase",
+      "portal": "staff",
+      "order": 40,
+      "module": "cases",
+      "roles": []
+    },
+    {
+      "key": "documents",
+      "label": "Documents",
+      "path": "/documents",
+      "icon": "folder",
+      "portal": "staff",
+      "order": 50,
+      "module": "documents",
+      "roles": []
+    },
+    {
+      "key": "tasks",
+      "label": "Tasks",
+      "path": "/tasks",
+      "icon": "check-square",
+      "portal": "staff",
+      "order": 60,
+      "module": "tasks",
+      "roles": []
+    },
+    {
+      "key": "payments",
+      "label": "Payments",
+      "path": "/payments",
+      "icon": "credit-card",
+      "portal": "staff",
+      "order": 70,
+      "module": "payments",
+      "roles": []
+    },
+    {
+      "key": "communications",
+      "label": "Communications",
+      "path": "/communications",
+      "icon": "mail",
+      "portal": "staff",
+      "order": 80,
+      "module": "communications",
+      "roles": []
+    },
+    {
+      "key": "screening",
+      "label": "Applicant Screening",
+      "path": "/screening",
+      "icon": "shield-check",
+      "portal": "staff",
+      "order": 90,
+      "roles": []
+    },
+    {
+      "key": "forms",
+      "label": "Forms",
+      "path": "/forms",
+      "icon": "file-text",
+      "portal": "staff",
+      "order": 100,
+      "module": "forms",
+      "roles": []
+    },
+    {
+      "key": "workflows",
+      "label": "Workflows",
+      "path": "/workflows",
+      "icon": "git-branch",
+      "portal": "staff",
+      "order": 110,
+      "roles": []
+    },
+    {
+      "key": "reports",
+      "label": "Reports",
+      "path": "/reports",
+      "icon": "bar-chart-3",
+      "portal": "staff",
+      "order": 120,
+      "roles": []
+    },
+    {
+      "key": "settings",
+      "label": "Settings",
+      "path": "/admin/settings",
+      "icon": "settings",
+      "portal": "admin",
+      "order": 900,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "branding",
+      "label": "Branding",
+      "path": "/admin/branding",
+      "icon": "palette",
+      "portal": "admin",
+      "order": 910,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "users",
+      "label": "Staff & Roles",
+      "path": "/admin/users",
+      "icon": "users",
+      "portal": "admin",
+      "order": 920,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "billing",
+      "label": "Billing",
+      "path": "/admin/billing",
+      "icon": "receipt",
+      "portal": "admin",
+      "order": 930,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "connectors",
+      "label": "Regulator Connectors",
+      "path": "/admin/connectors",
+      "icon": "plug",
+      "portal": "admin",
+      "order": 940,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "my_application",
+      "label": "My Application",
+      "path": "/client",
+      "icon": "file-check",
+      "portal": "client",
+      "order": 10,
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_documents",
+      "label": "My Documents",
+      "path": "/client/documents",
+      "icon": "upload",
+      "portal": "client",
+      "order": 20,
+      "module": "documents",
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_payments",
+      "label": "My Payments",
+      "path": "/client/payments",
+      "icon": "credit-card",
+      "portal": "client",
+      "order": 30,
+      "module": "payments",
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_messages",
+      "label": "Messages",
+      "path": "/client/messages",
+      "icon": "mail",
+      "portal": "client",
+      "order": 40,
+      "module": "communications",
+      "roles": [
+        "client"
+      ]
+    }
+  ],
+  "dashboards": [
+    {
+      "key": "firm_home",
+      "label": "Firm Overview",
+      "portal": "staff",
+      "roles": [],
+      "widgets": [
+        {
+          "key": "active_cases",
+          "label": "Active Cases",
+          "type": "kpi",
+          "source": "active_cases",
+          "span": 3
+        },
+        {
+          "key": "processing",
+          "label": "Avg. Processing Days",
+          "type": "kpi",
+          "source": "avg_processing_days",
+          "span": 3
+        },
+        {
+          "key": "grant_rate",
+          "label": "Grant Rate",
+          "type": "kpi",
+          "source": "grant_rate",
+          "span": 3
+        },
+        {
+          "key": "sla",
+          "label": "SLA Compliance",
+          "type": "kpi",
+          "source": "sla_compliance",
+          "span": 3
+        },
+        {
+          "key": "new_leads",
+          "label": "Leads This Month",
+          "type": "count",
+          "source": "lead",
+          "when": {
+            "<=": [
+              {
+                "var": "createdAt_daysSince"
+              },
+              30
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "visa_expiring",
+          "label": "Visas Expiring in 90 Days",
+          "type": "count",
+          "source": "case",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "visaExpiry_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "visaExpiry_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "unpaid",
+          "label": "Cases Awaiting Payment",
+          "type": "count",
+          "source": "case",
+          "when": {
+            "==": [
+              {
+                "var": "status"
+              },
+              "blocked"
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "cases_by_status",
+          "label": "Cases by Status",
+          "type": "chart",
+          "source": "case",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "due_soon",
+          "label": "Due This Week",
+          "type": "list",
+          "source": "case",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "dueDate_daysUntil"
+                  },
+                  7
+                ]
+              },
+              {
+                "!=": [
+                  {
+                    "var": "status"
+                  },
+                  "closed"
+                ]
+              }
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
+    },
+    {
+      "key": "client_home",
+      "label": "My Application",
+      "portal": "client",
+      "roles": [
+        "client"
+      ],
+      "widgets": [
+        {
+          "key": "my_cases",
+          "label": "My Applications",
+          "type": "list",
+          "source": "case",
+          "limit": 5,
+          "span": 12
+        },
+        {
+          "key": "required_docs",
+          "label": "Documents You Will Need",
+          "type": "checklist",
+          "source": "documentTypes",
+          "span": 12
+        }
+      ]
     }
   ]
 }
