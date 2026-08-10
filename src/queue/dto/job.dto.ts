@@ -137,11 +137,3 @@ export class RetryJobDto {
   delay?: number;
 }
 
-export class UpdateWorkerDto {
-  @ApiProperty({
-    description: 'Worker status',
-    enum: ['active', 'paused', 'stopped'],
-  })
-  @IsEnum(['active', 'paused', 'stopped'])
-  status: 'active' | 'paused' | 'stopped';
-}

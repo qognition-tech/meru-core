@@ -38,14 +38,6 @@ export interface EntityCreatedEvent {
   metadata?: Record<string, unknown>;
 }
 
-export interface EntityUpdatedEvent {
-  entityType: string;
-  entityId: string;
-  tenantId: string;
-  changes: Record<string, { old: unknown; new: unknown }>;
-  metadata?: Record<string, unknown>;
-}
-
 @Injectable()
 export class OrchestrationService {
   private readonly logger = new Logger(OrchestrationService.name);

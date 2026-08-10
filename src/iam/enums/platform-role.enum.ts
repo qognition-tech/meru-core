@@ -28,15 +28,6 @@ export enum PlatformRole {
   CLIENT = 'client',
 }
 
-/**
- * Roles allowed to administer a tenant — its settings and user directory.
- * `platform_admin` is included because operators must be able to support a
- * tenant without a second account.
- */
-export const TENANT_ADMIN_ROLES: readonly string[] = [
-  PlatformRole.PLATFORM_ADMIN,
-  PlatformRole.FIRM_ADMIN,
-];
 
 /**
  * Every role, in descending privilege. `resolvePrimaryRole` walks this to

@@ -135,14 +135,3 @@ export interface QueueMetrics {
   >;
 }
 
-export interface WorkerConfig {
-  name: string;
-  concurrency?: number;
-  limiter?: {
-    max: number;
-    duration: number;
-  };
-  lockDuration?: number;
-  stalledInterval?: number;
-  maxStalledCount?: number;
-}

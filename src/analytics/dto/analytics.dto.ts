@@ -76,15 +76,3 @@ export class CreateWidgetDto {
   position?: Record<string, any>;
 }
 
-/** Body for `POST /analytics/reports/:id/execute`. */
-export class ExecuteReportBodyDto {
-  @ApiPropertyOptional({ type: 'object', additionalProperties: true })
-  @IsOptional()
-  @IsObject()
-  parameters?: Record<string, any>;
-
-  @ApiPropertyOptional({ enum: ['json', 'csv', 'xlsx', 'pdf'] })
-  @IsOptional()
-  @IsEnum(['json', 'csv', 'xlsx', 'pdf'] as any)
-  format?: 'json' | 'csv' | 'xlsx' | 'pdf';
-}

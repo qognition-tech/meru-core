@@ -218,11 +218,6 @@ export interface DirectoryUser {
   avatarUrl: string | null;
 }
 
-export interface LoginInput {
-  email: string;
-  password: string;
-}
-
 export interface CreateEntityInput {
   type: EntityType;
   firstName?: string;
@@ -254,31 +249,3 @@ export interface VerticalRateLimit {
   burstMultiplier: number;
 }
 
-export const VERTICAL_RATE_LIMITS: Record<MeruVertical, VerticalRateLimit> = {
-  immigration: {
-    requestsPerMinute: 100,
-    requestsPerHour: 5000,
-    burstMultiplier: 1.5,
-  },
-  banking: {
-    requestsPerMinute: 50,
-    requestsPerHour: 2500,
-    burstMultiplier: 1.2,
-  },
-  health: {
-    requestsPerMinute: 75,
-    requestsPerHour: 3000,
-    burstMultiplier: 1.3,
-  },
-  tax: { requestsPerMinute: 60, requestsPerHour: 2500, burstMultiplier: 1.2 },
-  labour: {
-    requestsPerMinute: 80,
-    requestsPerHour: 4000,
-    burstMultiplier: 1.3,
-  },
-  education: {
-    requestsPerMinute: 100,
-    requestsPerHour: 5000,
-    burstMultiplier: 1.5,
-  },
-};
