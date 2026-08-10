@@ -297,6 +297,16 @@ to GitHub does nothing. Check `/api-json`'s path count to know what is actually
 live, and tell the frontend — `meru-core-fe/BACKEND-CHANGES-*.md` is where each
 delta is handed over, and it leads with whether the change has deployed yet.
 
+**After every deploy, call one regulator route and read the response.** The
+contract sweep passes on a well-formed 503, so it cannot tell you an adapter
+aimed at the real regulator and failed. Both adapter defects found to date were
+invisible to a green suite and obvious in one response body.
+
+`rls:verify` needs `DATABASE_APP_URL`, which cannot be read back out of Vercel —
+`vercel env pull` returns encrypted values blank. Against a deployment, use
+`BASE_URL=… bash scripts/smoke/cross-tenant.sh`, which proves the same property
+over HTTP with two real tenants.
+
 **`check:cjs` is not optional.** Vercel's CommonJS loader cannot `require()` an
 ES module at all, so one ESM-only package anywhere in the graph returns
 `FUNCTION_INVOCATION_FAILED` on *every* request — and it works perfectly on

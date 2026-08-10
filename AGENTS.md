@@ -8,11 +8,16 @@
 > passing across all 297 operations, 31,579 sanctions entries per database, ten
 > config packs, all three databases on 32 migrations.*
 >
-> **`main` and `production` are at `e8f1c01` and are NOT deployed.** Vercel
-> deploys are CLI-driven (`vercel --prod`), so `meru-core.vercel.app` still
-> serves the previous 275 operations. `npm run rls:verify` needs
-> `DATABASE_APP_URL` from the deployment environment and must be run there
-> before release.
+> **DEPLOYED 2026-08-11.** `main` and `production` are at `c05cadc` and live at
+> `meru-core.vercel.app` — 248 paths / 297 operations, 10 config packs seeded,
+> 785 contract checks passing against production, tenant isolation 10/10 over
+> HTTP.
+>
+> `npm run rls:verify` cannot be run locally: it needs `DATABASE_APP_URL`, and
+> `vercel env pull` returns encrypted values **blank**, so a pulled `.env` looks
+> like the variable is unset when it is not. Verify isolation against the
+> deployment with `BASE_URL=… bash scripts/smoke/cross-tenant.sh`, which proves
+> the same property over HTTP with two real tenants.
 
 ---
 
@@ -294,13 +299,27 @@ Each keeps its sandbox badge until real credentials are installed, and
 `provenance.sandbox` is how the UI knows. **A UI that implies live regulator
 data is the worst failure mode this product has.**
 
+Going live for one regulator is `<ADAPTER>_SANDBOX=false` **plus** its
+credentials. Either alone leaves the adapter in sandbox, deliberately: the
+original rule was `NODE_ENV !== 'production' || <FLAG>`, which meant production
+with no credentials declared itself **live**, aimed real requests at the
+regulator, and — far worse — reported `provenance.sandbox: false` on the way
+out. A missing credential can only ever mean "not licensed yet"
+(`c05cadc`).
+
 ---
 
 ## 7. Things that will bite you
 
 - **Unit tests do not assemble the module graph.** A service can be perfectly
   tested and the app still fail to boot on a missing module import — this repo
-  shipped exactly that. Run `npm start` and read the route table.
+  shipped exactly that twice. Run `npm start` and read the route table.
+- **The contract sweep passes on a well-formed 503.** It checks shape and
+  posture, not whether an integration returned anything real. Both adapter
+  defects found so far were caught by *reading a live response*, not by a green
+  suite. After any deploy, call one regulator route and look at what came back.
+- **`vercel env pull` blanks encrypted values.** A pulled `.env` is not evidence
+  a variable is unset in production; check `vercel env ls`.
 - **`verticalAttributes` MERGES on PATCH.** Send only what changed.
 - **The four engines are cross-vertical**: `/engines/screening`, `/doc-intel`,
   `/vessel/risk`, `/radar/scan`. Distinct from
