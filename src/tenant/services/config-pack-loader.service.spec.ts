@@ -298,6 +298,55 @@ describe('packs on disk', () => {
   );
 
   it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s relationships link entity types core can actually store',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      const relationships = result.data.relationships ?? [];
+      if (!relationships.length) return;
+
+      const entitySource = fs.readFileSync(
+        path.resolve(__dirname, '../../crm/entities/universal-entity.entity.ts'),
+        'utf-8',
+      );
+      const coreTypes = new Set(
+        [...entitySource.matchAll(/^\s{2}[A-Z_]+ = '([a-z_]+)',$/gm)].map(
+          (m) => m[1],
+        ),
+      );
+      // Types with no lifecycle can never be "still open", so a blocking
+      // relation pointing at one blocks nothing — it reads like a dependency
+      // and behaves like a note.
+      const workable = new Set([
+        'case',
+        'obligation',
+        'breach',
+        'lead',
+        'vendor',
+        'control_test',
+        'risk_scenario',
+        'milestone',
+        'rfi',
+        'screening_match',
+      ]);
+
+      const keys = relationships.map((r) => r.key);
+      expect(new Set(keys).size).toBe(keys.length);
+
+      for (const relation of relationships) {
+        expect(coreTypes).toContain(relation.fromType);
+        expect(coreTypes).toContain(relation.toType);
+        if (relation.blocksCompletion) {
+          expect(workable).toContain(relation.toType);
+        }
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
     '%s scoring models produce a band for every reachable score',
     (_label, file) => {
       const result = safeValidateConfigPack(

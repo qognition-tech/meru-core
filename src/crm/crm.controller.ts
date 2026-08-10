@@ -9,6 +9,7 @@ import {
   Put,
   Param,
   Query,
+  Delete,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
@@ -26,13 +27,18 @@ import { CreateEntityDto } from './dto/create-entity.dto';
 import { ListEntitiesQueryDto, UpdateEntityDto } from './dto/update-entity.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
-import { UserPayload } from '../common/types';
+import { UserPayload, type AuthenticatedRequest } from '../common/types';
+import { EntityRelationService } from './entity-relation.service';
+import { LinkEntitiesDto } from './dto/link-entities.dto';
 import { paginated } from '../common/paginated';
 
 @Controller('crm')
 @ApiTags('crm')
 export class CrmController {
-  constructor(private crmService: CrmService) {}
+  constructor(
+    private crmService: CrmService,
+    private relations: EntityRelationService,
+  ) {}
 
   @Post('entities')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
@@ -134,10 +140,17 @@ export class CrmController {
     // `dueDate` arrives as an ISO string (that is what IsDateString validates)
     // and the column is a Date. Converting here rather than letting TypeORM
     // coerce keeps an unparseable value from reaching Postgres as a literal.
-    return this.crmService.updateEntity(id, user.tenantId, {
-      ...rest,
-      ...(dueDate !== undefined ? { dueDate: new Date(dueDate) } : {}),
-    });
+    return this.crmService.updateEntity(
+      id,
+      user.tenantId,
+      {
+        ...rest,
+        ...(dueDate !== undefined ? { dueDate: new Date(dueDate) } : {}),
+      },
+      // Selects the pack whose `relationships[]` say what blocks completion.
+      // PolicyGuard has already resolved it.
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+    );
   }
 
   // PUT alias for PATCH. Separate handler on purpose — stacking `@Put()` and
@@ -155,5 +168,102 @@ export class CrmController {
     @Body() dto: UpdateEntityDto,
   ) {
     return this.updateEntity(req, id, dto);
+  }
+
+  // ── Typed relationships ───────────────────────────────────────────────────
+
+  @Post('entities/:id/relations')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Link two entities with a relation the pack defines',
+    description:
+      'Document relationships, task and milestone dependencies and ' +
+      'counterparty links are all this route. The relation key must exist in ' +
+      "the vertical's `relationships[]`, and the two entity types must match " +
+      'what it declares — an edge that matches no definition is invisible ' +
+      'until someone asks why a dependency is not blocking anything.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid', description: 'The "from" entity' })
+  @ApiResponse({ status: 201, description: 'Relation created (idempotent)' })
+  @ApiResponse({ status: 400, description: 'Unknown relation key, wrong types, or cardinality violated' })
+  async link(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: LinkEntitiesDto,
+  ) {
+    const user = req.user as UserPayload;
+    return this.relations.link(
+      user.tenantId,
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+      dto.relationKey,
+      id,
+      dto.toId,
+      user.id,
+    );
+  }
+
+  @Get('entities/:id/relations')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Everything linked to this entity, both directions',
+    description:
+      'Incoming edges are labelled with the relation\'s `inverseLabel`, so ' +
+      '"blocks" one way and "blocked by" the other come from one definition ' +
+      'rather than two mirrored ones.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Outgoing and incoming relations' })
+  async relationsFor(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const user = req.user as UserPayload;
+    return this.relations.traverse(
+      user.tenantId,
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+      id,
+    );
+  }
+
+  @Get('entities/:id/blockers')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Related records that must finish before this one may close',
+    description:
+      'The same check the update route enforces, exposed so a UI can grey ' +
+      'out the close button instead of letting someone press it and read an ' +
+      'error.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  async blockers(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const user = req.user as UserPayload;
+    return this.relations.completionBlockers(
+      user.tenantId,
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+      id,
+    );
+  }
+
+  @Delete('entities/:id/relations/:relationKey/:toId')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Remove a relation' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'toId', format: 'uuid' })
+  async unlink(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('relationKey') relationKey: string,
+    @Param('toId', ParseUUIDPipe) toId: string,
+  ) {
+    const user = req.user as UserPayload;
+    await this.relations.unlink(user.tenantId, relationKey, id, toId);
+    return { removed: true };
   }
 }

@@ -16,6 +16,17 @@ import { SearchService } from '../search/search.service';
 import { CreateEntityInput } from '../common/types';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import { EntityRelationService } from './entity-relation.service';
+
+/**
+ * Statuses that mean the record is finished. Transitioning *into* one of these
+ * is what the dependency gate checks; everything else is an ordinary edit.
+ */
+const COMPLETION_STATUSES: EntityStatus[] = [
+  EntityStatus.RESOLVED,
+  EntityStatus.CLOSED,
+  EntityStatus.CANCELLED,
+];
 
 /**
  * Types that represent work someone has to finish, and therefore have a
@@ -63,6 +74,7 @@ export class CrmService {
     private tenantSettingsService: TenantSettingsService,
     private searchService: SearchService,
     private documentHubService: DocumentHubService,
+    private relations: EntityRelationService,
   ) {}
 
   async createEntity(
@@ -275,6 +287,13 @@ export class CrmService {
     id: string,
     tenantId: string,
     updates: Partial<UniversalEntity>,
+    /**
+     * The caller's vertical, which selects the pack whose `relationships[]`
+     * declare what blocks completion. Optional so existing callers keep
+     * compiling; without it the pack cannot be consulted and no dependency is
+     * enforced — the pre-existing behaviour.
+     */
+    vertical?: string | null,
   ): Promise<UniversalEntity> {
     const entity = await this.entityRepo.findOne({
       where: { id, tenantId },
@@ -291,6 +310,20 @@ export class CrmService {
     // `verticalAttributes` merges rather than replaces. A PATCH that sends one
     // attribute must not silently drop every other attribute the pack stored —
     // `Object.assign` on the whole bag would do exactly that.
+    // Dependency gate. A relation the pack marks `blocksCompletion` refuses
+    // the close while the thing it points at is still open — which is what
+    // makes a declared dependency a dependency rather than a note on a record.
+    // Checked only on the transition *into* a closed state, so reopening and
+    // ordinary edits are never blocked.
+    const closing =
+      updates.status !== undefined &&
+      COMPLETION_STATUSES.includes(updates.status as EntityStatus) &&
+      !COMPLETION_STATUSES.includes(entity.status as EntityStatus);
+
+    if (closing) {
+      await this.relations.assertCompletable(tenantId, vertical ?? null, id);
+    }
+
     const { verticalAttributes, ...rest } = updates;
     Object.assign(entity, rest);
 

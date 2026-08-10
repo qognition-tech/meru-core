@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CrmController } from './crm.controller';
 import { CrmService } from './crm.service';
 import { UniversalEntity } from './entities/universal-entity.entity';
+import { EntityRelation } from './entities/entity-relation.entity';
+import { EntityRelationService } from './entity-relation.service';
 import { TenantModule } from '../tenant/tenant.module';
 import { CoreModule } from '../core/core.module';
 import { SearchModule } from '../search/search.module';
@@ -14,7 +16,7 @@ import { AuditModule } from '../audit/audit.module';
 // Type-specific fields go in verticalAttributes jsonb.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UniversalEntity]),
+    TypeOrmModule.forFeature([UniversalEntity, EntityRelation]),
     TenantModule,
     CoreModule,
     SearchModule,
@@ -22,7 +24,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [CrmController],
-  providers: [CrmService],
-  exports: [CrmService],
+  providers: [CrmService, EntityRelationService],
+  exports: [CrmService, EntityRelationService],
 })
 export class CrmModule {}

@@ -2,7 +2,7 @@
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
   "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -1616,6 +1616,53 @@
           "color": "#7f1d1d"
         }
       ]
+    }
+  ],
+  "relationships": [
+    {
+      "key": "blocks",
+      "label": "Blocks",
+      "fromType": "milestone",
+      "toType": "milestone",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Blocked by",
+      "blocksCompletion": true
+    },
+    {
+      "key": "evidences",
+      "label": "Evidences",
+      "fromType": "control_test",
+      "toType": "obligation",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Evidenced by",
+      "blocksCompletion": false
+    },
+    {
+      "key": "raised_against",
+      "label": "Raised against",
+      "fromType": "breach",
+      "toType": "obligation",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Breaches",
+      "blocksCompletion": false
+    },
+    {
+      "key": "remediated_by",
+      "label": "Remediated by",
+      "fromType": "breach",
+      "toType": "control_test",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Remediates",
+      "blocksCompletion": true
+    },
+    {
+      "key": "counterparty_of",
+      "label": "Counterparty of",
+      "fromType": "vendor",
+      "toType": "trade_instrument",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Counterparties",
+      "blocksCompletion": false
     }
   ]
 }

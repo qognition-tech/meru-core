@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -1195,6 +1195,35 @@
           "color": "#10b981"
         }
       ]
+    }
+  ],
+  "relationships": [
+    {
+      "key": "dependent_of",
+      "label": "Dependent of",
+      "fromType": "person",
+      "toType": "case",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Dependents",
+      "blocksCompletion": false
+    },
+    {
+      "key": "sponsored_by",
+      "label": "Sponsored by",
+      "fromType": "case",
+      "toType": "organization",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Sponsored cases",
+      "blocksCompletion": false
+    },
+    {
+      "key": "supporting_note",
+      "label": "Supporting note",
+      "fromType": "case",
+      "toType": "note",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Attached to",
+      "blocksCompletion": false
     }
   ]
 }
