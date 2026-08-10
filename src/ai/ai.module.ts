@@ -8,6 +8,7 @@ import { WatchlistIngestService } from './engines/watchlist-ingest.service';
 import { WatchlistEntry } from './entities/watchlist-entry.entity';
 import { ScreeningResult } from './entities/screening-result.entity';
 import { RescreeningService } from './engines/rescreening.service';
+import { ScoringEngine } from './engines/scoring.engine';
 import { DocIntelEngine } from './engines/doc-intel.engine';
 import { DecisionEngine } from './engines/decision.engine';
 import { CommsEngine } from './engines/comms.engine';
@@ -25,6 +26,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
@@ -48,6 +50,8 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     // Layer 4: the vertical's prompt library. Not forwardRef'd — the resolver
     // module has one provider and one entity, so there is no cycle to break.
     VerticalPackModule,
+    // Scoring factors are JsonLogic, same evaluator as alerts and sequences.
+    RuleEvaluatorModule,
     // Per-tenant AI provider credentials live in the connector registry, so a
     // tenant can bring its own key or point at a self-hosted endpoint.
     forwardRef(() => IntegrationsModule),
@@ -55,6 +59,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
   controllers: [AiController, EnginesController],
   providers: [
     RescreeningService,
+    ScoringEngine,
     AiService,
     ScreeningEngine,
     WatchlistIngestService,
@@ -66,6 +71,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
   ],
   exports: [
     RescreeningService,
+    ScoringEngine,
     AiService,
     ScreeningEngine,
     WatchlistIngestService,

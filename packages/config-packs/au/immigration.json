@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -1090,6 +1090,111 @@
       "installmentCount": 3,
       "intervalDays": 30,
       "blockProgressOnArrears": false
+    }
+  ],
+  "scoringModels": [
+    {
+      "key": "lead_score",
+      "label": "Lead quality",
+      "entityType": "lead",
+      "factors": [
+        {
+          "key": "has_sponsor",
+          "label": "Has a sponsoring employer",
+          "when": {
+            "var": "sponsorId"
+          },
+          "weight": 30
+        },
+        {
+          "key": "occupation_on_list",
+          "label": "Occupation on a skilled list",
+          "when": {
+            "var": "occupationOnSkilledList"
+          },
+          "weight": 25
+        },
+        {
+          "key": "english_competent",
+          "label": "Competent English or better",
+          "when": {
+            ">=": [
+              {
+                "var": "ieltsOverall"
+              },
+              6
+            ]
+          },
+          "weight": 20
+        },
+        {
+          "key": "under_45",
+          "label": "Under 45 at application",
+          "when": {
+            "<": [
+              {
+                "var": "age"
+              },
+              45
+            ]
+          },
+          "weight": 15
+        },
+        {
+          "key": "onshore",
+          "label": "Already onshore",
+          "when": {
+            "==": [
+              {
+                "var": "location"
+              },
+              "onshore"
+            ]
+          },
+          "weight": 10
+        },
+        {
+          "key": "previous_refusal",
+          "label": "Previous visa refusal",
+          "when": {
+            "var": "previousRefusal"
+          },
+          "weight": -20
+        },
+        {
+          "key": "no_contact_30d",
+          "label": "No contact in 30 days",
+          "when": {
+            ">=": [
+              {
+                "var": "lastContactedAt_daysSince"
+              },
+              30
+            ]
+          },
+          "weight": -10
+        }
+      ],
+      "bands": [
+        {
+          "key": "cold",
+          "label": "Cold",
+          "minScore": -30,
+          "color": "#94a3b8"
+        },
+        {
+          "key": "warm",
+          "label": "Warm",
+          "minScore": 40,
+          "color": "#f59e0b"
+        },
+        {
+          "key": "hot",
+          "label": "Hot",
+          "minScore": 70,
+          "color": "#10b981"
+        }
+      ]
     }
   ]
 }

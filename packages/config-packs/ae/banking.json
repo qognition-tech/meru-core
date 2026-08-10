@@ -2,7 +2,7 @@
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
   "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -1498,6 +1498,124 @@
       "cooldownHours": 168,
       "escalateAfterHours": null,
       "escalateToRoles": []
+    }
+  ],
+  "scoringModels": [
+    {
+      "key": "counterparty_risk",
+      "label": "Counterparty risk",
+      "entityType": "vendor",
+      "factors": [
+        {
+          "key": "sanctions_hit",
+          "label": "Open sanctions or PEP hit",
+          "when": {
+            "var": "hasOpenScreeningHit"
+          },
+          "weight": 40
+        },
+        {
+          "key": "high_risk_jurisdiction",
+          "label": "High-risk jurisdiction",
+          "when": {
+            "in": [
+              {
+                "var": "country"
+              },
+              [
+                "IR",
+                "KP",
+                "SY",
+                "MM",
+                "AF"
+              ]
+            ]
+          },
+          "weight": 30
+        },
+        {
+          "key": "cash_intensive",
+          "label": "Cash-intensive business",
+          "when": {
+            "var": "cashIntensive"
+          },
+          "weight": 15
+        },
+        {
+          "key": "complex_ownership",
+          "label": "Ownership more than three layers deep",
+          "when": {
+            ">": [
+              {
+                "var": "ownershipLayers"
+              },
+              3
+            ]
+          },
+          "weight": 15
+        },
+        {
+          "key": "dd_stale",
+          "label": "Due diligence older than a year",
+          "when": {
+            ">=": [
+              {
+                "var": "lastDueDiligenceAt_daysSince"
+              },
+              365
+            ]
+          },
+          "weight": 20
+        },
+        {
+          "key": "long_standing_clean",
+          "label": "Five years with no adverse finding",
+          "when": {
+            "and": [
+              {
+                ">=": [
+                  {
+                    "var": "onboardedAt_daysSince"
+                  },
+                  1825
+                ]
+              },
+              {
+                "!": {
+                  "var": "hasAdverseFinding"
+                }
+              }
+            ]
+          },
+          "weight": -15
+        }
+      ],
+      "bands": [
+        {
+          "key": "low",
+          "label": "Low",
+          "minScore": -15,
+          "color": "#10b981"
+        },
+        {
+          "key": "medium",
+          "label": "Medium",
+          "minScore": 30,
+          "color": "#f59e0b"
+        },
+        {
+          "key": "high",
+          "label": "High",
+          "minScore": 55,
+          "color": "#ef4444"
+        },
+        {
+          "key": "prohibited",
+          "label": "Prohibited",
+          "minScore": 85,
+          "color": "#7f1d1d"
+        }
+      ]
     }
   ]
 }

@@ -175,6 +175,15 @@ export interface AuthenticatedUser extends UserPayload {
  */
 export interface AuthenticatedRequest extends Request {
   user: UserPayload;
+  /**
+   * The tenant's vertical, attached by `PolicyGuard` (policy.guard.ts:53).
+   *
+   * Optional because the guard is what sets it: a route without PolicyGuard
+   * has a `req.user` but no vertical, and a handler that assumes otherwise
+   * would read `undefined` and resolve Layer 4 against the wrong pack — or
+   * against none.
+   */
+  tenantVertical?: string;
 }
 
 export interface CreateUserInput {

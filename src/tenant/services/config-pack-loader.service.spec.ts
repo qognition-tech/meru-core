@@ -298,6 +298,47 @@ describe('packs on disk', () => {
   );
 
   it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s scoring models produce a band for every reachable score',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      const models = result.data.scoringModels ?? [];
+      if (!models.length) return;
+
+      const evaluator = new RuleEvaluatorService();
+
+      for (const model of models) {
+        for (const factor of model.factors) {
+          const check = evaluator.validate(factor.when);
+          if (!check.valid) {
+            throw new Error(
+              `scoringModels.${model.key}.${factor.key}: ${check.reason}`,
+            );
+          }
+        }
+
+        if (!model.bands.length) continue;
+
+        // A record that matches nothing still gets a score — the floor, which
+        // is zero when every weight is positive and negative when penalties
+        // exist. A band set that does not cover it leaves the commonest case
+        // (a brand-new record) unbanded, which reads in a UI as broken.
+        const floor = model.factors
+          .filter((f) => f.weight < 0)
+          .reduce((sum, f) => sum + f.weight, 0);
+        const lowest = Math.min(...model.bands.map((b) => b.minScore));
+        expect(lowest).toBeLessThanOrEqual(floor);
+
+        const bandKeys = model.bands.map((b) => b.key);
+        expect(new Set(bandKeys).size).toBe(bandKeys.length);
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
     '%s fees and payment plans are chargeable as authored',
     (_label, file) => {
       const result = safeValidateConfigPack(

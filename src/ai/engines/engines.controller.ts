@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Request,
@@ -11,6 +12,7 @@ import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
@@ -21,11 +23,13 @@ import { DocIntelEngine } from './doc-intel.engine';
 import { VesselTrackingEngine } from './vessel-tracking.engine';
 import { RegulatoryRadarEngine } from './regulatory-radar.engine';
 import { RescreeningService } from './rescreening.service';
+import { ScoringEngine } from './scoring.engine';
 import { WatchlistIngestService } from './watchlist-ingest.service';
 import {
   ScreenRequestDto,
   DocIntelRequestDto,
   VesselRiskRequestDto,
+  ScoreRequestDto,
 } from './dto/engine-requests.dto';
 import type { AuthenticatedRequest } from '../../common/types';
 
@@ -61,6 +65,7 @@ export class EnginesController {
     private readonly radar: RegulatoryRadarEngine,
     private readonly watchlist: WatchlistIngestService,
     private readonly rescreening: RescreeningService,
+    private readonly scoring: ScoringEngine,
   ) {}
 
   // ── Screening ─────────────────────────────────────────────────────────────
@@ -191,5 +196,40 @@ export class EnginesController {
     return this.radar.runScan(
       sources ? sources.split(',').map((s) => s.trim()) : undefined,
     );
+  }
+
+  // ── Scoring ───────────────────────────────────────────────────────────────
+
+  @Get('scoring')
+  @ApiOperation({
+    summary: "List the scoring models the caller's vertical defines",
+    description:
+      'Lead scoring, visa recommendation and risk scoring are all weighted ' +
+      'sums authored in the config pack, so the available models depend on ' +
+      'the pack rather than on this API. An empty list means the pack ' +
+      'defines none — not that scoring is unavailable.',
+  })
+  async listScoringModels(@Request() req: AuthenticatedRequest) {
+    return this.scoring.list(req.tenantVertical ?? null);
+  }
+
+  @Post('scoring/:modelKey')
+  @ApiOperation({
+    summary: 'Score a record against a pack-defined model',
+    description:
+      'Returns the score, the band it falls in, and every factor with ' +
+      'whether it matched. The contributions are part of the contract: a ' +
+      'score nobody can explain is a score nobody will act on.',
+  })
+  @ApiParam({ name: 'modelKey', example: 'lead_score' })
+  @ApiResponse({ status: 201, description: 'Score, band and contributions' })
+  async score(
+    @Request() req: AuthenticatedRequest,
+    @Param('modelKey') modelKey: string,
+    @Body() dto: ScoreRequestDto,
+  ) {
+    // The vertical selects the model, exactly as it selects the prompt
+    // library: PolicyGuard has already resolved it from the tenant.
+    return this.scoring.score(req.tenantVertical ?? null, modelKey, dto.data);
   }
 }

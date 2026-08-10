@@ -1,14 +1,4 @@
-import {
-  IsArray,
-  IsIn,
-  IsNumber,
-  IsObject,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { ScreeningType, WatchlistEntry } from '../screening.engine';
 import type { DocumentKind } from '../doc-intel.engine';
@@ -144,4 +134,21 @@ export class VesselRiskRequestDto {
   @IsString()
   @MaxLength(200)
   vesselName?: string;
+}
+
+/**
+ * Body of `POST /engines/scoring/:modelKey`.
+ *
+ * `data` is the record to score. Free-form because the factors that read it
+ * are authored in the pack, not here — core cannot know which fields a
+ * vertical's lead score cares about, which is the entire point of the model
+ * living in Layer 4.
+ */
+export class ScoreRequestDto {
+  @ApiProperty({
+    description: 'The record to score. Entity columns and vertical attributes.',
+    example: { status: 'open', verticalAttributes: { visaSubclass: '482' } },
+  })
+  @IsObject()
+  data: Record<string, unknown>;
 }
