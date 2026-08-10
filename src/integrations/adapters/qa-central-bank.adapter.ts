@@ -88,9 +88,20 @@ export class QaCentralBankAdapter implements GovernmentAdapter {
   private readonly sandboxMode: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    const useSandbox =
-      configService.get('NODE_ENV') !== 'production' ||
-      configService.get('QCB_SANDBOX') === 'true';
+    // Sandbox unless BOTH a deliberate opt-in to live AND real credentials are
+    // present. The previous rule was `NODE_ENV !== 'production' || <FLAG>`,
+    // which inverts the safe default exactly where it matters: on production,
+    // with no credentials configured and no licence held, the adapter declared
+    // itself LIVE. Every call then went to the real regulator host and failed —
+    // and, worse, `isSandbox()` reported false, so `provenance.sandbox` would
+    // have told the UI that a stub-free 503 came from a live regulator. A
+    // missing credential can only ever mean "not licensed yet", never
+    // "go live".
+    const liveRequested = configService.get('QCB_SANDBOX') === 'false';
+    const credentialsPresent =
+      !!configService.get('QCB_CLIENT_ID') &&
+      !!configService.get('QCB_CLIENT_SECRET');
+    const useSandbox = !(liveRequested && credentialsPresent);
 
     this.sandboxMode = useSandbox;
     this.config = {
