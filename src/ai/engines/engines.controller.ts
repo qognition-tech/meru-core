@@ -112,14 +112,24 @@ export class EnginesController {
       'rather than implying a clean screen.',
   })
   async watchlistStatus() {
-    const count = await this.watchlist.count();
+    const { entries, lists } = await this.watchlist.inventory();
+
+    // A list nobody has re-confirmed in a fortnight is a feed that has stopped
+    // working, not a quiet week at OFAC. Named per list so the UI can mark the
+    // stale one rather than discrediting the whole screen.
+    const stale = lists.filter((l) => (l.staleDays ?? 999) > 14);
+
     return {
-      entries: count,
-      ingested: count > 0,
+      entries,
+      ingested: entries > 0,
+      /** Which lists are actually loaded — render this, do not hardcode it. */
+      lists,
       warning:
-        count === 0
+        entries === 0
           ? 'No sanctions lists ingested. Run the watchlist-ingest job.'
-          : null,
+          : stale.length > 0
+            ? `Stale feeds: ${stale.map((l) => `${l.source} (${l.staleDays ?? '?'}d)`).join(', ')}`
+            : null,
     };
   }
 

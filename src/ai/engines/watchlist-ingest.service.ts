@@ -51,6 +51,8 @@ export class WatchlistIngestService {
     for (const [source, loader] of [
       ['ofac', () => this.fetchOfacSdn()],
       ['un', () => this.fetchUnConsolidated()],
+      ['eu', () => this.fetchEuCfsp()],
+      ['uk', () => this.fetchUkOfsi()],
     ] as const) {
       try {
         const entries = await loader();
@@ -203,6 +205,187 @@ export class WatchlistIngestService {
   }
 
   /**
+   * EU Consolidated Financial Sanctions List (CFSP) — public XML, no key.
+   *
+   * The published feed is the "fsf" export from the Commission's FISMA site.
+   * Names arrive as one `nameAlias` element per spelling with no primary
+   * marked, so the first alias for a subject becomes the name and the rest
+   * become aliases — which is what the screening engine wants anyway, since it
+   * matches against aliases with the same algorithms.
+   */
+  private async fetchEuCfsp(): Promise<Partial<WatchlistEntry>[]> {
+    const res = await fetch(
+      'https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw',
+      { signal: AbortSignal.timeout(60_000) },
+    );
+    if (!res.ok) throw new Error(`EU CFSP returned HTTP ${res.status}`);
+    const xml = await res.text();
+
+    const entries: Partial<WatchlistEntry>[] = [];
+    const blocks = xml.match(/<sanctionEntity[\s\S]*?<\/sanctionEntity>/g) ?? [];
+
+    for (const block of blocks) {
+      const logicalId = /logicalId="(\d+)"/.exec(block)?.[1];
+      if (!logicalId) continue;
+
+      // `wholeName` is present on most aliases; fall back to the first/last
+      // pair when it is not, rather than dropping the subject.
+      const names = [...block.matchAll(/<nameAlias\b[^>]*\/?>/g)]
+        .map((m) => {
+          const tag = m[0];
+          const whole = /wholeName="([^"]*)"/.exec(tag)?.[1];
+          if (whole?.trim()) return whole.trim();
+          const first = /firstName="([^"]*)"/.exec(tag)?.[1] ?? '';
+          const last = /lastName="([^"]*)"/.exec(tag)?.[1] ?? '';
+          return `${first} ${last}`.trim();
+        })
+        .filter((n) => n.length > 1);
+
+      if (names.length === 0) continue;
+
+      // `<subjectType code="person" classificationCode="P"/>`. Matching on
+      // `code="P"` instead — the obvious first guess — matches nothing, and
+      // the failure is silent: every designated person is filed as an
+      // organization and still screens, so nothing looks broken.
+      const isPerson = /<subjectType[^>]*classificationCode="P"/.test(block);
+      const country = /<citizenship[^>]*countryIso2Code="([A-Z]{2})"/.exec(
+        block,
+      )?.[1];
+      const programme = /<regulation[^>]*programme="([^"]*)"/.exec(block)?.[1];
+
+      entries.push({
+        externalId: logicalId,
+        name: names[0],
+        normalizedName: WatchlistIngestService.normalize(names[0]),
+        aliases: names.slice(1),
+        entityType: isPerson ? 'individual' : 'organization',
+        country: country ?? null,
+        programs: programme ? [programme] : ['EU'],
+        remarks: null,
+      });
+    }
+    return entries;
+  }
+
+  /**
+   * UK OFSI consolidated list — public CSV, no key.
+   *
+   * Served from OFSI's own blob storage rather than a gov.uk asset URL: those
+   * carry a numeric attachment id that changes on every publication, so a
+   * hardcoded one 404s within weeks. This URL is stable across publications.
+   *
+   * Two shapes have to be undone. The real header is on the **second** line —
+   * the first is `Last Updated,<date>`. And OFSI publishes one row per
+   * *alias*, keyed by `Group ID`, so a subject with six spellings is six rows;
+   * they are folded into one entry per group, because six rows for one person
+   * makes a single true match look like six hits.
+   *
+   * Names are assembled `Name 1..5` (forenames, in order) + `Name 6`
+   * (surname), which is OFSI's column convention and not guessable from the
+   * headers alone.
+   */
+  private async fetchUkOfsi(): Promise<Partial<WatchlistEntry>[]> {
+    const res = await fetch(
+      'https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv',
+      { signal: AbortSignal.timeout(90_000) },
+    );
+    if (!res.ok) throw new Error(`UK OFSI returned HTTP ${res.status}`);
+    const csv = await res.text();
+
+    const lines = csv.replace(/^\uFEFF/, '').split('\n');
+    const headerIndex = lines.findIndex((l) => /Group ?ID/i.test(l));
+    if (headerIndex === -1) {
+      // A parser that yields zero rows must fail loudly, or the daily job
+      // reports success while screening quietly loses a list.
+      throw new Error('UK OFSI CSV has no recognisable header row');
+    }
+
+    const header = this.parseCsvLine(lines[headerIndex]).map((h) =>
+      h.trim().toLowerCase(),
+    );
+    const col = (name: string) => header.findIndex((h) => h === name);
+
+    const iGroup = col('group id');
+    const iSurname = col('name 6');
+    const iForenames = [1, 2, 3, 4, 5].map((n) => col(`name ${n}`));
+    const iType = col('group type');
+    const iAliasType = col('alias type');
+    const iRegime = col('regime');
+    const iCountry = col('country');
+
+    if (iGroup < 0 || iSurname < 0) {
+      throw new Error(
+        `UK OFSI CSV header changed — no 'Group ID'/'Name 6' column (got ${header.length} columns)`,
+      );
+    }
+
+    const grouped = new Map<
+      string,
+      { primary: string | null; aliases: string[]; row: string[] }
+    >();
+
+    for (const line of lines.slice(headerIndex + 1)) {
+      const cols = this.parseCsvLine(line);
+      if (cols.length <= iGroup) continue;
+
+      const groupId = cols[iGroup]?.trim();
+      if (!groupId) continue;
+
+      const name = [
+        ...iForenames.map((i) => (i >= 0 ? cols[i] : '')),
+        cols[iSurname],
+      ]
+        .map((part) => (part ?? '').trim())
+        .filter(Boolean)
+        .join(' ');
+      if (!name) continue;
+
+      const isPrimary =
+        iAliasType >= 0 &&
+        /primary/i.test((cols[iAliasType] ?? '').trim());
+
+      const existing = grouped.get(groupId);
+      if (!existing) {
+        grouped.set(groupId, {
+          primary: isPrimary ? name : null,
+          aliases: isPrimary ? [] : [name],
+          row: cols,
+        });
+        continue;
+      }
+
+      if (isPrimary && !existing.primary) existing.primary = name;
+      else if (name !== existing.primary && !existing.aliases.includes(name)) {
+        existing.aliases.push(name);
+      }
+    }
+
+    const entries: Partial<WatchlistEntry>[] = [];
+    for (const [groupId, group] of grouped) {
+      // No row marked primary: promote the first alias rather than dropping a
+      // designated subject over a labelling quirk.
+      const name = group.primary ?? group.aliases.shift();
+      if (!name) continue;
+
+      const type = (iType >= 0 ? group.row[iType] : '')?.trim().toLowerCase();
+      entries.push({
+        externalId: groupId,
+        name,
+        normalizedName: WatchlistIngestService.normalize(name),
+        aliases: group.aliases,
+        entityType: type?.startsWith('individual') ? 'individual' : 'organization',
+        country: null,
+        programs: [
+          (iRegime >= 0 ? group.row[iRegime]?.trim() : '') || 'UK',
+        ].filter(Boolean) as string[],
+        remarks: (iCountry >= 0 ? group.row[iCountry]?.trim() : null) || null,
+      });
+    }
+
+    return entries;
+  }
+
+  /**
    * Minimal RFC-4180 line reader. OFAC quotes fields containing commas, so
    * a naive split corrupts every row with a comma in its remarks — which is
    * most of them.
@@ -238,5 +421,58 @@ export class WatchlistIngestService {
     return TenantContext.runAsSystem('watchlist count', () =>
       this.watchlistRepo.count(),
     );
+  }
+
+  /**
+   * Which lists are loaded and when each was last confirmed against its feed.
+   *
+   * A total on its own cannot answer "are we screening against the EU list?",
+   * so GovX's own page copy claimed "OFAC, UN, EU and CBUAE" while the database
+   * held OFAC and UN. The frontend asked for this so it can render the truth
+   * instead of maintaining a parallel list, and it is the same principle as
+   * `entries: 0` blocking screening: what a UI states about coverage must come
+   * from what is actually loaded.
+   *
+   * `staleDays` is derived from `lastSeenAt`, which the upsert stamps on every
+   * row it confirms — so a feed that has silently stopped updating shows as an
+   * ageing list rather than a healthy one.
+   */
+  async inventory(): Promise<{
+    entries: number;
+    lists: Array<{
+      source: string;
+      entries: number;
+      lastIngestedAt: string | null;
+      staleDays: number | null;
+    }>;
+  }> {
+    return TenantContext.runAsSystem('watchlist inventory', async () => {
+      const rows = await this.watchlistRepo
+        .createQueryBuilder('w')
+        .select('w."listSource"', 'source')
+        .addSelect('COUNT(*)::int', 'entries')
+        .addSelect('MAX(w."lastSeenAt")', 'last')
+        .groupBy('w."listSource"')
+        .orderBy('entries', 'DESC')
+        .getRawMany();
+
+      const now = Date.now();
+      const lists = rows.map((r: Record<string, any>) => {
+        const last = r.last ? new Date(r.last) : null;
+        return {
+          source: r.source,
+          entries: Number(r.entries),
+          lastIngestedAt: last ? last.toISOString() : null,
+          staleDays: last
+            ? Math.floor((now - last.getTime()) / 86_400_000)
+            : null,
+        };
+      });
+
+      return {
+        entries: lists.reduce((sum, l) => sum + l.entries, 0),
+        lists,
+      };
+    });
   }
 }
