@@ -1,391 +1,357 @@
-# CLAUDE.md — MERU REGULATORY OPERATING SYSTEM (RegOS)
+# CLAUDE.md — Meru Regulatory Operating System
 
-> **Single source of truth** for all engineering, architectural, and product decisions across the Meru ecosystem.
-> Every PR, agent action, and new vertical MUST comply with this document.
+> The single source of truth for architecture, rules and operations in this repo.
+> **Read this before any file edit.** Current state, gaps and what to build next
+> live in [AGENTS.md](AGENTS.md) — the only other document in this project.
 >
-> **Detailed specifications** are in the `docs/` directory:
-> - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Definitive system architecture & design
-> - [PRD.md](docs/PRD.md) — Product requirements for all stakeholders
-> - [TRD.md](docs/TRD.md) — Detailed technical specifications for implementation
-> - [STRATEGY.md](docs/STRATEGY.md) — Business strategy, GTM, pricing & roadmap
-> - [DEVELOPMENT_STRATEGY.md](docs/DEVELOPMENT_STRATEGY.md) — Full-stack development guidelines & integration strategy
-> - [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) — Complete database design, 47 tables, RLS policies
-> - [DESIGN_GUIDELINES.md](docs/DESIGN_GUIDELINES.md) — Brand system, component library, layout patterns
+> *Last updated: 2026-08-11.*
 
 ---
 
-## 0. EXECUTIVE SUMMARY
+## 1. What Meru is
 
-**Meru** is a **Regulatory Operating System (RegOS)** — the *government API layer of the internet*. It abstracts **80% of regulatory plumbing** into a single horizontal engine, then uses **JSON Configuration Packs** to handle the remaining 20% of vertical- and country-specific logic.
+A **Regulatory Operating System**: the government API layer of the internet. It
+abstracts ~80% of regulatory plumbing into one horizontal engine and expresses
+the remaining 20% — the vertical- and country-specific part — as **JSON config
+packs**.
 
-| Layer | What It Is | Build Time per New Vertical |
+| Layer | What it is | Cost per new vertical |
 |---|---|---|
-| **Meru Core** (`api.meru.com`) | 14 horizontal services + 4 specialist engines | One-time (already built) |
-| **Vertical Logic Packs** | JSON injection (forms, workflows, regulators) | **Weeks**, not 12 months |
-| **Vertical UIs** | ImmiStack, GovernanceX, Health, Tax, … | 2–6 weeks per vertical |
+| **Meru Core** (`api.meru.com`) | 14 horizontal modules + 4 specialist engines | one-time, built |
+| **Config packs** | JSON: forms, workflows, regulators, nav, dashboards, rules | **weeks** |
+| **Vertical UIs** | ImmiStack, GovernanceX, Meru Dashboard | 2–6 weeks each |
 
-**Strategic moat:** mastering the **Common Corridor** (UAE, KSA, UK, Canada, Australia) means once a regulator is wired into Meru, every vertical inherits it for free.
+**The moat is the Common Corridor** — UAE, KSA, UK, Canada, Australia. Wire a
+regulator in once and every vertical inherits it.
 
----
-
-## 1. VISION & DOMAIN ARCHITECTURE
-
-### 1.1 The Three Pillars
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    MERU REGULATORY OS                            │
-│                                                                  │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐   │
-│  │   PILLAR 1   │    │   PILLAR 2   │    │    PILLAR 3       │   │
-│  │              │    │              │    │                   │   │
-│  │  MERU CORE   │───▶│  IMMISTACK   │    │  GOVERNANCEX     │   │
-│  │  (Engine)    │    │  (Immig.)    │    │  (Banking GRC)   │   │
-│  │              │    │              │    │                   │   │
-│  │  14 Modules  │    │  Next.js 15  │    │  Modular Monolith│   │
-│  │  4 Engines   │    │  3 Portals   │    │  150+ tRPC routers│  │
-│  │  JSON Packs  │    │  Kanban+Chat │    │  216 DB tables   │   │
-│  └──────────────┘    └──────────────┘    └──────────────────┘   │
-│         ▲                                                        │
-│         │  Future: Health, Tax, Labour, Education (JSON packs)  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 1.2 Domain Mapping & Environment Roles
+### Products on top of the same core
 
 | Domain | Tier | Purpose |
 |---|---|---|
-| `app.meru.com` | **God UI** | Expansion control: vertical/country registration, tenant health, feature flags, config-pack publishing |
-| `api.meru.com` | **Core API** | RegOS Engine — the 14 shared modules + 4 specialist engines |
-| `app.immistack.com` | Vertical UI | Immigration portal: Firm Admins, Staff, Clients |
-| `api.immistack.com` | Vertical API | Injects the Immigration JSON pack into Meru Core |
-| `app.governance.com` | Vertical UI | Banking GRC interface (Sanctions, Trade Finance, AML) |
-| `api.governance.com` | Vertical API | Banking-specific orchestration over Meru Core |
-| `immistack.com` | Web | Marketing landing page |
-| `governance.com` | Web | Marketing landing page |
+| `app.meru.com` | God UI | vertical/country registration, tenant health, flags, pack publishing |
+| `api.meru.com` | Core API | this repo — the 14 modules and 4 engines |
+| `app.immistack.com` | Vertical UI | immigration: firm admin, staff, client portals |
+| `app.governance.com` | Vertical UI | banking GRC: sanctions, trade finance, AML |
+
+The three frontends live in a separate repo, `meru-core-fe` (Next.js 15).
 
 ---
 
-## 2. THE 14 CORE MODULES (`api.meru.com`)
+## 2. The 14 core modules
 
-Each module is **independently deployable** and consumed by every vertical pack via stable contracts.
+Each is an independently reasoned NestJS module under `src/`, consumed by every
+vertical through stable contracts.
 
-| # | Code | Module | Responsibility |
-|---|---|---|---|
-| 1 | **IAM** | Identity & Access | OAuth2 / OIDC / RBAC / ABAC, MFA, SSO, session brokering |
-| 2 | **TCM** | Tenant Config & Settings | Config-pack validation, routing, version pinning per tenant |
-| 3 | **CRM** | Universal Entity Manager | Polymorphic entities: Person, Case, Asset, Organization |
-| 4 | **SRCH** | Universal Search | Elasticsearch + hybrid vector search (BM25 + embeddings) |
-| 5 | **AI** | AI Orchestration Gateway | Token mgmt, model routing, citation enforcement, RAG |
-| 6 | **WF** | Workflow & State Machine | BPMN processes, SLA tracking, escalations |
-| 7 | **FORM** | Dynamic Form Builder | JSON-schema-driven UI rendering & validation |
-| 8 | **TASK** | Task & Activity Manager | Assignments, deadlines, dependencies, reminders |
-| 9 | **COM** | Communication Hub | WhatsApp, SMS, Email, multi-lingual templates |
-| 10 | **DOC** | Document Manager | OCR, versioning, S3 abstraction, e-signature hooks |
-| 11 | **BILL** | Billing & Metering | Stripe / usage-based billing, per-seat, per-case, per-API-call |
-| 12 | **BI** | Analytics & BI Engine | Embedded dashboards, KPI posture scoring |
-| 13 | **AUD** | Audit & Compliance Logger | Tamper-evident logs (hash-chained), WORM storage |
-| 14 | **INT** | Integration Hub | Government API adapters (MOHRE, Qiwa, HomeAffairs, IRCC, etc.) |
+| # | Code | Module | Directory | Responsibility |
+|---|---|---|---|---|
+| 1 | **IAM** | Identity & Access | `src/iam/` | OAuth2/OIDC, RBAC/ABAC, MFA, SAML SSO, sessions, API keys |
+| 2 | **TCM** | Tenant Config | `src/tenant/`, `src/config/` | config packs, pinning, feature flags, branding |
+| 3 | **CRM** | Universal Entity Manager | `src/crm/` | polymorphic entities + typed relationships |
+| 4 | **SRCH** | Universal Search | `src/search/` | Postgres facade, Elasticsearch + pgvector behind it |
+| 5 | **AI** | AI Orchestration | `src/ai/` | model routing, prompt library, citation enforcement |
+| 6 | **WF** | Workflow | `src/workflow/` | state machine, SLA tracking, escalation |
+| 7 | **FORM** | Dynamic Forms | `src/forms/` | JSON-schema rendering and validation |
+| 8 | **TASK** | Tasks | `src/tasks/` | assignments, recurrence, calendar |
+| 9 | **COM** | Communication | `src/notifications/` | email/SMS/WhatsApp, templates, sequences, threads |
+| 10 | **DOC** | Documents | `src/documents/`, `src/storage/` | OCR, versioning, S3, checklists |
+| 11 | **BILL** | Billing | `src/billing/`, `src/payments/` | Stripe (Meru→tenant), payments (tenant→client) |
+| 12 | **BI** | Analytics | `src/analytics/` | reports, widgets, pack dashboards |
+| 13 | **AUD** | Audit | `src/audit/` | hash-chained, WORM-triggered logs |
+| 14 | **INT** | Integrations | `src/integrations/` | government adapters, connector registry |
 
-**Contract rule:** every module exposes a versioned tRPC router *and* a REST/OpenAPI surface. Internal calls = tRPC; external partners = REST.
+Supporting: `src/rules/` (JsonLogic evaluator + alert rules), `src/queue/`
+(Postgres-backed jobs), `src/jobs/` (HTTP-triggered scheduled work),
+`src/orchestration/` (AI agents), `src/core/` (tenancy, filters, interceptors).
 
----
+**Contract rule:** every module exposes a versioned REST/OpenAPI surface.
+Swagger at `/api`, spec at `/api-json`.
 
-## 3. SPECIALIST ENGINES (Cross-Vertical Logic)
+## 3. The four specialist engines
 
-These four engines sit **alongside** the 14 modules and provide cross-vertical "horizontal AI" capabilities. Every vertical pack can opt-in.
+Cross-vertical AI capability, in `src/ai/engines/`, reachable at `/engines/*`.
 
-### 3.1 Regulatory Radar 🛰️
-- **What:** Autonomous AI agents that continuously crawl official government sources (gazettes, regulator portals, RSS, change logs).
-- **Output:** Flags rule changes → auto-drafts **config-pack diffs** → submits PR to `packages/config-packs` for human review.
-- **Tech:** Scheduled crawlers, diff embeddings, LLM with citation enforcement, Git-based change proposals.
-- **Consumed by:** All verticals.
-
-### 3.2 Screening Engine 🎯
-- **What:** High-performance fuzzy-logic matching for **Sanctions, PEP, Adverse Media** screening.
-- **Algorithms:** Levenshtein, Jaro-Winkler, Soundex, transliteration normalization (Arabic ↔ Latin), entity resolution.
-- **Lists:** OFAC, EU, UN, UK HMT, UAE Local, plus client custom watchlists.
-- **Performance target:** sub-200ms p95 per name screened; batch mode > 10k names/min.
-- **Consumed by:** GovernanceX (primary), ImmiStack (KYC on applicants), Tax (UBO checks).
-
-### 3.3 Document Intelligence Layer 📄
-- **What:** Advanced AI for OCR, structured-data extraction, and **fraud pattern detection** in submitted files.
-- **Capabilities:**
-  - Multi-language OCR (Arabic, English, Urdu, Tagalog, Hindi)
-  - Layout-aware extraction (passports, payslips, bank statements, contracts, bills of lading)
-  - Fraud signals: tampering, font inconsistencies, EXIF anomalies, duplicate detection across tenants (privacy-preserved hashing)
-- **Consumed by:** All verticals — Immigration (visa docs), Banking (trade finance docs), Health (credentials), Tax (invoices).
-
-### 3.4 Vessel / Asset Tracking Engine 🚢
-- **What:** Real-time **AIS data** integration + geofencing for trade finance and supply chain compliance.
-- **Data:** AIS feeds, port call logs, sanctioned-port geofences, dark-fleet detection (AIS gaps).
-- **Output:** Vessel risk score, port-call timeline, sanctioned-route alerts.
-- **Consumed by:** GovernanceX (Trade Finance); extensible to logistics verticals.
+| Engine | What it does | Notes |
+|---|---|---|
+| **Screening** 🎯 | fuzzy sanctions/PEP matching | Jaro-Winkler + Levenshtein + Soundex + Double Metaphone; **phonetic agreement is corroboration only, gated behind a Levenshtein floor** |
+| **Document Intelligence** 📄 | OCR, extraction, fraud signals | EXIF, font consistency, cross-tenant duplicate hashing |
+| **Regulatory Radar** 🛰️ | crawls official sources, diffs rules | target: rule change → draft pack diff in ≤24h |
+| **Vessel Tracking** 🚢 | AIS decoding, geofencing, dark-period detection | real NMEA decoding; `riskScore: null` means unknown |
 
 ---
 
-## 4. THE FOUR-LAYER CONFIG-INJECTION MODEL
+## 4. The four-layer config-injection model
 
-This is **the architectural heart** of Meru. 80% of code is shared; the remaining 20% is JSON.
+This is the architectural heart. 80% is shared code; the rest is JSON.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ LAYER 4: VERTICAL LOGIC PACKS (JSON)                         │
-│ Immigration · Banking · Health · Tax · Labour · Education    │
-│ ────────────────────────────────────────────────────────────│
-│ LAYER 3: COUNTRY OVERLAYS (JSON)                             │
-│ UAE · KSA · UK · CA · AU · regulator endpoints & local rules │
-│ ────────────────────────────────────────────────────────────│
-│ LAYER 2: SPECIALIST ENGINES                                  │
-│ Regulatory Radar · Screening · DocIntel · Vessel Tracking    │
-│ ────────────────────────────────────────────────────────────│
-│ LAYER 1: 14 CORE MODULES (shared code, ~80%)                 │
-│ IAM · TCM · CRM · SRCH · AI · WF · FORM · TASK · COM · DOC   │
-│ BILL · BI · AUD · INT                                        │
-└──────────────────────────────────────────────────────────────┘
+LAYER 4  VERTICAL PACKS (JSON)     immigration · banking · health · tax · labour
+LAYER 3  COUNTRY OVERLAYS (JSON)   AE · AU · KSA · UK · CA — regulators, local rules
+LAYER 2  SPECIALIST ENGINES        radar · screening · doc-intel · vessel
+LAYER 1  14 CORE MODULES (~80%)    IAM TCM CRM SRCH AI WF FORM TASK COM DOC BILL BI AUD INT
 ```
 
-### 4.1 Vertical-Specific Logic Packs (Layer 4)
+Packs live at `packages/config-packs/<country>/<vertical>.json`. Pack `code` must
+match `^[a-z]{2}-[a-z_]+$` (`au-immigration`) — that is the *code*, not the path.
 
-| Vertical | Pack Adds |
-|---|---|
-| **Immigration** | VEVO monitoring, visa-specific checklists, health-insurance validation, sponsor obligations |
-| **Banking (GovernanceX)** | AML pattern detection, TBML risk scoring, SAR management, transaction monitoring rules |
-| **Health** | Practitioner credentialing, drug registration, data-residency enforcement, HIPAA/PDPL controls |
-| **Tax / VAT** | E-invoicing (ZATCA, MTD), tax-residency tracking, transfer-pricing documentation |
-| **Labour** | WPS payroll, Emiratisation/Saudization quotas, work-permit lifecycle |
-| **Education** | Accreditation tracking, student-visa linkage, MOE compliance |
+### 4.1 The nine pack arrays and their evaluators
+
+Every one is Layer 4 vocabulary read by exactly one generic Layer 1 evaluator
+that has no idea which vertical it serves. **All nine are built.**
+
+| Pack array | Evaluator | Lives in |
+|---|---|---|
+| `prompts[]` | prompt resolver (pack before DB) | AI |
+| `rules[]` | `RuleEvaluatorService` (JsonLogic) | `src/rules/` |
+| `alertRules[]` | `AlertRuleService` sweep on `/jobs/tick` | `src/rules/` |
+| `messaging.templates[]` / `.sequences[]` | `SequenceRunnerService` | COM |
+| `fees[]` + `paymentPlans[]` | schedule expander → payment items | payments |
+| `scoringModels[]` | `ScoringEngine` — weighted sum + bands | AI |
+| `relationships[]` | `EntityRelationService` → `entity_relations` | CRM |
+| `navigation[]` + `dashboards[]` | `PackUiService` + `PackDashboardService` | TCM + BI |
+| `importMappings[]` | import pipeline | INT — **not built** |
+
+### 4.2 Rules for changing the pack schema
+
+Learned the hard way, twice:
+
+1. **Extend the Zod schema, the JSON Schema and the loader's key list in the
+   same commit.** `entityTypes` was once stripped twice — by the Zod schema and
+   by the loader — and before that a `code` regex mismatch rejected *every* pack
+   at boot, leaving `config_packs` empty while the docs claimed Layer 3/4 was
+   live. Regenerate with `npm run packs:schema`.
+   `config-pack-loader.service.spec.ts` asserts every array round-trips.
+2. **Every array is optional and additive.** A pack that omits one must load.
+3. **No `eval`.** Conditions are `json-logic-js`: declarative, serialisable, no
+   host access. An expression language in a multi-tenant pack authored by a
+   non-engineer is a sandbox escape with a JSON file for a payload.
+4. **Bump the pack `version`.** The loader only upgrades on a greater version.
 
 ---
 
-## 5. EXPANSION MECHANISM (THE "GOD VIEW")
+## 5. Non-negotiable rules
 
-All expansion happens through `app.meru.com` — no code deploys required for the common case.
+### 5.1 Strict multi-tenancy
 
-### 5.1 Adding a Vertical
-1. Define industry data models (entities, relationships, lifecycle states).
-2. Author a `vertical.json` pack (forms, workflows, roles, KPIs).
-3. Register in God UI → version-pin to tenants.
+Every tenant-scoped table has `"tenantId"` (camelCase). No query crosses tenants
+without an explicit god-mode audit entry.
 
-### 5.2 Adding a Country
-1. Register regulators (e.g., `UAE-MOHRE`, `KSA-Qiwa`, `AU-HomeAffairs`).
-2. Define local compliance rules + data-residency requirements.
-3. Add INT-module adapter (if a new gov API).
-4. Country JSON inherits + overrides the vertical pack.
+**How it is actually enforced** (`src/core/tenancy/`, migration
+`AddTenantRowLevelSecurity`):
 
-### 5.3 Sample Pack Path
-```
-/packages/config-packs/au/immigration.json
-/packages/config-packs/ae/banking.json
-/packages/config-packs/ksa/tax.json
-```
+- The app connects as **`meru_app`**, a role *without* `BYPASSRLS`. This is the
+  whole ballgame: an owner role with `BYPASSRLS` (the default for Neon,
+  Supabase, RDS) ignores every policy while still reporting them as enabled.
+  `DATABASE_URL` (owner) is for migrations; `DATABASE_APP_URL` is for runtime.
+- Every table is `ENABLE` **and** `FORCE ROW LEVEL SECURITY` — without `FORCE`
+  the table owner is exempt.
+- `TenantAlsMiddleware` opens an AsyncLocalStorage context;
+  `TenantBindingInterceptor` fills the tenant in after the guards run;
+  `applyRlsToDataSource` sets `app.current_tenant_id` on the *same pooled
+  connection* the query will use.
+- Policies **fail closed**: an unbound connection matches zero rows.
+- Bootstrap lookups that *establish* identity (login by email, refresh token,
+  API key, session revocation check) run inside `TenantContext.runAsSystem`.
+  Cross-tenant operator access goes through `TenancyService.runAsGod`, which
+  writes a `CRITICAL` audit entry first.
+
+**Never trust "RLS is on" without `npm run rls:verify`.** It attempts real
+cross-tenant reads and writes and exits non-zero if any succeed.
+
+### 5.2 Unknown is never clear
+
+The single most important product rule, and the one most easily violated by a
+well-meaning default:
+
+- `watchlist-status.entries === 0` ⇒ screening **cannot** hit a real name.
+  Render "lists not loaded", never "no hits".
+- Vessel `riskScore: null` ⇒ unknown. Grey, never green.
+- `citationEnforced: false` ⇒ unsourced.
+- A KPI with no `metric` returns `value: null` + `unavailableReason`, never `0`.
+  A percentage over an empty population is `null`, not `0%`.
+- A dashboard widget whose scan hit its cap reports `truncated: true`; its count
+  is a lower bound.
+- Every degradable adapter response carries `unavailableReason` or
+  `provenance.sandbox`. **A sandbox regulator response must never be
+  indistinguishable from a live one** — a compliance officer acts on a visa
+  status.
+
+### 5.3 Citations or silence
+
+No free-form generation for regulatory answers. Every GovAI response carries
+inline citations to official sources; failure to cite suppresses the response in
+favour of "I don't have a verified source for this."
+
+### 5.4 Audit everything
+
+Every state-changing action writes to AUD with hash-chained entries.
+`audit_logs` is append-only via database triggers (not RLS, which a `BYPASSRLS`
+owner would evade). Only `archived` may change; DELETE and TRUNCATE are refused.
+Not yet full WORM — a superuser can drop the trigger; real immutability needs S3
+Object Lock export.
+
+### 5.5 The 80/20 rule
+
+If you are tempted to put vertical-specific vocabulary into `src/` — **stop**.
+It belongs in a config pack. Core knows "a record that can be worked"; it does
+not know what a visa is. This is the rule that keeps one platform from becoming
+two bespoke products.
+
+### 5.6 UI standards (for the frontend repo)
+
+Next.js 15 App Router, Tailwind 4, shadcn/ui, Geist + Inter. Information-dense,
+native micro-interactions only, dark mode first-class. Every staff portal leads
+with a natural-language command bar. Navigation renders from
+`GET /config-packs/me/navigation` — never hardcoded.
 
 ---
 
-## 6. DESIGN & TECHNICAL RULES (NON-NEGOTIABLE)
+## 6. Stack
 
-### 6.1 UI Standards — "Linear Polish"
-- **Stack:** Next.js 15 (App Router), Tailwind 4, shadcn/ui, Geist + Inter fonts.
-- **Density:** Minimal whitespace, information-dense but breathable.
-- **Motion:** Native micro-interactions only (no heavy animation libraries).
-- **Dark mode:** First-class, not an afterthought.
-
-### 6.2 ChatGPT-Style Home Interface
-Every staff portal **MUST** lead with a natural-language command bar.
-Examples: `"Show my pending cases"`, `"Draft a 482 visa application for John"`, `"Run sanctions check on Acme Corp"`.
-
-### 6.3 RAG-Only AI (Citation Mandate)
-- **No free-form generation** for regulatory answers.
-- All `GovAI Assistant` responses **MUST** include inline citations to official regulator sources.
-- Failure to cite → response is suppressed and falls back to "I don't have a verified source for this."
-
-### 6.4 Strict Multi-Tenancy
-- **Row-Level Security (RLS)** is mandatory at the Postgres layer.
-- Every tenant-scoped table has a `"tenantId"` column (camelCase — note it is `uuid` on some tables and `varchar` on others); no query may cross tenants without an explicit "god mode" audit log entry.
-- Storage (S3) is bucketed/prefixed per tenant with separate KMS keys for regulated data.
-
-**How it is actually enforced** (`src/core/tenancy/`, migration `AddTenantRowLevelSecurity`):
-- The app connects as **`meru_app`**, a role *without* `BYPASSRLS`. This is the whole ballgame: an owner role with `BYPASSRLS` (Neon/Supabase/RDS defaults) ignores every policy while still reporting them as enabled. `DATABASE_URL` (owner) is for migrations; `DATABASE_APP_URL` is for runtime.
-- Every table is `ENABLE` **and** `FORCE ROW LEVEL SECURITY` — without `FORCE`, the table owner is exempt.
-- `TenantAlsMiddleware` opens an AsyncLocalStorage context; `TenantBindingInterceptor` fills in the tenant after the guards run; `applyRlsToDataSource` sets `app.current_tenant_id` on the *same pooled connection* the query will use.
-- Policies **fail closed**: an unbound connection matches zero rows rather than everything.
-- Bootstrap lookups that *establish* identity (login by email, refresh token, API key) run inside `TenantContext.runAsSystem`. Cross-tenant operator access goes through `TenancyService.runAsGod`, which writes a `CRITICAL` audit entry first.
-
-**Never trust "RLS is on" without running `npm run rls:verify`.** It attempts real cross-tenant reads and writes and exits non-zero if any succeed.
-
-### 6.5 Audit Everything
-- Every state-changing action writes to **AUD** with hash-chained tamper-evident logs.
-- Logs are WORM (write-once-read-many) and exportable in regulator-friendly formats.
+| Layer | Choice | Note |
+|---|---|---|
+| API | **NestJS 11**, REST + OpenAPI | Swagger `/api` |
+| ORM | **TypeORM 0.3**, 32 migrations | staying — a Drizzle port buys nothing here |
+| DB | **Neon Postgres**, 3 databases | `meru` (control plane), `govx`, `immistack` |
+| Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
+| Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
+| Storage | AWS S3, per-tenant prefix | Google Drive / Azure drivers not built |
+| AI | `langchain` + `openai` | needs `OPENAI_API_KEY` |
+| Auth | JWT + Passport, TOTP MFA, SAML | sessions revocable within 60s |
+| Host | Vercel `sin1`, CLI-deployed | `vercel --prod`; no git integration |
 
 ---
 
-## 7. REPOSITORY STRUCTURE
-
-### 7.1 Current State (Phase 1 — this repo, `meru-core`)
-
-Single NestJS backend representing `api.meru.com`. The 14 modules live as NestJS modules under `src/`. The monorepo (apps/ + packages/config-packs + UIs) in §7.2 is the **target**, not the present.
+## 7. Repository layout
 
 ```
 meru-core/
 ├── src/
-│   ├── iam/             # IAM — auth, tenants, roles, sessions, API keys
-│   ├── tenant/          # (merging into config/ in Phase A)
-│   ├── config/          # TCM — config packs, feature flags, supabase config
-│   ├── crm/             # CRM — UniversalEntity (polymorphic per CLAUDE.md §2)
-│   ├── search/          # (deduping with elasticsearch/ in Phase A)
-│   ├── elasticsearch/   # SRCH — Elasticsearch + pgvector hybrid
-│   ├── ai/              # AI gateway + 4 specialist engines (engines/)
-│   ├── workflow/        # WF — BPMN state machine
-│   ├── forms/           # FORM — JSON-schema driven
-│   ├── tasks/           # TASK — assignments, recurring jobs
-│   ├── notifications/   # COM — multi-channel templates
-│   ├── documents/       # DOC — entities, OCR, versioning, metadata
-│   ├── storage/         # S3 driver layer (used by documents/)
-│   ├── billing/         # BILL — Stripe, usage records, invoices
-│   ├── analytics/       # BI — reports, dashboards, executions
-│   ├── audit/           # AUD — audit logs (hash-chaining TBD)
-│   ├── integrations/    # INT — gov API adapters (entity stub only)
-│   ├── queue/           # BullMQ workers
-│   ├── orchestration/   # (consolidating with core/ in Phase A)
-│   ├── core/            # Cross-cutting filters/interceptors/policies
-│   ├── common/          # Shared types
-│   ├── migrations/      # TypeORM migrations (squashing in Phase A)
-│   └── main.ts / app.module.ts
-├── docs/                # ARCHITECTURE / PRD / TRD / STRATEGY / DEVELOPMENT_STRATEGY / DATABASE_SCHEMA / DESIGN_GUIDELINES
-├── scripts/             # DB and provisioning scripts (Phase A target)
-├── infra/               # Compose, terraform, k8s, github-actions (Phase A target)
-└── CLAUDE.md            # This document
-```
-
-### 7.2 Target Monorepo Structure (post-Phase B, when UIs land)
-
-```
-meru/
-├── apps/
-│   ├── meru-admin/             # God View UI (app.meru.com)
-│   ├── immistack-app/          # Immigration vertical UI
-│   └── governance-app/         # Banking GRC vertical UI
-│
-├── packages/
-│   ├── core-api/               # api.meru.com — the 14 modules
-│   │   ├── iam/
-│   │   ├── tcm/
-│   │   ├── crm/
-│   │   ├── srch/
-│   │   ├── ai/
-│   │   ├── wf/
-│   │   ├── form/
-│   │   ├── task/
-│   │   ├── com/
-│   │   ├── doc/
-│   │   ├── bill/
-│   │   ├── bi/
-│   │   ├── aud/
-│   │   └── int/
-│   │
-│   ├── engines/                # Specialist engines (cross-vertical)
-│   │   ├── regulatory-radar/
-│   │   ├── screening/
-│   │   ├── doc-intel/
-│   │   └── vessel-tracking/
-│   │
-│   ├── config-packs/           # JSON vertical/country definitions
-│   │   ├── _schema/            # JSON-schema validators
-│   │   ├── au/
-│   │   │   ├── immigration.json
-│   │   │   └── tax.json
-│   │   ├── uae/
-│   │   │   ├── banking.json
-│   │   │   └── labour.json
-│   │   ├── ksa/
-│   │   ├── uk/
-│   │   └── ca/
-│   │
-│   ├── database/               # Drizzle schemas — 216+ normalized tables
-│   │   ├── schemas/
-│   │   ├── migrations/
-│   │   └── rls-policies/
-│   │
-│   ├── ui/                     # Shared shadcn components & design tokens
-│   ├── types/                  # Shared TS types & Zod schemas
-│   └── sdk/                    # Vertical-pack SDK for partners
-│
-├── infra/
-│   ├── terraform/
-│   ├── k8s/
-│   └── github-actions/
-│
-└── docs/
-    ├── CLAUDE.md               # ← this document (vision, rules, agent instructions)
-    ├── ARCHITECTURE.md         # System architecture & design
-    ├── PRD.md                  # Product requirements
-    ├── TRD.md                  # Technical specifications
-    ├── STRATEGY.md             # Business & execution strategy
-    ├── ADR/                    # Architectural Decision Records
-    └── runbooks/
+│   ├── iam/ tenant/ config/ crm/ search/ ai/ workflow/ forms/ tasks/
+│   ├── notifications/ documents/ storage/ billing/ payments/ analytics/
+│   ├── audit/ integrations/ rules/ queue/ jobs/ orchestration/
+│   ├── core/          # tenancy, filters, interceptors, policies
+│   ├── common/        # shared types
+│   ├── migrations/    # 32 TypeORM migrations
+│   └── main.ts, app.module.ts
+├── packages/config-packs/
+│   ├── _schema/       # pack.schema.ts (Zod) + config-pack.schema.json
+│   ├── ae/banking.json
+│   └── au/immigration.json
+├── scripts/           # db provisioning, RLS verification, smoke tests
+├── CLAUDE.md          # this file — architecture, rules, operations
+└── AGENTS.md          # current state, gaps, what to build next
 ```
 
 ---
 
-## 8. TECHNICAL STACK SUMMARY
+## 8. Operations
 
-| Layer | Current (Phase 1) | Target / Future |
-|---|---|---|
-| **Frontend** | *Not in this repo* | Next.js 15 (App Router), RSC, Tailwind 4, shadcn/ui |
-| **API (Backend)** | **NestJS 11** + REST/OpenAPI (Swagger at `/api`) | Same; tRPC added later if a TS-only UI client needs it |
-| **Backend Runtime** | Node.js + TypeScript | Same |
-| **ORM** | **TypeORM 0.3** (entities + decorators) | Stay on TypeORM unless we hit a wall (decision: see §11.4) |
-| **Database** | Postgres (Supabase / RDS) — RLS enforced via migration | Same |
-| **Search** | Elasticsearch (`@elastic/elasticsearch` v9) + pgvector | Hybrid BM25 + embeddings |
-| **Queue** | BullMQ (`@nestjs/bull`) | Add Temporal only if a workflow truly needs it |
-| **Storage** | AWS S3 (`aws-sdk`) — per-tenant prefix; KMS planned | Per-tenant KMS keys for regulated buckets |
-| **AI** | Model-agnostic via `langchain` + `openai`; Anthropic next | Add local / regional models per country pack |
-| **Auth** | Supabase JWT (primary) + custom Passport strategy; SAML/Local parked | OAuth2 / OIDC, MFA via `otplib`, enterprise SSO via SAML when needed |
-| **Observability** | (TBD) — Logger only | OpenTelemetry → Datadog / Grafana |
-| **Infra** | Docker Compose (collapsing in Phase A); k8s manifests stubbed | Multi-region per country pack |
+### 8.1 Deployed
 
-**Why TypeORM, not Drizzle?** The codebase has 50+ entities and 11 migrations already in place. The cost of migrating to Drizzle now (~2-4 weeks of pure ORM swap) is not worth it. Decision: stay on TypeORM. Revisit only if RLS composability becomes painful.
+**https://meru-core.vercel.app** — Vercel `sin1`, project `meru-core`.
+API `/api/v1` · Swagger `/api` · spec `/api-json` · health `/api/v1/health`.
+
+Deploys are **CLI-driven** (`vercel --prod`); pushing to GitHub does *not*
+deploy. `origin` is `qognition-tech/meru-core` (not writable by the current gh
+account); `fork` → `qognitionagency/meru-core` is.
+
+### 8.2 Before every deploy
+
+```bash
+npm run build          # must be clean
+npm run check:cjs      # no ESM-only packages in the require graph
+npm test               # unit suite
+npm run rls:verify     # tenant isolation still holds
+BASE_URL=https://meru-core.vercel.app npm run smoke:sweep
+```
+
+**`check:cjs` is not optional.** Vercel's CommonJS loader cannot `require()` an
+ES module at all, so one ESM-only package anywhere in the graph returns
+`FUNCTION_INVOCATION_FAILED` on *every* request — and it works perfectly on
+local Node, so nothing else catches it. It has bitten twice: `uuid`, then
+`otplib` v13 via `@scure/base`.
+
+### 8.3 Database
+
+```bash
+node scripts/provision-rls-role.js --write-env   # create meru_app, write DATABASE_APP_URL
+npm run migration:run                            # apply migrations (idempotent)
+npm run rls:verify                               # prove isolation
+```
+
+All three databases sit on the **same Neon endpoint**
+(`ep-restless-thunder-azgspl7m`) — `govx` and `immistack` are database names, not
+separate projects — so the owner URL reaches all three. Run migrations against
+each by overriding `DATABASE_URL` with `GOVX_DB_URL` / `IMMISTACK_DB_URL`.
+
+If the schema was created outside TypeORM the `migrations` table is empty and
+TypeORM replays `InitialSchema`, failing `42P07`. Baseline once:
+`node scripts/baseline-migrations.js --apply --through 1744010000000`.
+
+If `DATABASE_APP_URL` is unset the app boots on `DATABASE_URL`, logs a loud
+error, and **refuses to start under `NODE_ENV=production`**.
+
+### 8.4 Scheduled jobs on serverless
+
+`@Cron` never fires on Vercel and the queue's polling loop is disabled under
+`VERCEL`. Every scheduled job is therefore also an HTTP route under `/jobs`,
+behind `CronSecretGuard`, which fails closed when `CRON_SECRET` is unset. They
+accept GET as well as POST because Vercel Cron only issues GET.
+
+| Route | Runs |
+|---|---|
+| `/jobs/tick?scope=fast` | queue-drain, scheduled-jobs, recurring-tasks, scheduled-notifications, sla-watchdog, scheduled-reports |
+| `/jobs/tick?scope=daily` | daily-billing, regulatory-radar, audit-archive, digest-emails, watchlist-ingest, rescreening |
+| `/jobs/<name>` | one job by name |
+
+`/jobs/tick` is cadence-aware and idempotent. Dispatch stops after 45s and
+reports the rest as `deferred`, so a slow job cannot exceed the function
+timeout.
+
+**Vercel Hobby allows two daily crons**, which cannot drain a queue. Point a
+free external scheduler (cron-job.org, 1-minute granularity) at
+`/api/v1/jobs/tick?scope=fast` with `Authorization: Bearer <CRON_SECRET>`.
+**Until that exists, minute-level work runs twice a day.**
+
+### 8.5 Serverless constraints
+
+- Filesystem is read-only outside `/tmp`; anything writing at module init kills
+  bootstrap before a route registers (hence `memoryStorage()` for uploads).
+- Static assets are not traced into the bundle. Files read by path must be in
+  `vercel.json` → `functions.includeFiles`. `packages/config-packs/**` and
+  `swagger-ui-dist/**` are there; drop either and packs stop seeding or the docs
+  page renders blank.
+- **No held-open connections.** Functions terminate per invocation, so
+  WebSockets, presence and collaborative editing are impossible here. They need
+  a separate always-on service or a hosted realtime provider.
 
 ---
 
-## 9. THE "BIG PICTURE" GOAL
-
-> **Become the government API layer of the internet.**
-
-By mastering the **Common Corridor** (UAE, KSA, UK, Canada, Australia), Meru achieves:
-
-- **Network effect by regulator:** every new regulator wired in benefits every vertical.
-- **Velocity moat:** launching a new vertical (Tax, Health, Education) is **weeks via JSON pack**, not a 12-month custom build.
-- **Compliance moat:** every line of code is tenant-isolated, audited, and citation-backed — the regulators themselves trust the platform.
-
----
-
-## 10. NORTH-STAR METRICS
+## 9. North-star metrics
 
 | Metric | Target |
 |---|---|
 | Time to launch a new vertical | ≤ 6 weeks |
 | Time to onboard a new country | ≤ 3 weeks |
-| % of feature code shared across verticals | ≥ 80% |
+| Feature code shared across verticals | ≥ 80% |
 | AI response citation coverage | 100% |
-| Regulatory Radar lag (rule change → draft pack) | ≤ 24 hours |
+| Radar lag (rule change → draft pack) | ≤ 24 hours |
 | Tenant data-isolation incidents | **0 (ever)** |
 
 ---
 
-## 11. AGENT INSTRUCTIONS (for Claude / Codex / Cursor)
+## 10. Agent instructions
 
-When working in this repo:
-
-1. **Read this `CLAUDE.md` first.** Always. Before any file edit.
-2. **Consult the detailed docs** for specifics: [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design, [PRD.md](docs/PRD.md) for product scope, [TRD.md](docs/TRD.md) for technical specs, [STRATEGY.md](docs/STRATEGY.md) for business context.
-3. **80/20 rule:** if you're tempted to add vertical-specific code into `src/` (any of the 14 NestJS modules), **STOP** — it belongs in a JSON config pack (target: `packages/config-packs/`, scaffolding via `src/config/`) or a future vertical app.
-4. **Schema first:** any new entity → start with a TypeORM entity + RLS policy in a migration + DTO with `class-validator` decorators, then wire the service/controller. Update `app.module.ts` `entities[]` array.
-5. **Citations or silence:** AI features without citation enforcement do not ship.
-6. **One concern per PR:** never mix a core-module change with a vertical-pack change.
-7. **Update the relevant ADR** in `docs/ADR/` for any architectural decision.
-
----
-
-*Last updated: 2026-07-27 — Config packs now actually load: the Zod `code` validator disagreed with the JSON Schema (slash vs hyphen) and rejected every pack, and the loader's writes were blocked by the `platform_global_write` RLS policy, so `config_packs` had sat empty — Layer 3/4 was inert despite the docs. Both fixed and verified against Neon (2 packs seeded as `meru_app`). Supabase fully retired; see DATABASE.md. Previously (2026-07-26): Tenant isolation (§6.4) implemented and verified end-to-end: `meru_app` non-BYPASSRLS role, ENABLE+FORCE RLS on all 51 tables, connection-level tenant binding, `npm run rls:verify` passing 10/10 against Neon. Previously: Phase A/B/C complete — dead code removed, engines wired, 3 frontend portals live in separate `meru-core-fe` repo, UAE Central Bank + AU HomeAffairs adapters active, config packs on disk (ae/banking.json, au/immigration.json), backend on PORT=8000*
-*Document owner: Meru Platform Team*
+1. **Read this file, then [AGENTS.md](AGENTS.md).** Always, before any edit.
+2. **80/20:** vertical vocabulary goes in a config pack, never in `src/`.
+3. **Schema first:** new entity → TypeORM entity + migration with RLS policy +
+   DTO with `class-validator` → then service and controller. Register the entity
+   in `src/config/entities.ts`.
+4. **Citations or silence** for anything AI-generated about regulation.
+5. **One concern per commit.** Never mix a core change with pack authoring.
+6. **Verify by running it.** Unit tests construct services directly and will not
+   catch a module-wiring fault — `npm start` and read the route table. This repo
+   has shipped a commit that did not boot.
+7. **Update CLAUDE.md and AGENTS.md in the same commit as the change they
+   describe.** These two files are the whole documentation surface; there is no
+   third place to put it.

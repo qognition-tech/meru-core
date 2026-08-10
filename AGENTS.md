@@ -1,229 +1,301 @@
-# AGENTS.md — session state, read this first
+# AGENTS.md — where Meru Core actually stands
 
-Working notes for whoever picks this up (human or agent). `CLAUDE.md` holds the
-architecture; this holds *what is happening right now*.
-
----
-
-## 0. Where the code lives
-
-`~/Documents/GitHub/meru-core` and `~/Documents/GitHub/meru-core-fe` are
-readable again and in sync with `~/dev` and with `origin/main` (verified
-2026-08-08: identical HEADs, `.git` intact, 188 source files readable).
-The evicted copies were moved aside as `*.BROKEN` — delete those once the
-iCloud quota is freed. Either clone is safe to work in; do not edit both.
+> Current state, verified against the running system rather than against
+> documentation. Architecture and rules are in [CLAUDE.md](CLAUDE.md); these two
+> files are the entire documentation surface.
+>
+> *Last verified: 2026-08-11 — 290 routes mapped, 202 unit tests green,
+> 31,579 sanctions entries per database, all three databases on 32 migrations.*
 
 ---
 
-## 1. Production is UP (restored 2026-08-08)
+## 1. Scope, measured
 
-`https://meru-core.vercel.app` serves `/health` 200 with `database: "up"`,
-Swagger UI at `/api`, and 216 paths / 261 operations at `/api-json`. The
-runtime connects as `meru_app` with `bypassrls: false`, so RLS is enforced.
+Two specifications drive this product: the GovernanceX features report (**174
+rows**, marketed as "143 feature modules") and the Qognition immigration BRD
+(**117 rows**). Every row was mapped onto the 14 modules, the 4 engines and the
+pack schema, then checked against the live deployment.
 
-### What it actually was — `615a8db`
+| Verdict | GovX 174 | BRD 117 |
+|---|---|---|
+| Live in core | 64 (37%) | 44 (38%) |
+| Config-pack authoring only, zero code | 17 | 12 |
+| Pack-schema extension + generic evaluator | 15 | 17 |
+| Core code, small | 39 | 15 |
+| Core code, medium | 13 | 12 |
+| Core code, large | 2 | 1 |
+| Blocked on a credential only | 10 | 9 |
+| Blocked on a commercial/government contract | 7 | 4 |
+| Impossible on this deployment | 5 | 1 |
+| Should not live in horizontal core | 2 | 5 |
 
-`WatchlistEntry.country` was declared `string | null` with **no explicit
-`type`** on its `@Column`. TypeORM infers column types from
-`emitDecoratorMetadata`, and a nullable union emits `design:type = Object`,
-which Postgres has no mapping for. Metadata build threw
-`DataTypeNotSupportedError`.
+**~47% of both specs is satisfied or needs nothing but JSON.** Only 3 rows out
+of 291 are large engineering. The bottleneck was never module count — it was
+that the pack schema had no vocabulary for 32 of the rows, so each could only
+have been built as vertical code inside `src/`, which is the one thing that
+would break the architecture.
 
-**Why it cost hours:** TypeORM raises that through its connection-retry loop,
-logging it as `Unable to connect to the database. Retrying (1)...`. The error
-message named the one subsystem that was never broken, which is why four
-consecutive fixes went after Joi validation, `sslmode`, esbuild bundling and
-the Elasticsearch ping. `__diag?db=1` proved both roles connect in 31–48ms.
+**That bottleneck is now cleared: eight of the nine pack arrays ship with their
+evaluators** (§3). The ninth, `importMappings[]`, has schema and storage but no
+pipeline.
 
-In production the loop ran 10 attempts at 3s, so the process spent 30s+ before
-it could throw and Vercel killed it first — no stack, no log, and
-`__diag?boot=1` dying too *despite being wrapped in try/catch*. **A boot probe
-that is itself killed means a hang or a timeout, never an exception.** That
-single observation is what localised it.
+### 1.1 What the "143 features" document claims that is not true
 
-`retryAttempts` is now 1 on serverless: retrying a non-retryable metadata error
-ten times only guarantees the cause is never reported before teardown.
+A circulating "GovernanceX — Comprehensive Features Report" claims 143 feature
+modules and 216 database tables, all operational, on a React 19 / Express /
+tRPC / MySQL-TiDB / Drizzle stack. **That does not describe this system.** Meru
+is Next.js / NestJS / Postgres-Neon / TypeORM. Of 38 named features checked
+against the live spec, 4 had a backing route.
 
-### Lesson worth keeping
+Genuinely absent: WorldCheck, Dow Jones, Finacle, adverse media, PEP, TBML
+scoring beyond the current heuristics, price benchmarking, fraud-pattern
+matching against history, email A/B testing, voice transcription, biometric
+auth, digital certificates.
 
-Never let TypeORM infer a nullable column's type. `scripts/` has no linter for
-this yet — a scan for `@Column` without `type:` on a `| null` property found
-exactly one occurrence, and it was this one.
+Nine of the names *do* exist as GovX pages — vendor-dd, control-testing,
+risk-workshop, roadmap, knowledge-base, training, turnover, rfi, match-review —
+built as UI over the generic `/crm/entities?type=X` resource. That is the
+correct architecture, and it is not the described capability.
 
-### Build/deploy shape — `8a53466`, `8a70e22`
+Five claims are **architecturally impossible on this deployment**, not merely
+unbuilt: real-time collaboration, team chat, workspace collaboration, user
+presence and collaborative editing all need a held-open connection, and Vercel
+functions terminate per invocation.
 
-pnpm is the only package manager (`packageManager: pnpm@10.26.2`,
-`pnpm install --frozen-lockfile`). `package-lock.json` is deleted and
-gitignored. Two traps already hit:
-- `.vercelignore` used to exclude `pnpm-lock.yaml`; with `--frozen-lockfile`
-  that fails as `ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE`, which reads
-  like a stale lockfile rather than a missing one.
-- pnpm 10 skips postinstall scripts unless named. `bcrypt` is native — see
-  `pnpm.onlyBuiltDependencies` in package.json. Dropping it breaks every login.
-
-### Rollback note
-
-Older deployment URLs return **200 because of Vercel's protection page**, not
-because they are healthy. Do not treat that as a signal — check the body.
-`vercel promote` failed with "belongs to a different team" / "not ready"; a
-rollback likely needs the Vercel dashboard.
-
----
-
-## 2. Blocked on the account owner
-
-1. **iCloud quota** — 2,392 bytes free. Empty Trash; delete the Next.js build
-   output dumped at the CloudDocs root and `.Trash/qognition-labs/node_modules`.
-2. **`STRIPE_SECRET_KEY`** + `STRIPE_PRICE_STARTER` / `_PROFESSIONAL` /
-   `_ENTERPRISE`. Code is done; `/billing/checkout` returns a clean 503 until set.
-3. **`RESEND_API_KEY` + `MAIL_FROM`** — tenant invites currently log the link
-   instead of emailing it (`inviteSent: false`).
-4. **External scheduler** → `POST /api/v1/jobs/tick?scope=fast` with
-   `Authorization: Bearer $CRON_SECRET`. GitHub Actions is disabled, and
-   `vercel.json` crons only fire daily, so queue drain, notification dispatch
-   and watchlist ingest currently run once a day.
+If that document is being used for scoping or sales, the gap between it and the
+running system is large, and the frontend is where a customer sees it.
 
 ---
 
-## 3. Open bugs, highest severity first
+## 2. The API surface
 
-**Cross-client data exposure inside a tenant.** *(Fixed — `32147ed`.)*
-`GET /crm/entities` had no server-side owner filter, so a `client`-role token
-received every case in the firm; ImmiStack's `fetchMyCase` filtered in the
-browser, which is presentation, not authorisation. Worth remembering as a
-category: **RLS isolates tenants from each other, not users within a tenant.**
-Any new list endpoint needs its own intra-tenant scoping.
+**290 routes.** Counts by prefix:
 
-**Onboarding created unusable accounts.** (Fixed in FE.) `POST /tenants/signup`
-requires a password; the wizard generated random bytes and discarded them, and
-that route sends no invite — so the admin was locked out with no reset prompt.
+| Prefix | Routes | Prefix | Routes |
+|---|---|---|---|
+| `integrations` | 45 | `notifications` | 12 |
+| `auth` | 16 | `billing` | 12 |
+| `tasks` | 15 | `analytics` | 11 |
+| `storage` | 15 | `crm` | 9 |
+| `elasticsearch` | 15 | `workflows` | 8 |
+| `tenants` | 14 | `engines` | 8 |
+| `config-packs` | 14 | `orchestration` | 7 |
+| `queue` | 13 | `jobs` | 7 |
+| `forms` | 13 | `audit` | 7 |
+| `documents` | 13 | `payments` | 5 |
+| | | `communications` | 5 |
 
-**`/admin/home` fabricated operational data.** (Fixed in FE.) It keyword-matched
-canned strings and typed them out to fake streaming — "47 active cases",
-"3 payments overdue" — to every user of every tenant, unlabelled.
-
----
-
-## 4. Backend gaps the frontends are blocked on
-
-Each is behind a `notImplemented()` seam in the relevant app, so the UI states
-the missing route rather than faking data.
-
-**Shipped 2026-08-08** — `1f68a85`, `6b28410`. Live and verified in production:
-`GET /tenants/:id/{entitlements,branding,connectors}`,
-`POST /tenants/:id/impersonate`, `PUT /tenants/me/entitlements`.
-The operator trio follows the `/tenants/:id/stats` rule (own tenant ordinary,
-another tenant → platform_admin + `runAsGod` + CRITICAL audit). The PUT is
-bounded by the plan allowance — an unguarded write there is a free
-self-service upgrade. Frontend contracts are in `meru-core-fe/BACKEND-HANDOFF.md`.
-
-**Also shipped 2026-08-08** — `dd6ea14`, `6cd1bfe`, `06d170b`, `3199dd3`,
-`3cdc939`. Live at 226 paths / 273 operations:
-
-- **`/payments`** — the firm's receivables, a resource distinct from BILL.
-  Explicitly *not* Stripe: Stripe is Meru billing the tenant; a firm settles
-  its client fees out of band and records them. Client-role callers are forced
-  to their own rows (404, not 403, on someone else's).
-- **`GET /documents/checklist`** — driven by the pack's `schema.documentTypes`.
-- **`GET /jobs/status`** — now honest, because `job_runs` persists last-run
-  state. This also fixed a live bug: the old in-memory `Map` meant every cold
-  start believed nothing had run, so daily jobs could re-run on each cold boot.
-- **Audit WORM** — `audit_logs` is append-only via triggers (not RLS, which a
-  BYPASSRLS owner would evade). Only `archived` may change; DELETE and TRUNCATE
-  are refused. Not full WORM: a superuser can drop the trigger. Real
-  immutability needs S3 Object Lock export, still outstanding.
-- **Scheduled rescreening** — `screening_results` persists every screening, and
-  a daily sweep re-checks anything older than the newest list ingest, flagging
-  `clear → hit`. It refuses to run on an empty watchlist rather than clearing
-  real hits against nothing.
-
-Still missing:
-
-| Missing | Needed by |
-|---|---|
-| `GET /marketing/campaigns` | No MARKETING module exists. Arguably a category error: campaigns are vertical-specific, so per §3's 80/20 rule this belongs in a config pack or a vertical app, not the horizontal core. Decide before building |
-| `GET /communications/threads` | COM is a one-way delivery log; `notifications` has no thread key to group on |
-
-### Databases and watchlists — done, no action needed
-
-All three Neon databases are migrated and identical (27 migrations each,
-`payments` / `job_runs` / `screening_results`, no tenant table missing RLS,
-WORM triggers present). They turned out to sit on the **same Neon endpoint** —
-`govx` and `immistack` are database names on `ep-restless-thunder-azgspl7m`,
-not separate projects — so the owner URL reaches all three and no
-`/jobs/migrate` call was needed. Worth remembering: the vertical DB URLs are
-Vercel-sensitive and `vercel env pull` returns them empty, so that endpoint is
-the *only* route if the endpoint ever differs.
-
-Sanctions lists are ingested: **20,210 entries per database** (19,199 OFAC SDN
-+ 1,011 UN Consolidated). Screening matches real designations again.
-
-### The defect loading real data exposed — `60a8326`
-
-With `watchlist_entries` empty, screening had never been exercised against
-anything. Once 20k rows landed, **every invented name screened as
-`escalated`**: a Double Metaphone match awarded a flat 0.85, exactly the
-default threshold, so any phonetic collision became a hit.
-
-Phonetic agreement is now corroboration, gated behind a Levenshtein floor —
-not Jaro-Winkler, whose prefix bonus rewards a shared forename and cannot
-separate "Margarethe Vandersloot"/"MARGARITA 1" (lev 0.36) from
-"mohammed ali"/"muhammad ali" (lev 0.83). 0/12 invented names flagged, 40/40
-real designations still hit, p95 104ms. `screening.engine.spec.ts` pins both
-directions.
-
-**The lesson generalises:** a feature whose data source is empty has not been
-tested, only executed. Everything downstream of `watchlist_entries` looked
-fine for as long as there was nothing in it.
-
-## 5. Phase status
-
-Done: **P0–P3, P6.** Detail in `docs/MASTER_GAP_ANALYSIS_AND_PLAN.md` §4.
-
-**P4 GovX — essentially complete.** All nine pack-driven module pages built and
-pushed (vendor-dd, control-testing, risk-workshop, roadmap, knowledge-base,
-training, turnover, rfi, match-review). Verified pack-driven, no mock imports,
-no `dangerouslySetInnerHTML`. Unverified: sidebar nav and i18n strings, and
-whether the `watchlist-status` guard is wired.
-
-**P5 ImmiStack — largely complete** (`b907d18`). Client portal, settings,
-onboarding persistence, detail pages, applicant KYC screening via
-`POST /engines/screening`. The duplicate `/platform` console was deleted. Not
-done: `POST /engines/doc-intel` (needs a document-picker flow).
-
-**P7–P9 — not started**, and three items in it are not purely engineering:
-
-- **Collaboration/WebSocket cannot run on this deployment at all.** Vercel
-  functions terminate per invocation; there is no process to hold a socket
-  open. Needs a separate always-on service or a hosted realtime provider —
-  decide the host before anyone writes a client.
-- **WorldCheck / Dow Jones / Finacle adapters need signed commercial
-  contracts.** The adapter interface can be built; the data cannot be obtained
-  in code, and a sandbox stub that renders like live screening is the failure
-  mode §6 warns about.
-- **E-signature and voice transcription need third-party API keys** that are
-  not provisioned (see §2).
-
-Buildable without any of the above: Regulatory Radar → config-pack diffs + SME
-review queue, Elasticsearch behind the search facade, scheduled rescreening,
-WORM audit storage, email automation + RFI advanced.
+`npm run smoke:sweep` walks the whole OpenAPI document against a live instance.
 
 ---
 
-## 6. Things that will bite you
+## 3. Shipped, and what each one actually fixed
 
-- **The four engines are now cross-vertical** (`aab8c36`):
-  `POST /engines/screening`, `/doc-intel`, `/vessel/risk`,
-  `GET /vessel/lookup`, `POST /radar/scan`, `GET /screening/watchlist-status`.
-  Both apps use the same routes. Distinct from
-  `/integrations/{country}/screening`, which calls a *regulator's* service.
-- **Unknown is not clear.** `watchlist-status.entries === 0` ⇒ screening
-  matches ~12 built-in samples and a genuinely sanctioned name **cannot** hit.
-  Vessel `riskScore: null` ⇒ unknown. `citationEnforced: false` ⇒ unsourced.
-  Never render a green state from any of these.
-- **Config packs now carry `entityTypes`** (`e8758da`) — they were being
-  stripped twice, by the Zod schema and by the loader's key list.
+### 3.1 The nine pack arrays (Layer 4 → Layer 1)
+
+| Array | Evaluator | Fixed |
+|---|---|---|
+| `prompts[]` | pack-before-DB resolver | `/ai/execute` returned **HTTP 500** for every tenant — `ai_prompts` was empty and unseeded |
+| `rules[]` | `RuleEvaluatorService` | three condition languages that would have disagreed about `null` |
+| `alertRules[]` | `AlertRuleService` sweep | 11 separately-named alert features become one loop |
+| `messaging.*` | `SequenceRunnerService` | 8 email-automation rows; `notification_templates` was empty too |
+| `fees[]`, `paymentPlans[]` | schedule expander + WF payment gate | EMI, gov-fee/disbursement provenance, case freeze on non-payment |
+| `scoringModels[]` | `ScoringEngine` | lead scoring, visa recommendation, risk scoring — one weighted sum |
+| `relationships[]` | `entity_relations` + traversal | "what blocks this?" was unanswerable; the old jsonb column read one way only |
+| `navigation[]`, `dashboards[]` | `PackUiService`, `PackDashboardService` | three hardcoded sidebars; KPIs that declared a target and computed nothing |
+| `importMappings[]` | — | **not built** |
+
+Packs are at **v1.7.0**: `ae/banking.json` (9 entity types, 25 nav items, 2
+dashboards) and `au/immigration.json` (21 nav items, 2 dashboards including the
+client portal).
+
+### 3.2 Tenant isolation
+
+Implemented and verified end to end: `meru_app` non-`BYPASSRLS` role,
+`ENABLE`+`FORCE` RLS on all 51 tables, connection-level tenant binding,
+`npm run rls:verify` passing 10/10 against Neon. See CLAUDE.md §5.1.
+
+### 3.3 Screening
+
+31,579 entries per database — OFAC SDN 19,199 · EU CFSP 6,234 · UK OFSI 5,135 ·
+UN Consolidated 1,011. `GET /engines/screening/watchlist-status` reports the
+per-list inventory and last ingest, and names any feed not re-confirmed in 14
+days as stale.
+
+Two parser traps worth remembering, both silent:
+
+- EU marks people `<subjectType code="person" classificationCode="P"/>`.
+  Matching `code="P"` matches nothing and files every designated person as an
+  organization — they still screen, so nothing looks broken.
+- UK publishes one row per **alias** keyed by `Group ID`. Left unfolded, one
+  person is six rows and one true match looks like six hits. Its real header is
+  on the second line, and gov.uk asset URLs carry an attachment id that changes
+  every publication — use OFSI's blob storage.
+
+**The defect that only real data exposed:** with `watchlist_entries` empty,
+screening had never been exercised. Once 20k rows landed, *every invented name
+screened as `escalated`* — a Double Metaphone match awarded a flat 0.85, exactly
+the threshold. Phonetic agreement is now corroboration only, gated behind a
+Levenshtein floor (not Jaro-Winkler, whose prefix bonus cannot separate
+"Margarethe Vandersloot"/"MARGARITA 1" from "mohammed ali"/"muhammad ali").
+0/12 invented names flag; 40/40 real designations still hit; p95 104ms.
+
+> **The lesson generalises: a feature whose data source is empty has not been
+> tested, only executed.** It was true of `watchlist_entries`, then of
+> `ai_prompts` and `notification_templates`.
+
+### 3.4 Communications
+
+`GET /communications/threads` — the frontend's top ask for two cycles. COM was a
+one-way delivery log with no key to group on, so two ImmiStack inboxes were
+stubbed, one of which had shipped a fabricated mailbox. Threads are
+`channel:counterparty`, case-folded, backfilled across history with the
+identical derivation in SQL; replies and new messages go out through the same
+dispatcher as everything else, so a send is *recorded* even with no transport
+configured.
+
+### 3.5 Integration provenance
+
+Every adapter response now carries `provenance: { sandbox, adapterId, regulator,
+requestId, latencyMs, retrievedAt }`. The flag existed on `AdapterResponse` all
+along and the controller dropped it on success, so a sandbox visa status and a
+live one were byte-identical over HTTP. **Every regulator connector is still
+SANDBOX** — going live needs licensing, not code (§6).
+
+### 3.6 Sessions
+
+Revoking a session now invalidates its access token within 60 seconds (cached
+check in `JwtStrategy`). Previously logout revoked the row and nothing read it,
+so the token stayed good for up to an hour — which is why `POST /auth/logout-all`
+was being recommended for a suspected compromise. Refresh-token rotation was
+already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
+
+---
+
+## 4. Not built yet, in priority order
+
+### 4.1 Core work, no external dependency
+
+| Item | Rows unblocked | Note |
+|---|---|---|
+| **`importMappings[]` pipeline** | 4 | upload → parse → map → **dry-run diff** → commit, at `/integrations/import`. Needs `papaparse` + `exceljs`. The dry-run is the part that stops a bad import |
+| **SLA watchdog actions** | 5 | `sla-watchdog.service.ts` detects breaches and then does nothing (lines 156, 170). Escalation, alerts and TAT all sit on this |
+| **TAT recording** | 3 | per-stage clock on workflow instances; prerequisite for all TAT analytics |
+| **Generic comments** | 3 | tasks have comments, nothing else does. Promote CRM `note` to any entity |
+| **Wire Elasticsearch** | 4 | `src/search/elasticsearch/` is finished and imported by nobody; the facade is Postgres `ILIKE` |
+| **Outbound webhooks** | 1 | `NotificationType.WEBHOOK` exists with no dispatcher |
+| **Retention enforcement** | 1 | `compliance.retentionYears` is declared in packs and enforced nowhere |
+| **Document generation** | 2 | cost agreements, invoice PDFs — `pdf-lib` |
+| **Storage drivers** | 2 | Google Drive, Azure Blob; the provider interface is already right |
+| **Trend analysis / time series** | 3 | BI is point-in-time only |
+
+### 4.2 Pack authoring — not engineering
+
+This is where the immigration BRD actually lives, and it needs a domain author.
+
+- **`au-immigration` has zero `entityTypes` and one workflow.** The banking pack
+  has nine entity types driving nine GovX pages; immigration has none, which is
+  why ImmiStack needed ~30 hardcoded pages. Author `entityTypes` plus the
+  Student / PR / 485 / Tourist workflows.
+- **`ae-banking` is missing `obligation` and `breach`** from `entityTypes`
+  although both exist in the code enum — so those two pages have no vocabulary.
+- Author `ca-immigration`, `uk-immigration`, `nz-immigration`, `ksa-banking`,
+  `qa-banking`. The adapters exist; only the JSON is missing.
+
+### 4.3 Decisions needed from the business
+
+| # | Decision | Recommendation |
+|---|---|---|
+| 1 | Realtime host for chat/presence/collaboration | **Ably** — no infra to run, works alongside serverless; five rows are not worth a second deployment target |
+| 2 | Scheduler | **Upstash QStash** or cron-job.org — per-minute, retries, signed requests |
+| 3 | Marketing module | **Do not build one.** Newsletters are `messaging.sequences[]`; SEO and social are not regulatory plumbing |
+| 4 | AWS migration (BRD §18) | **Stay on Vercel + Neon**; revisit when a contract requires residency Neon cannot give |
+| 5 | OCR | **Cloud Vision** — Tesseract on serverless is a bad fit for large scans |
+
+---
+
+## 5. Credentials — nothing works without these
+
+**Free, already yours, just unset.** This is the cheapest work available
+anywhere on the list and currently the largest single blocker.
+
+| Variable | For | Consequence today |
+|---|---|---|
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
+| `RESEND_API_KEY`, `MAIL_FROM` (verified domain) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
+| `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
+| `CRON_SECRET` + an external scheduler URL | queue, ingestion | minute-level jobs run twice a day |
+
+**Paid, no negotiation** (~$20–200/mo each): Ably/Pusher · Upstash QStash ·
+Twilio *or* Meta WhatsApp Cloud API (**Meta Business verification is the long
+pole — start early**) · Deepgram or Whisper · Elastic Cloud · DocuSign or
+Dropbox Sign · AISStream/Spire for AIS · Google Cloud OAuth · Azure storage ·
+HubSpot/Zoho/Salesforce developer apps.
+
+**Commercial contracts, cannot be coded around:** Refinitiv WorldCheck One · Dow
+Jones Risk & Compliance · Finacle (needs the bank client's own environment) · an
+adverse-media/PEP feed · HS-code price benchmark data.
+
+**Government access — licensing, not code:** AU VEVO/ImmiAccount (registered
+migration agent or approved integrator) · IRCC · UK Home Office right-to-work ·
+NZ INZ · CBUAE Open Finance certification · SAMA · QCB.
+
+---
+
+## 6. Regulator connectors — all eight are SANDBOX
+
+| Adapter | Regulator | To go live |
+|---|---|---|
+| `au-home-affairs` | AU Department of Home Affairs | registered migration agent or approved integrator; VEVO is the gated part |
+| `ae-cbuae` | UAE Central Bank | Open Finance certification |
+| `sa-sama` | Saudi SAMA | licensing |
+| `qa-qcb` | Qatar Central Bank | licensing |
+| `bh-cbb` | Bahrain Central Bank | licensing |
+| `ca-ircc` | Canada IRCC | licensing |
+| `uk-home-office` | UK Home Office | right-to-work share-code access |
+| `nz-inz` | NZ Immigration | VisaView access |
+
+Each keeps its sandbox badge until real credentials are installed, and
+`provenance.sandbox` is how the UI knows. **A UI that implies live regulator
+data is the worst failure mode this product has.**
+
+---
+
+## 7. Things that will bite you
+
+- **Unit tests do not assemble the module graph.** A service can be perfectly
+  tested and the app still fail to boot on a missing module import — this repo
+  shipped exactly that. Run `npm start` and read the route table.
 - **`verticalAttributes` MERGES on PATCH.** Send only what changed.
-- **Every regulator connector is SANDBOX.** Going live needs licensing, not
-  code — see `docs/REGULATOR_API_ACCESS.md`.
-- Three sessions push to `meru-core-fe`. `git pull` before every commit.
+- **The four engines are cross-vertical**: `/engines/screening`, `/doc-intel`,
+  `/vessel/risk`, `/radar/scan`. Distinct from
+  `/integrations/{country}/screening`, which calls a *regulator's* service.
+- **Config packs only upgrade on a greater `version`.** Edit a pack without
+  bumping it and the loader silently keeps the old one.
+- **The demo tenants are `status: "trial"`**, not `"active"`, and the trial
+  lapses 2026-08-22. Any UI branching on `status === 'active'` renders the wrong
+  state for both, and the lapse will look like a regression.
+- **Three sessions push to `meru-core-fe`.** `git pull` before every commit.
+- **`~/Documents/GitHub/immistack` is not this product.** It is a separate
+  35-page prototype still carrying the duplicate `/platform` console that was
+  deliberately deleted. Do not develop there; the live app is
+  `meru-core-fe/immistack`.
+- **Vercel deploys are CLI-only.** Pushing to GitHub does nothing.
+
+---
+
+## 8. Frontend contract notes
+
+Rules the frontends hold to, which the API must keep making possible:
+
+- Zero watchlist entries renders "lists not loaded", never "no hits".
+- `riskScore: null` renders grey, never green.
+- `live: false` is labelled stale on the record itself, not in a page corner.
+- A missing position is listed as unplottable, never drawn at 0,0.
+- No mock fallback survives in a page: `?? []`, never `?? someMock`.
+- Config-pack data is rendered from the pack, never hardcoded — including
+  navigation, which now comes from `GET /config-packs/me/navigation`.
+
+Modules the frontend deliberately does **not** want to call directly: `Storage`
+(`/documents` wraps it), `Elasticsearch` (`/search` is the right altitude),
+`Queue` (`/jobs/status` covers the need).
