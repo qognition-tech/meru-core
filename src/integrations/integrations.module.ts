@@ -15,12 +15,14 @@ import { AisIngestController } from './ais-ingest.controller';
 import { IntegrationsService } from './integrations.service';
 import { VesselService } from './services/vessel.service';
 import { TradeService } from './services/trade.service';
+import { ImportService } from './services/import.service';
 import { AisIngestService } from './services/ais-ingest.service';
 import { VesselPosition } from './entities/vessel-position.entity';
 import { TenantConnector } from './entities/tenant-connector.entity';
 import { ConnectorsController } from './connectors.controller';
 import { ConnectorsService } from './services/connectors.service';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
 import { AiModule } from '../ai/ai.module';
 
 // INT module per CLAUDE.md §2 row 14.
@@ -32,6 +34,8 @@ import { AiModule } from '../ai/ai.module';
 // register as a provider here, export from IntegrationsService.
 @Module({
   imports: [
+    // Layer 4: the vertical's `importMappings[]`.
+    VerticalPackModule,
     // UniversalEntity directly rather than via CrmModule: vessel watchlists and
     // trade instruments are entity rows, but they do not want CRM's
     // create-time vertical-field validation, so they use the repository, not
@@ -56,6 +60,7 @@ import { AiModule } from '../ai/ai.module';
     ConnectorsController,
   ],
   providers: [
+    ImportService,
     IntegrationsService,
     VesselService,
     TradeService,

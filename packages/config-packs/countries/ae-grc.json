@@ -2,7 +2,7 @@
   "code": "ae-grc",
   "name": "UAE Banking Compliance",
   "description": "UAE Banking Compliance \u2014 country overlay on the GRC vertical.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "vertical": "grc",
   "country": "AE",
   "extends": "grc",

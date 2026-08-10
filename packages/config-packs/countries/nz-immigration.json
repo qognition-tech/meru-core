@@ -2,7 +2,7 @@
   "code": "nz-immigration",
   "name": "New Zealand Immigration",
   "description": "New Zealand Immigration \u2014 country overlay on the immigration vertical.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "vertical": "immigration",
   "country": "NZ",
   "extends": "immigration",

@@ -34,6 +34,7 @@ import { ScreenEntityDto } from './dto/screen-entity.dto';
 import { AddVesselDto, TradeInstrumentBodyDto } from './dto/vessel-trade.dto';
 import { VesselService } from './services/vessel.service';
 import { TradeService } from './services/trade.service';
+import { ImportService } from './services/import.service';
 import type { AuthenticatedRequest } from '../common/types';
 import { AuHomeAffairsAdapter } from './adapters/au-home-affairs.adapter';
 import { UaeCentralBankAdapter } from './adapters/uae-central-bank.adapter';
@@ -61,6 +62,7 @@ export class IntegrationsController {
     private readonly inzAdapter: NzImmigrationAdapter,
     private readonly vesselService: VesselService,
     private readonly tradeService: TradeService,
+    private readonly importService: ImportService,
   ) {}
 
   /**
@@ -128,6 +130,52 @@ export class IntegrationsController {
     }
 
     return { data: data ?? null, provenance };
+  }
+
+  // ── Record import (Layer 4 `importMappings[]`) ────────────────────────────
+
+  @Get('import/mappings')
+  @ApiOperation({
+    summary: "The import mappings the caller's vertical declares",
+    description:
+      'Field maps live in the config pack because the target fields are the ' +
+      "vertical's own, and core does not know their names.",
+  })
+  async listImportMappings(@Request() req: AuthenticatedRequest) {
+    return this.importService.listMappings(req.tenantVertical ?? null);
+  }
+
+  @Post('import/:mappingKey')
+  @ApiOperation({
+    summary: 'Plan an import — and only write if asked',
+    description:
+      'Parses the CSV, applies the mapping, and returns the diff: creates, ' +
+      'updates, per-row errors, unmapped columns. **Nothing is written unless ' +
+      '`commit=true`**, and the committed run acts on exactly the plan a ' +
+      'reviewer approved. An import is the easiest way for a firm to destroy ' +
+      'its own data, and the damage is usually noticed days later.',
+  })
+  @ApiParam({ name: 'mappingKey', description: 'Mapping key from the config pack' })
+  @ApiQuery({
+    name: 'commit',
+    required: false,
+    type: Boolean,
+    description: 'Defaults to false — dry run',
+  })
+  @ApiResponse({ status: 400, description: 'Unknown mapping, empty file, or too many rows' })
+  async runImport(
+    @Request() req: AuthenticatedRequest,
+    @Param('mappingKey') mappingKey: string,
+    @Body() body: { csv: string },
+    @Query('commit') commit?: string,
+  ) {
+    return this.importService.run(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      mappingKey,
+      body?.csv ?? '',
+      { commit: commit === 'true' },
+    );
   }
 
   // ── Vessel tracking (CLAUDE.md §3.4) ──────────────────────────────────────

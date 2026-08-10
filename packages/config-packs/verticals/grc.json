@@ -2,7 +2,7 @@
   "code": "grc",
   "name": "Governance, Risk & Compliance",
   "description": "Shared GRC vocabulary \u2014 every country overlay inherits this.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "vertical": "grc",
   "locales": [
     "en"
@@ -2269,6 +2269,78 @@
           "limit": 10,
           "span": 6
         }
+      ]
+    }
+  ],
+  "importMappings": [
+    {
+      "key": "counterparties_csv",
+      "label": "Counterparties (CSV)",
+      "source": "csv",
+      "targetEntityType": "organization",
+      "fields": [
+        {
+          "from": "Legal Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "transform": "lowercase"
+        },
+        {
+          "from": "Jurisdiction",
+          "to": "jurisdiction",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Registration Number",
+          "to": "registrationNumber"
+        },
+        {
+          "from": "Risk Tier",
+          "to": "riskTier",
+          "transform": "lowercase"
+        }
+      ],
+      "dedupeOn": [
+        "registrationNumber"
+      ]
+    },
+    {
+      "key": "vendors_csv",
+      "label": "Vendors (CSV)",
+      "source": "csv",
+      "targetEntityType": "vendor",
+      "fields": [
+        {
+          "from": "Vendor Name",
+          "to": "legalName",
+          "required": true
+        },
+        {
+          "from": "Jurisdiction",
+          "to": "jurisdiction",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Risk Tier",
+          "to": "riskTier",
+          "transform": "lowercase"
+        },
+        {
+          "from": "Contract Value",
+          "to": "contractValue"
+        },
+        {
+          "from": "Last Assessed",
+          "to": "lastAssessedAt",
+          "transform": "date_iso"
+        }
+      ],
+      "dedupeOn": [
+        "legalName"
       ]
     }
   ]

@@ -2,7 +2,7 @@
   "code": "immigration",
   "name": "Immigration Practice Management",
   "description": "Shared immigration vocabulary \u2014 every country overlay inherits this.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -1937,6 +1937,99 @@
           "label": "Last Reviewed",
           "type": "date"
         }
+      ]
+    }
+  ],
+  "importMappings": [
+    {
+      "key": "leads_csv",
+      "label": "Leads (CSV)",
+      "source": "csv",
+      "targetEntityType": "lead",
+      "fields": [
+        {
+          "from": "First Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Last Name",
+          "to": "lastName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "required": true,
+          "transform": "lowercase"
+        },
+        {
+          "from": "Phone",
+          "to": "phoneNumber",
+          "transform": "phone_e164"
+        },
+        {
+          "from": "Nationality",
+          "to": "nationality",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Visa Interest",
+          "to": "visaInterest"
+        },
+        {
+          "from": "Source",
+          "to": "source"
+        }
+      ],
+      "dedupeOn": [
+        "email"
+      ]
+    },
+    {
+      "key": "clients_csv",
+      "label": "Clients (CSV)",
+      "source": "csv",
+      "targetEntityType": "person",
+      "fields": [
+        {
+          "from": "First Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Last Name",
+          "to": "lastName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "required": true,
+          "transform": "lowercase"
+        },
+        {
+          "from": "Passport Number",
+          "to": "passportNumber"
+        },
+        {
+          "from": "Date of Birth",
+          "to": "dateOfBirth",
+          "transform": "date_iso"
+        },
+        {
+          "from": "Visa Expiry",
+          "to": "visaExpiry",
+          "transform": "date_iso"
+        },
+        {
+          "from": "Nationality",
+          "to": "nationality",
+          "transform": "country_iso2"
+        }
+      ],
+      "dedupeOn": [
+        "email"
       ]
     }
   ]
