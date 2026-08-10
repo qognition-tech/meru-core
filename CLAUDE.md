@@ -292,6 +292,11 @@ npm run rls:verify     # tenant isolation still holds
 BASE_URL=https://meru-core.vercel.app npm run smoke:sweep
 ```
 
+**A merged commit is not a shipped one.** Deploys are `vercel --prod`; pushing
+to GitHub does nothing. Check `/api-json`'s path count to know what is actually
+live, and tell the frontend — `meru-core-fe/BACKEND-CHANGES-*.md` is where each
+delta is handed over, and it leads with whether the change has deployed yet.
+
 **`check:cjs` is not optional.** Vercel's CommonJS loader cannot `require()` an
 ES module at all, so one ESM-only package anywhere in the graph returns
 `FUNCTION_INVOCATION_FAILED` on *every* request — and it works perfectly on

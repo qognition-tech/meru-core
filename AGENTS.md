@@ -4,9 +4,15 @@
 > documentation. Architecture and rules are in [CLAUDE.md](CLAUDE.md); these two
 > files are the entire documentation surface.
 >
-> *Last verified: 2026-08-11 — 299 unit tests green, 767 API contract checks
-> passing across every operation, 31,579 sanctions entries per database, ten
+> *Last verified: 2026-08-11 — 299 unit tests green, 785 API contract checks
+> passing across all 297 operations, 31,579 sanctions entries per database, ten
 > config packs, all three databases on 32 migrations.*
+>
+> **`main` and `production` are at `e8f1c01` and are NOT deployed.** Vercel
+> deploys are CLI-driven (`vercel --prod`), so `meru-core.vercel.app` still
+> serves the previous 275 operations. `npm run rls:verify` needs
+> `DATABASE_APP_URL` from the deployment environment and must be run there
+> before release.
 
 ---
 
@@ -71,7 +77,17 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**290 routes.** Counts by prefix:
+**297 operations across 248 paths** — 22 added since the last deploy, none
+removed or renamed, so nothing built against the previous surface breaks.
+
+Added: pack navigation and dashboards (4), communications threads (5), record
+comments (3), entity relations and blockers (4), scoring (2), import (2), TAT
+(2). Three existing endpoints gained fields additively:
+`watchlist-status.lists[]`, `provenance` on every regulator response, and
+`threadKey`/`direction` on notifications. The frontend contract for all of it is
+`meru-core-fe/BACKEND-CHANGES-2026-08-11.md`.
+
+Counts by prefix (pre-deploy figures, for shape rather than precision):
 
 | Prefix | Routes | Prefix | Routes |
 |---|---|---|---|
@@ -87,7 +103,10 @@ running system is large, and the frontend is where a customer sees it.
 | `documents` | 13 | `payments` | 5 |
 | | | `communications` | 5 |
 
-`npm run smoke:sweep` walks the whole OpenAPI document against a live instance.
+`npm run smoke:sweep` walks the whole OpenAPI document against a live instance:
+auth posture on every operation, envelope shape and 5xx on reads, junk-body
+validation on writes, and literal/param route shadowing. It exits non-zero on
+any failure, so it gates a deploy.
 
 ---
 
