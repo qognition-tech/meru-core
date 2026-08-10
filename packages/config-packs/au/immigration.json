@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -805,6 +805,66 @@
           "lodgedDate",
           "referenceNumber"
         ]
+      },
+      {
+        "key": "document_chase_reminder",
+        "name": "Outstanding documents reminder (sequence)",
+        "channel": "email",
+        "subject": "Reminder: documents still outstanding for your application",
+        "body": "Hello {{firstName}},\n\nWe are still waiting on the documents needed to progress your application. Until they arrive we cannot move to the next stage.\n\nPlease sign in to your client portal to see exactly what is outstanding and to upload it.\n\nIf you have already sent these to us, or you no longer wish to proceed, reply to this email and we will stop the reminders.\n\n{{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName"
+        ]
+      }
+    ],
+    "sequences": [
+      {
+        "key": "chase_outstanding_documents",
+        "label": "Chase outstanding documents",
+        "trigger": {
+          "entityType": "case",
+          "when": {
+            "and": [
+              {
+                "var": "documentsRequestedAt"
+              },
+              {
+                "!": {
+                  "var": "documentsReceivedAt"
+                }
+              }
+            ]
+          }
+        },
+        "steps": [
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 72
+          },
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 168
+          },
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 336
+          }
+        ],
+        "stopWhen": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed",
+              "cancelled"
+            ]
+          ]
+        },
+        "stopOnReply": true,
+        "maxMessages": 3
       }
     ]
   },

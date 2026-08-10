@@ -298,6 +298,56 @@ describe('packs on disk', () => {
   );
 
   it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s messaging sequences only reference templates that exist, and can stop',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      const sequences = result.data.messaging?.sequences ?? [];
+      if (!sequences.length) return;
+
+      const templates = new Map(
+        (result.data.messaging?.templates ?? []).map((t) => [t.key, t]),
+      );
+      const evaluator = new RuleEvaluatorService();
+
+      // Everything the sequence runner can put in a template. A template that
+      // declares more than this sends a client a literal `{{uploadUrl}}` —
+      // the runner reports it, but reporting it after delivery is late.
+      const supplied = new Set([
+        'firstName',
+        'lastName',
+        'firmName',
+        'entityId',
+        'entityType',
+        'dueDate',
+      ]);
+
+      for (const sequence of sequences) {
+        expect(evaluator.validate(sequence.trigger.when).valid).toBe(true);
+        if (sequence.stopWhen) {
+          // The dangerous one: a sequence with an uncompilable stop condition
+          // enrols correctly and then never stops.
+          expect(evaluator.validate(sequence.stopWhen).valid).toBe(true);
+        }
+
+        for (const step of sequence.steps) {
+          const template = templates.get(step.templateKey);
+          expect(template).toBeDefined();
+          for (const variable of template!.variables) {
+            expect(supplied).toContain(variable);
+          }
+          if (step.when) {
+            expect(evaluator.validate(step.when).valid).toBe(true);
+          }
+        }
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
     '%s ships message templates with unique keys and declared variables',
     (_label, file) => {
       const result = safeValidateConfigPack(

@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { SlaWatchdogService } from '../workflow/services/sla-watchdog.service';
 import { AlertRuleService } from '../rules/alert-rule.service';
+import { SequenceRunnerService } from '../notifications/sequence-runner.service';
 import { BillingService } from '../billing/billing.service';
 import { QueueService } from '../queue/queue.service';
 import { JobProcessor } from '../queue/queue.processor';
@@ -73,6 +74,12 @@ export const JOB_CADENCE_MINUTES = {
   // it was meant to protect had already closed. Repeat notification is bounded
   // by each rule's own cooldown, not by how often the sweep runs.
   'alert-rules': 15,
+  // Pack-driven messaging sequences. Hourly is the right granularity: the
+  // shortest delay any authored sequence uses is measured in hours, and
+  // sweeping more often would only re-scan the same records for no earlier
+  // send — steps are due at a wall-clock offset from enrolment, not on a
+  // "next tick" basis.
+  'messaging-sequences': 60,
   'scheduled-reports': 60,
   'daily-billing': 1440,
   'regulatory-radar': 1440,
@@ -162,6 +169,7 @@ export class JobsController {
   constructor(
     private readonly slaWatchdogService: SlaWatchdogService,
     private readonly alertRuleService: AlertRuleService,
+    private readonly sequenceRunner: SequenceRunnerService,
     private readonly billingService: BillingService,
     private readonly queueService: QueueService,
     private readonly jobProcessor: JobProcessor,
@@ -397,6 +405,12 @@ export class JobsController {
         };
       case 'sla-watchdog':
         return () => this.slaWatchdogService.checkSLAViolations();
+      case 'messaging-sequences':
+        // Enrols newly-matching records and sends whatever steps are now due.
+        // `invalidSequences` in the summary names pack sequences that could
+        // not be compiled — a bad stopWhen is the dangerous one, since the
+        // sequence would enrol correctly and then never stop.
+        return () => this.sequenceRunner.run();
       case 'alert-rules':
         // Evaluates every tenant's `alertRules[]` against its entities. The
         // `invalidRules` array in the summary is the one output worth reading:

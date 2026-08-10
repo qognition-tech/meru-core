@@ -2,7 +2,7 @@
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
   "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -1273,6 +1273,61 @@
           "escalationTarget",
           "breachUrl"
         ]
+      },
+      {
+        "key": "rfi_followup_reminder",
+        "name": "RFI follow-up (sequence)",
+        "channel": "email",
+        "subject": "Follow-up: information request still open",
+        "body": "Hello {{firstName}},\n\nOur request for information remains open and we have not yet received a response. We need it to complete our review and meet our own regulatory reporting obligations.\n\nPlease respond, or reply to this email if you believe it has already been answered.\n\n{{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName"
+        ]
+      }
+    ],
+    "sequences": [
+      {
+        "key": "rfi_followup",
+        "label": "Follow up an unanswered RFI",
+        "trigger": {
+          "entityType": "rfi",
+          "when": {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress"
+              ]
+            ]
+          }
+        },
+        "steps": [
+          {
+            "templateKey": "rfi_followup_reminder",
+            "afterHours": 72
+          },
+          {
+            "templateKey": "rfi_followup_reminder",
+            "afterHours": 168
+          }
+        ],
+        "stopWhen": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed",
+              "cancelled"
+            ]
+          ]
+        },
+        "stopOnReply": true,
+        "maxMessages": 2
       }
     ]
   },

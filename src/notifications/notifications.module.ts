@@ -10,6 +10,11 @@ import {
   NotificationTemplate,
 } from './entities/notification.entity';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
+import { SequenceEnrolment } from './entities/sequence-enrolment.entity';
+import { SequenceRunnerService } from './sequence-runner.service';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { Tenant } from '../iam/entities/tenant.entity';
 
 @Module({
   imports: [
@@ -18,12 +23,27 @@ import { VerticalPackModule } from '../tenant/vertical-pack.module';
       NotificationPreference,
       NotificationTemplate,
       User,
+      // The sequence runner reads the records it messages and the tenants it
+      // sweeps; it owns the enrolment state.
+      SequenceEnrolment,
+      UniversalEntity,
+      Tenant,
     ]),
-    // Layer 4: the vertical's message templates.
+    // Layer 4: the vertical's message templates and sequences.
     VerticalPackModule,
+    // Sequence triggers, step conditions and stop conditions are JsonLogic.
+    RuleEvaluatorModule,
   ],
-  providers: [NotificationsService, NotificationDispatchService],
+  providers: [
+    NotificationsService,
+    NotificationDispatchService,
+    SequenceRunnerService,
+  ],
   controllers: [NotificationsController],
-  exports: [NotificationsService, NotificationDispatchService],
+  exports: [
+    NotificationsService,
+    NotificationDispatchService,
+    SequenceRunnerService,
+  ],
 })
 export class NotificationsModule {}

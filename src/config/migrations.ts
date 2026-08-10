@@ -26,6 +26,7 @@ import { AddJobRuns1755100000000 } from '../migrations/1755100000000-AddJobRuns'
 import { AddAuditWormEnforcement1755200000000 } from '../migrations/1755200000000-AddAuditWormEnforcement';
 import { AddScreeningResults1755300000000 } from '../migrations/1755300000000-AddScreeningResults';
 import { AddAlertFirings1755400000000 } from '../migrations/1755400000000-AddAlertFirings';
+import { AddSequenceEnrolments1755500000000 } from '../migrations/1755500000000-AddSequenceEnrolments';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -63,4 +64,5 @@ export const ALL_MIGRATIONS = [
   AddAuditWormEnforcement1755200000000,
   AddScreeningResults1755300000000,
   AddAlertFirings1755400000000,
+  AddSequenceEnrolments1755500000000,
 ];

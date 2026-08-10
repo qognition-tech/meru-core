@@ -42,6 +42,7 @@ import { Payment } from '../billing/entities/payment.entity';
 import { JobRun } from '../jobs/entities/job-run.entity';
 import { ScreeningResult } from '../ai/entities/screening-result.entity';
 import { AlertFiring } from '../rules/entities/alert-firing.entity';
+import { SequenceEnrolment } from '../notifications/entities/sequence-enrolment.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import {
   Notification,
@@ -95,6 +96,7 @@ export const ALL_ENTITIES = [
   JobRun,
   ScreeningResult,
   AlertFiring,
+  SequenceEnrolment,
   // Search & AI
   SearchIndex,
   AiPrompt,

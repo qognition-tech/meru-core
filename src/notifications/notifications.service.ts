@@ -150,6 +150,19 @@ export class NotificationsService {
     recipientId: string,
     variables: Record<string, any>,
     vertical?: string | null,
+    /**
+     * For recipients who are not platform users.
+     *
+     * A messaging sequence addresses a *client* — a CRM entity with an email
+     * address and no login — so `recipientId` is that entity's id and the
+     * dispatcher cannot look the address up in `users`. Passing it here is
+     * the difference between a chaser that sends and one that is silently
+     * skipped as "recipient has no email address".
+     */
+    options?: {
+      recipientEmail?: string | null;
+      metadata?: Record<string, any>;
+    },
   ): Promise<Notification | null> {
     const resolved = await this.resolveTemplate(
       tenantId,
@@ -175,6 +188,13 @@ export class NotificationsService {
       recipientId,
       subject,
       content,
+      metadata: {
+        ...(options?.metadata ?? {}),
+        // `resolveEmail` in the dispatcher reads `metadata.email` before it
+        // tries the users table, which is the only route to a non-user
+        // recipient.
+        ...(options?.recipientEmail ? { email: options.recipientEmail } : {}),
+      },
       templateData: {
         templateId: resolved.templateId,
         templateKey,
