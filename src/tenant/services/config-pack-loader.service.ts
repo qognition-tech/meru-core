@@ -233,7 +233,19 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
         // every optional section round-trips, so adding one to the schema and
         // forgetting it here fails a test rather than shipping.
         prompts: def.prompts ?? [],
-        messaging: def.messaging ?? { templates: [] },
+        messaging: def.messaging ?? { templates: [], sequences: [] },
+        // The nine Layer 4 arrays (docs/FEATURE_PARITY_MAP.md §5). Each is read
+        // by exactly one generic evaluator in core; none of them means anything
+        // to core on its own, which is the point — the vertical is the JSON.
+        rules: def.rules ?? [],
+        alertRules: def.alertRules ?? [],
+        fees: def.fees ?? [],
+        paymentPlans: def.paymentPlans ?? [],
+        scoringModels: def.scoringModels ?? [],
+        relationships: def.relationships ?? [],
+        navigation: def.navigation ?? [],
+        dashboards: def.dashboards ?? [],
+        importMappings: def.importMappings ?? [],
         country: def.country,
         locales: def.locales,
         metadata: def.metadata ?? {},

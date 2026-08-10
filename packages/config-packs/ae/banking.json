@@ -2,7 +2,7 @@
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
   "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -16,43 +16,44 @@
       "country": "AE",
       "baseUrl": "https://api.centralbank.ae/v1",
       "authMethod": "mtls",
-      "adapterId": "uae-cbuae",
-      "documentation": "https://www.centralbank.ae/en/fmr/regulations"
+      "adapterId": "uae-central-bank",
+      "documentation": "https://www.centralbank.ae/en/fmr/regulations",
+      "availability": "adapter"
     },
     {
       "id": "uae-local-list",
       "name": "UAE Local Terrorist Designations List",
       "country": "AE",
       "authMethod": "api_key",
-      "adapterId": "uae-local-sanctions",
-      "documentation": "https://www.uaeinteract.com/government/law-legislation/sanctions"
+      "documentation": "https://www.uaeinteract.com/government/law-legislation/sanctions",
+      "availability": "planned"
     },
     {
       "id": "refinitiv-worldcheck",
       "name": "Refinitiv World-Check One",
       "country": "XX",
       "authMethod": "api_key",
-      "adapterId": "refinitiv-worldcheck",
       "documentation": "https://www.refinitiv.com/en/products/world-check-kyc-screening",
-      "licensed": false
+      "licensed": false,
+      "availability": "licence_required"
     },
     {
       "id": "dowjones-rnc",
       "name": "Dow Jones Risk & Compliance",
       "country": "XX",
       "authMethod": "api_key",
-      "adapterId": "dowjones-rnc",
       "documentation": "https://www.dowjones.com/professional/risk/",
-      "licensed": false
+      "licensed": false,
+      "availability": "licence_required"
     },
     {
       "id": "finacle-core",
       "name": "Finacle Core Banking",
       "country": "AE",
       "authMethod": "oauth2",
-      "adapterId": "finacle-core",
       "documentation": "https://www.edgeverve.com/finacle/",
-      "licensed": false
+      "licensed": false,
+      "availability": "licence_required"
     }
   ],
   "roles": [
@@ -264,7 +265,7 @@
           "assignedRole": "kyc_analyst",
           "slaHours": 1,
           "apiAction": {
-            "adapterId": "uae-cbuae",
+            "adapterId": "uae-central-bank",
             "method": "runScreening",
             "params": {
               "lists": [
@@ -389,7 +390,7 @@
           "assignedRole": "mlro",
           "slaHours": 24,
           "apiAction": {
-            "adapterId": "uae-cbuae",
+            "adapterId": "uae-central-bank",
             "method": "fileSar"
           },
           "transitions": [

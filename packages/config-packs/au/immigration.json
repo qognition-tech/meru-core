@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -17,7 +17,8 @@
       "sandboxUrl": "https://sandbox.immi.homeaffairs.gov.au/api",
       "authMethod": "oauth2",
       "adapterId": "au-home-affairs",
-      "documentation": "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing"
+      "documentation": "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing",
+      "availability": "adapter"
     },
     {
       "id": "au-vevo",
@@ -25,8 +26,9 @@
       "country": "AU",
       "baseUrl": "https://vevo.homeaffairs.gov.au/EvInquiryWeb",
       "authMethod": "api_key",
-      "adapterId": "au-vevo",
-      "documentation": "https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/check-conditions-online"
+      "adapterId": "au-home-affairs",
+      "documentation": "https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/check-conditions-online",
+      "availability": "adapter"
     }
   ],
   "roles": [

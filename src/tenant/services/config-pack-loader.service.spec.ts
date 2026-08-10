@@ -1,9 +1,11 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   ConfigPackSchema,
   safeValidateConfigPack,
 } from '../../../packages/config-packs/_schema/pack.schema';
+import { ConfigPackLoaderService } from './config-pack-loader.service';
 
 /**
  * The guard against this repo's most repeated config-pack failure: a section is
@@ -47,6 +49,35 @@ describe('config pack schema ↔ loader parity', () => {
       expect(loaderSource).toMatch(new RegExp(`\\b${key}:\\s*def\\.${key}\\b`));
     },
   );
+
+  it('rejects a regulator that claims an adapter without naming one', () => {
+    // The guard behind the availability field: "adapter" is a promise that
+    // something resolvable exists, so it cannot be made without an adapterId.
+    const base = {
+      code: 'zz-immigration',
+      name: 'Test pack',
+      version: '1.0.0',
+      vertical: 'immigration',
+      country: 'ZZ',
+      locales: ['en'],
+    };
+
+    const bad = safeValidateConfigPack({
+      ...base,
+      regulators: [
+        { id: 'x', name: 'X', country: 'ZZ', availability: 'adapter' },
+      ],
+    });
+    expect(bad.success).toBe(false);
+
+    const good = safeValidateConfigPack({
+      ...base,
+      regulators: [
+        { id: 'x', name: 'X', country: 'ZZ', availability: 'licence_required' },
+      ],
+    });
+    expect(good.success).toBe(true);
+  });
 
   it('has at least the sections the modules read at runtime', () => {
     // Named explicitly so deleting one from the Zod schema fails here rather
@@ -136,6 +167,57 @@ describe('packs on disk', () => {
   );
 
   it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s only references adapters that actually exist',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      // Read the ids off the adapter classes rather than hardcoding a list, so
+      // adding an adapter does not need this test edited.
+      const adapterDir = path.resolve(__dirname, '../../integrations/adapters');
+      const registered = new Set(
+        fs
+          .readdirSync(adapterDir)
+          .filter((f) => f.endsWith('.adapter.ts'))
+          .flatMap((f) => {
+            const src = fs.readFileSync(path.join(adapterDir, f), 'utf-8');
+            const m = /readonly adapterId = '([^']+)'/.exec(src);
+            return m ? [m[1]] : [];
+          }),
+      );
+
+      // Both packs shipped regulators pointing at adapters that did not exist
+      // — `au-vevo`, `uae-cbuae`, `refinitiv-worldcheck`, `dowjones-rnc`,
+      // `finacle-core`, `uae-local-sanctions`. A dangling adapterId is
+      // invisible until something resolves the regulator, gets `undefined`, and
+      // fails as a missing capability rather than as a broken reference.
+      //
+      // A regulator with no adapter is legitimate — WorldCheck cannot exist in
+      // code until a contract is signed — but it must say so via `availability`
+      // rather than by naming an adapter that isn't there.
+      for (const regulator of result.data.regulators ?? []) {
+        if (regulator.availability === 'adapter') {
+          expect(registered).toContain(regulator.adapterId);
+        } else {
+          expect(regulator.adapterId).toBeUndefined();
+        }
+      }
+
+      // Same hazard in workflow steps that call an adapter — and here it is
+      // not latent: this one executes.
+      for (const workflow of result.data.workflows ?? []) {
+        for (const step of workflow.steps) {
+          if (step.apiAction) {
+            expect(registered).toContain(step.apiAction.adapterId);
+          }
+        }
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
     '%s ships message templates with unique keys and declared variables',
     (_label, file) => {
       const result = safeValidateConfigPack(
@@ -164,4 +246,204 @@ describe('packs on disk', () => {
       }
     },
   );
+});
+
+/**
+ * The behavioural half of the parity guard: a pack carrying every Layer 4
+ * section is loaded through the real loader and the persisted row is inspected.
+ *
+ * The source-text test above catches a *missing key*. This one catches the
+ * subtler version of the same bug — a key that is present but arrives empty, or
+ * a nested block that is flattened on the way through. `entityTypes` was
+ * stripped twice (e8758da) and neither strip was an error; the pack loaded
+ * cleanly and the section simply was not there afterwards.
+ *
+ * No database: the repository is a stub and `runAsSystem` is AsyncLocalStorage
+ * only, so what is asserted is exactly the object the loader hands to TypeORM.
+ */
+describe('a pack with every section survives load → persisted row', () => {
+  // Deliberately terse but *non-empty* everywhere: the failure being defended
+  // against turns a populated section into `[]`, which an emptiness check
+  // would not notice.
+  const fullPack = {
+    code: 'zz-immigration',
+    name: 'Round-trip test pack',
+    version: '9.9.9',
+    vertical: 'immigration',
+    country: 'ZZ',
+    locales: ['en'],
+    roles: [{ key: 'agent', label: 'Agent', permissions: ['case:read'] }],
+    documentTypes: [
+      { key: 'passport', label: 'Passport', acceptedFormats: ['pdf', 'jpg'] },
+    ],
+    entityTypes: [{ type: 'case', label: 'Case', pluralLabel: 'Cases' }],
+    kpis: [{ key: 'open_cases', label: 'Open cases', unit: 'count' }],
+    prompts: [
+      {
+        key: 'summarise',
+        category: 'entity_analysis',
+        prompt: 'Summarise the following entity for a case officer: {{INPUT}}',
+        isCategoryDefault: true,
+      },
+    ],
+    messaging: {
+      templates: [
+        {
+          key: 'welcome',
+          name: 'Welcome',
+          channel: 'email',
+          subject: 'Hello {{name}}',
+          body: 'Hello {{name}}',
+          variables: ['name'],
+        },
+      ],
+      sequences: [
+        {
+          key: 'chase_docs',
+          label: 'Chase documents',
+          trigger: { entityType: 'case', when: { var: 'awaitingDocuments' } },
+          steps: [{ templateKey: 'welcome', afterHours: 24 }],
+        },
+      ],
+    },
+    rules: [
+      { key: 'is_minor', label: 'Applicant is a minor', when: { '<': [{ var: 'age' }, 18] } },
+    ],
+    alertRules: [
+      {
+        key: 'visa_expiring',
+        label: 'Visa expiring',
+        entityType: 'case',
+        when: { '<': [{ var: 'visaExpiry_daysUntil' }, 30] },
+      },
+    ],
+    fees: [
+      {
+        key: 'gov_482',
+        label: 'Subclass 482 charge',
+        kind: 'government',
+        amountMinor: 130000,
+        currency: 'AUD',
+      },
+    ],
+    paymentPlans: [{ key: 'upfront', label: 'Pay upfront', type: 'upfront' }],
+    scoringModels: [
+      {
+        key: 'lead_score',
+        label: 'Lead score',
+        entityType: 'lead',
+        factors: [
+          { key: 'has_sponsor', label: 'Has sponsor', when: { var: 'sponsorId' }, weight: 10 },
+        ],
+      },
+    ],
+    relationships: [
+      {
+        key: 'blocks',
+        label: 'Blocks',
+        fromType: 'task',
+        toType: 'task',
+        blocksCompletion: true,
+      },
+    ],
+    navigation: [{ key: 'cases', label: 'Cases', path: '/cases' }],
+    dashboards: [
+      {
+        key: 'staff_home',
+        label: 'Staff home',
+        widgets: [
+          { key: 'open', label: 'Open', type: 'count', source: 'case' },
+        ],
+      },
+    ],
+    importMappings: [
+      {
+        key: 'leads_csv',
+        label: 'Leads CSV',
+        source: 'csv',
+        targetEntityType: 'lead',
+        fields: [{ from: 'Email', to: 'email', required: true }],
+      },
+    ],
+  };
+
+  let saved: Record<string, any> | undefined;
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meru-packs-'));
+    fs.mkdirSync(path.join(tmpDir, 'zz'));
+    fs.writeFileSync(
+      path.join(tmpDir, 'zz', 'immigration.json'),
+      JSON.stringify(fullPack),
+    );
+
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((x: Record<string, any>) => x),
+      save: jest.fn((x: Record<string, any>) => {
+        saved = x;
+        return Promise.resolve(x);
+      }),
+    };
+
+    const service = new ConfigPackLoaderService(repo as any);
+    // The directory is resolved at construction from a fixed candidate list;
+    // this is the only seam for pointing it at a fixture.
+    (service as unknown as { packsDir: string }).packsDir = tmpDir;
+
+    const report = await service.reload();
+    // If the pack failed validation the loader skips it and logs — which is the
+    // silent mode this whole file exists to make loud.
+    expect(report.errors).toEqual([]);
+    expect(report.inserted).toBe(1);
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const arrays = [
+    'roles',
+    'documentTypes',
+    'entityTypes',
+    'kpis',
+    'prompts',
+    'rules',
+    'alertRules',
+    'fees',
+    'paymentPlans',
+    'scoringModels',
+    'relationships',
+    'navigation',
+    'dashboards',
+    'importMappings',
+  ];
+
+  it.each(arrays)('persists a non-empty "%s"', (key) => {
+    expect(saved?.schema?.[key]).toHaveLength(1);
+  });
+
+  it('persists messaging templates and sequences', () => {
+    expect(saved?.schema?.messaging?.templates).toHaveLength(1);
+    expect(saved?.schema?.messaging?.sequences).toHaveLength(1);
+  });
+
+  it('keeps json-logic conditions intact rather than stringifying them', () => {
+    // A `when` is `z.unknown()`, so nothing in the schema would object if it
+    // arrived as "[object Object]". The evaluators cannot compile that.
+    expect(saved?.schema?.alertRules?.[0].when).toEqual({
+      '<': [{ var: 'visaExpiry_daysUntil' }, 30],
+    });
+    expect(saved?.schema?.rules?.[0].when).toEqual({ '<': [{ var: 'age' }, 18] });
+  });
+
+  it('applies schema defaults on the way through', () => {
+    // Defaults are applied by Zod at parse time, so an author who omits
+    // `cooldownHours` still gets one rather than `undefined` reaching a job
+    // that multiplies by it.
+    expect(saved?.schema?.alertRules?.[0].cooldownHours).toBe(24);
+    expect(saved?.schema?.alertRules?.[0].severity).toBe('warning');
+    expect(saved?.schema?.fees?.[0].basis).toBe('per_case');
+  });
 });

@@ -78,6 +78,15 @@
           "adapterId": {
             "type": "string"
           },
+          "availability": {
+            "default": "adapter",
+            "type": "string",
+            "enum": [
+              "adapter",
+              "licence_required",
+              "planned"
+            ]
+          },
           "sandboxUrl": {
             "type": "string",
             "format": "uri"
@@ -90,8 +99,7 @@
         "required": [
           "id",
           "name",
-          "country",
-          "adapterId"
+          "country"
         ]
       }
     },
@@ -665,7 +673,635 @@
               "body"
             ]
           }
+        },
+        "sequences": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "type": "string"
+              },
+              "trigger": {
+                "type": "object",
+                "properties": {
+                  "entityType": {
+                    "type": "string"
+                  },
+                  "when": {}
+                },
+                "required": [
+                  "entityType",
+                  "when"
+                ]
+              },
+              "steps": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "templateKey": {
+                      "type": "string"
+                    },
+                    "afterHours": {
+                      "default": 0,
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "when": {}
+                  },
+                  "required": [
+                    "templateKey"
+                  ]
+                }
+              },
+              "stopWhen": {},
+              "stopOnReply": {
+                "default": true,
+                "type": "boolean"
+              },
+              "maxMessages": {
+                "default": 5,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "key",
+              "label",
+              "trigger",
+              "steps"
+            ]
+          }
         }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "when": {},
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "default": "error",
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "when"
+        ]
+      }
+    },
+    "alertRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "when": {},
+          "severity": {
+            "default": "warning",
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "templateKey": {
+            "type": "string"
+          },
+          "notifyRoles": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createTask": {
+            "default": false,
+            "type": "boolean"
+          },
+          "escalateAfterHours": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "escalateToRoles": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cooldownHours": {
+            "default": 24,
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "entityType",
+          "when"
+        ]
+      }
+    },
+    "fees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "default": "firm",
+            "type": "string",
+            "enum": [
+              "government",
+              "firm",
+              "disbursement"
+            ]
+          },
+          "amountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "basis": {
+            "default": "per_case",
+            "type": "string",
+            "enum": [
+              "per_case",
+              "per_applicant",
+              "per_dependent"
+            ]
+          },
+          "refundable": {
+            "default": false,
+            "type": "boolean"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "atStep": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "amountMinor",
+          "currency"
+        ]
+      }
+    },
+    "paymentPlans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "default": "upfront",
+            "type": "string",
+            "enum": [
+              "upfront",
+              "installments",
+              "stage_gated"
+            ]
+          },
+          "installmentCount": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "intervalDays": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stages": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "atStep": {
+                  "type": "string"
+                },
+                "portionBps": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "atStep",
+                "portionBps"
+              ]
+            }
+          },
+          "blockProgressOnArrears": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ]
+      }
+    },
+    "scoringModels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "factors": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "when": {},
+                "weight": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "when",
+                "weight"
+              ]
+            }
+          },
+          "bands": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "minScore": {
+                  "type": "number"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "minScore"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "entityType",
+          "factors"
+        ]
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "fromType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cardinality": {
+            "default": "many_to_many",
+            "type": "string",
+            "enum": [
+              "one_to_one",
+              "one_to_many",
+              "many_to_many"
+            ]
+          },
+          "inverseLabel": {
+            "type": "string"
+          },
+          "blocksCompletion": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "fromType",
+          "toType"
+        ]
+      }
+    },
+    "navigation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "roles": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "portal": {
+            "default": "staff",
+            "type": "string",
+            "enum": [
+              "admin",
+              "staff",
+              "client",
+              "platform"
+            ]
+          },
+          "order": {
+            "default": 0,
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "path"
+        ]
+      }
+    },
+    "dashboards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "portal": {
+            "default": "staff",
+            "type": "string",
+            "enum": [
+              "admin",
+              "staff",
+              "client",
+              "platform"
+            ]
+          },
+          "roles": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "widgets": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "kpi",
+                    "count",
+                    "list",
+                    "chart",
+                    "checklist"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "when": {},
+                "span": {
+                  "default": 4,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "type",
+                "source"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ]
+      }
+    },
+    "importMappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "xlsx",
+              "hubspot",
+              "zoho",
+              "salesforce"
+            ]
+          },
+          "targetEntityType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fields": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "required": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "transform": {
+                  "type": "string",
+                  "enum": [
+                    "trim",
+                    "lowercase",
+                    "uppercase",
+                    "date_iso",
+                    "phone_e164",
+                    "country_iso2"
+                  ]
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ]
+            }
+          },
+          "dedupeOn": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "source",
+          "targetEntityType",
+          "fields"
+        ]
       }
     },
     "entityTypes": {
