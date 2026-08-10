@@ -7,6 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobsController } from './jobs.controller';
 import { CronSecretGuard } from './cron-secret.guard';
 import { WorkflowModule } from '../workflow/workflow.module';
+import { RulesModule } from '../rules/rules.module';
 import { BillingModule } from '../billing/billing.module';
 import { QueueModule } from '../queue/queue.module';
 import { TasksModule } from '../tasks/tasks.module';
@@ -28,6 +29,7 @@ import { TenantModule } from '../tenant/tenant.module';
   imports: [
     TypeOrmModule.forFeature([JobRun]),
     WorkflowModule,
+    RulesModule,
     BillingModule,
     QueueModule,
     TasksModule,

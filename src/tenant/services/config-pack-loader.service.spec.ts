@@ -6,6 +6,7 @@ import {
   safeValidateConfigPack,
 } from '../../../packages/config-packs/_schema/pack.schema';
 import { ConfigPackLoaderService } from './config-pack-loader.service';
+import { RuleEvaluatorService } from '../../rules/rule-evaluator.service';
 
 /**
  * The guard against this repo's most repeated config-pack failure: a section is
@@ -212,6 +213,85 @@ describe('packs on disk', () => {
           if (step.apiAction) {
             expect(registered).toContain(step.apiAction.adapterId);
           }
+        }
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s alert rules only reference things that exist',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      const rules = result.data.alertRules ?? [];
+      if (!rules.length) return;
+
+      // Same class of defect as the dangling adapterIds: a rule that names a
+      // role nobody holds, or a template that does not exist, fails at 3am
+      // inside a sweep over a customer's records — and a rule that notifies
+      // nobody is indistinguishable, from the outside, from a rule that never
+      // matched.
+      const roles = new Set((result.data.roles ?? []).map((r) => r.key));
+      const templates = new Set(
+        (result.data.messaging?.templates ?? []).map((t) => t.key),
+      );
+
+      // Read the entity types off the core enum rather than hardcoding them,
+      // so adding one does not need this test edited. A rule scanning a type
+      // core cannot store scans nothing, forever, silently.
+      const entitySource = fs.readFileSync(
+        path.resolve(__dirname, '../../crm/entities/universal-entity.entity.ts'),
+        'utf-8',
+      );
+      const coreTypes = new Set(
+        [...entitySource.matchAll(/^\s{2}[A-Z_]+ = '([a-z_]+)',$/gm)].map(
+          (m) => m[1],
+        ),
+      );
+
+      const ruleKeys = rules.map((r) => r.key);
+      expect(new Set(ruleKeys).size).toBe(ruleKeys.length);
+
+      for (const rule of rules) {
+        expect(coreTypes).toContain(rule.entityType);
+
+        for (const role of [
+          ...(rule.notifyRoles ?? []),
+          ...(rule.escalateToRoles ?? []),
+        ]) {
+          expect(roles).toContain(role);
+        }
+
+        if (rule.templateKey) expect(templates).toContain(rule.templateKey);
+
+        // Escalating to nobody is a no-op that reads like a safety net.
+        if (rule.escalateAfterHours !== null) {
+          expect(rule.escalateToRoles.length).toBeGreaterThan(0);
+        }
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s alert rules compile under the evaluator that will run them',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      // The pack schema types `when` as unknown — it has to, JsonLogic is
+      // recursive and open-ended. So the only thing standing between a typo
+      // and a rule that silently never matches is this: compile every
+      // authored rule with the same evaluator the sweep uses.
+      const evaluator = new RuleEvaluatorService();
+      for (const rule of result.data.alertRules ?? []) {
+        const check = evaluator.validate(rule.when);
+        if (!check.valid) {
+          throw new Error(`alertRules.${rule.key}: ${check.reason}`);
         }
       }
     },

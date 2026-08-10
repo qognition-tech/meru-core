@@ -21,6 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SlaWatchdogService } from '../workflow/services/sla-watchdog.service';
+import { AlertRuleService } from '../rules/alert-rule.service';
 import { BillingService } from '../billing/billing.service';
 import { QueueService } from '../queue/queue.service';
 import { JobProcessor } from '../queue/queue.processor';
@@ -66,6 +67,12 @@ export const JOB_CADENCE_MINUTES = {
   // rows nobody ever sends — it had no transport at all before.
   'notification-dispatch': 1,
   'sla-watchdog': 5,
+  // Pack-driven alert rules. Every 15 minutes rather than daily: an alert
+  // rule can watch a same-day condition (an SLA about to breach, a payment
+  // overdue this morning), and a daily sweep would report it once the window
+  // it was meant to protect had already closed. Repeat notification is bounded
+  // by each rule's own cooldown, not by how often the sweep runs.
+  'alert-rules': 15,
   'scheduled-reports': 60,
   'daily-billing': 1440,
   'regulatory-radar': 1440,
@@ -154,6 +161,7 @@ export class JobsController {
 
   constructor(
     private readonly slaWatchdogService: SlaWatchdogService,
+    private readonly alertRuleService: AlertRuleService,
     private readonly billingService: BillingService,
     private readonly queueService: QueueService,
     private readonly jobProcessor: JobProcessor,
@@ -389,6 +397,11 @@ export class JobsController {
         };
       case 'sla-watchdog':
         return () => this.slaWatchdogService.checkSLAViolations();
+      case 'alert-rules':
+        // Evaluates every tenant's `alertRules[]` against its entities. The
+        // `invalidRules` array in the summary is the one output worth reading:
+        // it names pack rules that could not be compiled and were skipped.
+        return () => this.alertRuleService.sweep();
       case 'scheduled-reports':
         return () => this.analyticsService.processScheduledReports();
       case 'daily-billing':

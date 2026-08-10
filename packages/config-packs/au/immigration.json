@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -807,5 +807,137 @@
         ]
       }
     ]
-  }
+  },
+  "alertRules": [
+    {
+      "key": "visa_expiring_30d",
+      "label": "Visa expires within 30 days",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "visaExpiry_daysUntil"
+              },
+              30
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "visaExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "visa_expired",
+      "label": "Visa has expired",
+      "entityType": "case",
+      "when": {
+        "<": [
+          {
+            "var": "visaExpiry_daysUntil"
+          },
+          0
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 24,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "case_past_due",
+      "label": "Case is past its due date",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 48,
+      "escalateToRoles": [
+        "case_coordinator",
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "documents_outstanding_14d",
+      "label": "Requested documents outstanding for 14 days",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "var": "documentsRequestedAt"
+          },
+          {
+            ">=": [
+              {
+                "var": "documentsRequestedAt_daysSince"
+              },
+              14
+            ]
+          },
+          {
+            "!": {
+              "var": "documentsReceivedAt"
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent"
+      ],
+      "createTask": false,
+      "cooldownHours": 72,
+      "escalateAfterHours": null,
+      "escalateToRoles": []
+    }
+  ]
 }

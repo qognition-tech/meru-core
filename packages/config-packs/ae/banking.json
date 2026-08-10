@@ -2,7 +2,7 @@
   "code": "ae-banking",
   "name": "UAE Banking & GRC Pack",
   "description": "UAE banking governance, risk & compliance — covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "vertical": "banking",
   "country": "AE",
   "locales": [
@@ -1275,5 +1275,174 @@
         ]
       }
     ]
-  }
+  },
+  "alertRules": [
+    {
+      "key": "screening_match_unreviewed_24h",
+      "label": "Screening match awaiting review for 24 hours",
+      "entityType": "screening_match",
+      "when": {
+        "and": [
+          {
+            ">=": [
+              {
+                "var": "createdAt_daysSince"
+              },
+              1
+            ]
+          },
+          {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress"
+              ]
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "kyc_analyst"
+      ],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 48,
+      "escalateToRoles": [
+        "mlro"
+      ]
+    },
+    {
+      "key": "control_test_overdue",
+      "label": "Control test overdue",
+      "entityType": "control_test",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "compliance_officer"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "mlro"
+      ]
+    },
+    {
+      "key": "rfi_response_overdue",
+      "label": "RFI response overdue",
+      "entityType": "rfi",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "relationship_manager"
+      ],
+      "createTask": false,
+      "cooldownHours": 48,
+      "escalateAfterHours": 96,
+      "escalateToRoles": [
+        "compliance_officer"
+      ]
+    },
+    {
+      "key": "milestone_due_14d",
+      "label": "Governance milestone due within 14 days",
+      "entityType": "milestone",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              14
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "info",
+      "notifyRoles": [
+        "compliance_officer"
+      ],
+      "createTask": false,
+      "cooldownHours": 168,
+      "escalateAfterHours": null,
+      "escalateToRoles": []
+    }
+  ]
 }

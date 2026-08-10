@@ -41,6 +41,7 @@ import { TenantConnector } from '../integrations/entities/tenant-connector.entit
 import { Payment } from '../billing/entities/payment.entity';
 import { JobRun } from '../jobs/entities/job-run.entity';
 import { ScreeningResult } from '../ai/entities/screening-result.entity';
+import { AlertFiring } from '../rules/entities/alert-firing.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import {
   Notification,
@@ -93,6 +94,7 @@ export const ALL_ENTITIES = [
   Payment,
   JobRun,
   ScreeningResult,
+  AlertFiring,
   // Search & AI
   SearchIndex,
   AiPrompt,

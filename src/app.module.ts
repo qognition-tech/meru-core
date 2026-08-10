@@ -22,6 +22,7 @@ import { OrchestrationModule } from './orchestration/orchestration.module';
 
 import { DocumentsModule } from './documents/documents.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { RulesModule } from './rules/rules.module';
 import { FormsModule } from './forms/forms.module';
 import { TasksModule } from './tasks/tasks.module';
 import { BillingModule } from './billing/billing.module';
@@ -117,6 +118,7 @@ import { ALL_ENTITIES } from './config/entities';
     OrchestrationModule,
     DocumentsModule,
     WorkflowModule,
+    RulesModule,
     FormsModule,
     TasksModule,
     BillingModule,
