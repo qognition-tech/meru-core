@@ -84,14 +84,41 @@ Cross-vertical AI capability, in `src/ai/engines/`, reachable at `/engines/*`.
 This is the architectural heart. 80% is shared code; the rest is JSON.
 
 ```
-LAYER 4  VERTICAL PACKS (JSON)     immigration · banking · health · tax · labour
-LAYER 3  COUNTRY OVERLAYS (JSON)   AE · AU · KSA · UK · CA — regulators, local rules
+LAYER 4  VERTICAL PACKS (JSON)     grc · immigration  (health · tax · labour next)
+LAYER 3  COUNTRY OVERLAYS (JSON)   AE SA QA BH · AU CA UK NZ — regulators, local rules
 LAYER 2  SPECIALIST ENGINES        radar · screening · doc-intel · vessel
 LAYER 1  14 CORE MODULES (~80%)    IAM TCM CRM SRCH AI WF FORM TASK COM DOC BILL BI AUD INT
 ```
 
-Packs live at `packages/config-packs/<country>/<vertical>.json`. Pack `code` must
-match `^[a-z]{2}-[a-z_]+$` (`au-immigration`) — that is the *code*, not the path.
+### 4.0 Vertical bases, country overlays
+
+```
+packages/config-packs/
+├── verticals/     grc.json · immigration.json        ← the vertical, defined once
+└── countries/     ae-grc.json · sa-grc.json · qa-grc.json · bh-grc.json
+                   au-immigration.json · ca-immigration.json
+                   uk-immigration.json · nz-immigration.json
+```
+
+A country overlay names its base with `extends` and states **only what is
+local**: its regulators, its locales, its own workflows, any threshold it
+raises. The loader resolves the chain and stores the merged result, so every
+reader works without knowing inheritance exists.
+
+Arrays merge **by identity** (`key`/`type`/`id`/`code`), not wholesale — that is
+what makes an overlay worth having: `ae-grc` adds CBUAE without restating eleven
+entity types. Arrays of scalars (`locales`) replace outright.
+
+Pack `code` is `grc` for a base and `au-immigration` for an overlay.
+**`vertical` must be a value in `VerticalType`** — the two disagreed once
+(`banking` vs `grc`) and the GovernanceX tenant resolved to no pack at all, with
+nothing logged, because "this vertical has no pack" is legitimate during
+onboarding.
+
+An unpinned tenant resolves the **base** pack (`VerticalPackService`); a tenant
+that wants its country's overlay pins it explicitly. Five packs answer to
+`vertical = 'grc'`, so an unordered lookup would hand a UAE bank whichever row
+Postgres returned first.
 
 ### 4.1 The nine pack arrays and their evaluators
 
@@ -108,7 +135,7 @@ that has no idea which vertical it serves. **All nine are built.**
 | `scoringModels[]` | `ScoringEngine` — weighted sum + bands | AI |
 | `relationships[]` | `EntityRelationService` → `entity_relations` | CRM |
 | `navigation[]` + `dashboards[]` | `PackUiService` + `PackDashboardService` | TCM + BI |
-| `importMappings[]` | import pipeline | INT — **not built** |
+| `importMappings[]` | `ImportService` — parse → map → dry-run diff → commit | INT |
 
 ### 4.2 Rules for changing the pack schema
 

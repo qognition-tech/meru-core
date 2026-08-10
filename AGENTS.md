@@ -4,8 +4,9 @@
 > documentation. Architecture and rules are in [CLAUDE.md](CLAUDE.md); these two
 > files are the entire documentation surface.
 >
-> *Last verified: 2026-08-11 — 290 routes mapped, 202 unit tests green,
-> 31,579 sanctions entries per database, all three databases on 32 migrations.*
+> *Last verified: 2026-08-11 — 299 unit tests green, 767 API contract checks
+> passing across every operation, 31,579 sanctions entries per database, ten
+> config packs, all three databases on 32 migrations.*
 
 ---
 
@@ -35,9 +36,10 @@ that the pack schema had no vocabulary for 32 of the rows, so each could only
 have been built as vertical code inside `src/`, which is the one thing that
 would break the architecture.
 
-**That bottleneck is now cleared: eight of the nine pack arrays ship with their
-evaluators** (§3). The ninth, `importMappings[]`, has schema and storage but no
-pipeline.
+**That bottleneck is now cleared: all nine pack arrays ship with their
+evaluators** (§3), and the packs are restructured into vertical bases with
+country overlays, so adding a country is one small file rather than a copy of
+the whole vertical.
 
 ### 1.1 What the "143 features" document claims that is not true
 
@@ -103,11 +105,17 @@ running system is large, and the frontend is where a customer sees it.
 | `scoringModels[]` | `ScoringEngine` | lead scoring, visa recommendation, risk scoring — one weighted sum |
 | `relationships[]` | `entity_relations` + traversal | "what blocks this?" was unanswerable; the old jsonb column read one way only |
 | `navigation[]`, `dashboards[]` | `PackUiService`, `PackDashboardService` | three hardcoded sidebars; KPIs that declared a target and computed nothing |
-| `importMappings[]` | — | **not built** |
+| `importMappings[]` | `ImportService` | no way to bring a firm's existing book of clients in at all |
 
-Packs are at **v1.7.0**: `ae/banking.json` (9 entity types, 25 nav items, 2
-dashboards) and `au/immigration.json` (21 nav items, 2 dashboards including the
-client portal).
+**All nine ship.**
+
+Packs are at **v2.1.0** and restructured into vertical bases + country
+overlays: `verticals/{grc,immigration}.json` plus `countries/{ae,sa,qa,bh}-grc`
+and `countries/{au,ca,uk,nz}-immigration` — **ten packs**. GRC carries 11 entity
+types (including `obligation` and `breach`, which existed in the code enum and
+in no pack); immigration carries 6, where it previously declared **zero** —
+the single reason that portal needed ~30 hardcoded pages. Twelve country
+workflows.
 
 ### 3.2 Tenant isolation
 
@@ -178,29 +186,37 @@ already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
 
 | Item | Rows unblocked | Note |
 |---|---|---|
-| **`importMappings[]` pipeline** | 4 | upload → parse → map → **dry-run diff** → commit, at `/integrations/import`. Needs `papaparse` + `exceljs`. The dry-run is the part that stops a bad import |
-| **SLA watchdog actions** | 5 | `sla-watchdog.service.ts` detects breaches and then does nothing (lines 156, 170). Escalation, alerts and TAT all sit on this |
-| **TAT recording** | 3 | per-stage clock on workflow instances; prerequisite for all TAT analytics |
-| **Generic comments** | 3 | tasks have comments, nothing else does. Promote CRM `note` to any entity |
 | **Wire Elasticsearch** | 4 | `src/search/elasticsearch/` is finished and imported by nobody; the facade is Postgres `ILIKE` |
-| **Outbound webhooks** | 1 | `NotificationType.WEBHOOK` exists with no dispatcher |
-| **Retention enforcement** | 1 | `compliance.retentionYears` is declared in packs and enforced nowhere |
 | **Document generation** | 2 | cost agreements, invoice PDFs — `pdf-lib` |
 | **Storage drivers** | 2 | Google Drive, Azure Blob; the provider interface is already right |
 | **Trend analysis / time series** | 3 | BI is point-in-time only |
+| **XLSX import** | 1 | `ImportService` takes CSV; XLSX needs `exceljs` |
+| **CRM importers** | 3 | HubSpot / Zoho / Salesforce — three OAuth apps, one per importer |
+| **Email analytics** | 3 | delivery/open/click events, A/B assignment |
+| **Fraud pattern store** | 1 | cross-tenant duplicate hashing exists; no history to match against |
+| **WebAuthn / passkeys** | 1 | server-side challenge store |
+| **Consultation booking** | 1 | calendar events exist; no bookable-slot model |
+
+Shipped since the last revision of this table: the import pipeline, SLA
+escalation actions, TAT recording and analytics, generic comments, outbound
+webhooks and retention enforcement.
 
 ### 4.2 Pack authoring — not engineering
 
 This is where the immigration BRD actually lives, and it needs a domain author.
 
-- **`au-immigration` has zero `entityTypes` and one workflow.** The banking pack
-  has nine entity types driving nine GovX pages; immigration has none, which is
-  why ImmiStack needed ~30 hardcoded pages. Author `entityTypes` plus the
-  Student / PR / 485 / Tourist workflows.
-- **`ae-banking` is missing `obligation` and `breach`** from `entityTypes`
-  although both exist in the code enum — so those two pages have no vocabulary.
-- Author `ca-immigration`, `uk-immigration`, `nz-immigration`, `ksa-banking`,
-  `qa-banking`. The adapters exist; only the JSON is missing.
+Done: immigration `entityTypes` (6), GRC `obligation`/`breach`, and the AU / CA
+/ UK / NZ and AE / SA / QA / BH overlays with twelve country workflows.
+
+Still to author, and it is domain work rather than engineering:
+
+- **Per-subclass document checklists and eligibility rules.** The workflows
+  exist; the `documentTypes` behind each subclass are still the vertical's
+  generic five.
+- **Country-specific `alertRules`** — visa expiry windows differ per
+  jurisdiction, and the generic 90-day rule is a placeholder.
+- **Health, tax, labour and education verticals**, if those are still on the
+  roadmap. Each is one base pack.
 
 ### 4.3 Decisions needed from the business
 
