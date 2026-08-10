@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import {
@@ -75,6 +76,24 @@ export class NotificationDispatchService {
           continue;
         }
 
+        if (notification.type === NotificationType.WEBHOOK) {
+          const sent = await this.dispatchWebhook(notification);
+          if (sent) {
+            notification.status = NotificationStatus.SENT;
+            notification.sentAt = new Date();
+            delivered += 1;
+          } else {
+            notification.retryCount = (notification.retryCount ?? 0) + 1;
+            notification.status =
+              notification.retryCount >= 3
+                ? NotificationStatus.FAILED
+                : NotificationStatus.RETRYING;
+            failed += 1;
+          }
+          await this.notificationRepo.save(notification);
+          continue;
+        }
+
         if (notification.type !== NotificationType.EMAIL) {
           this.recordAttempt(
             notification,
@@ -138,6 +157,91 @@ export class NotificationDispatchService {
       }
       return { processed: due.length, delivered, failed, skipped };
     });
+  }
+
+  /**
+   * POST a webhook notification to the URL it carries.
+   *
+   * `NotificationType.WEBHOOK` existed in the enum with no dispatcher, so every
+   * webhook row sat pending forever — a channel the API advertised and never
+   * delivered on.
+   *
+   * Signed with HMAC-SHA256 over the exact bytes sent, using the tenant's
+   * `WEBHOOK_SIGNING_SECRET`. Unsigned webhooks are worse than none: the
+   * receiver has no way to distinguish our call from anyone who learned the
+   * URL, and the whole point of the channel is to trigger action in another
+   * system. When no secret is configured the call still goes out and the
+   * signature header is omitted, so the receiver can tell the difference
+   * rather than trusting an empty string.
+   */
+  private async dispatchWebhook(notification: Notification): Promise<boolean> {
+    const metadata = (notification.metadata ?? {}) as {
+      url?: string;
+      customData?: Record<string, unknown>;
+    };
+    const url = metadata.url ?? (metadata.customData?.url as string | undefined);
+
+    if (!url) {
+      this.recordAttempt(
+        notification,
+        false,
+        'webhook notification carries no target url in metadata.url',
+      );
+      return false;
+    }
+
+    const payload = JSON.stringify({
+      id: notification.id,
+      tenantId: notification.tenantId,
+      category: notification.category,
+      subject: notification.subject,
+      content: notification.content,
+      data: notification.templateData ?? {},
+      sentAt: new Date().toISOString(),
+    });
+
+    const secret = process.env.WEBHOOK_SIGNING_SECRET;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'meru-core-webhooks/1',
+      'X-Meru-Notification-Id': notification.id,
+    };
+    if (secret) {
+      headers['X-Meru-Signature'] = crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: payload,
+        // A receiver that hangs must not hold the dispatch sweep open — the
+        // rest of the tenant's notifications are behind it.
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) {
+        this.recordAttempt(
+          notification,
+          false,
+          `webhook returned HTTP ${response.status}`,
+        );
+        return false;
+      }
+
+      this.recordAttempt(notification, true);
+      return true;
+    } catch (err) {
+      this.recordAttempt(
+        notification,
+        false,
+        `webhook request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
   }
 
   private async resolveEmail(

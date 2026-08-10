@@ -30,6 +30,7 @@ import { TaskService } from '../tasks/task.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AuditService } from '../audit/audit.service';
+import { RetentionService } from '../audit/retention.service';
 import { RegulatoryRadarEngine } from '../ai/engines/regulatory-radar.engine';
 import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
@@ -177,6 +178,7 @@ export class JobsController {
     private readonly notificationsService: NotificationsService,
     private readonly analyticsService: AnalyticsService,
     private readonly auditService: AuditService,
+    private readonly retentionService: RetentionService,
     private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
     private readonly jobRunService: JobRunService,
@@ -423,7 +425,10 @@ export class JobsController {
       case 'regulatory-radar':
         return () => this.regulatoryRadar.scheduledScan();
       case 'audit-archive':
-        return () => this.auditService.archiveOldLogs();
+        // Pack-driven per tenant, replacing a hardcoded 365 days that ignored
+        // `compliance.retentionYears` entirely — the platform was stating a
+        // retention period to regulators and keeping a different one.
+        return () => this.retentionService.sweep();
       case 'watchlist-ingest':
         return async () => {
           const result = await this.watchlistIngest.ingestAll();

@@ -5,6 +5,7 @@ import { CrmService } from './crm.service';
 import { UniversalEntity } from './entities/universal-entity.entity';
 import { EntityRelation } from './entities/entity-relation.entity';
 import { EntityRelationService } from './entity-relation.service';
+import { CommentService } from './comment.service';
 import { TenantModule } from '../tenant/tenant.module';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
 import { CoreModule } from '../core/core.module';
@@ -29,7 +30,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [CrmController],
-  providers: [CrmService, EntityRelationService],
-  exports: [CrmService, EntityRelationService],
+  providers: [CrmService, EntityRelationService, CommentService],
+  exports: [CrmService, EntityRelationService, CommentService],
 })
 export class CrmModule {}

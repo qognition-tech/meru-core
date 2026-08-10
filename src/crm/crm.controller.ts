@@ -19,6 +19,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
@@ -29,6 +30,8 @@ import { PolicyGuard } from '../iam/guards/policy.guard';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { UserPayload, type AuthenticatedRequest } from '../common/types';
 import { EntityRelationService } from './entity-relation.service';
+import { CommentService } from './comment.service';
+import { AddCommentDto } from './dto/add-comment.dto';
 import { LinkEntitiesDto } from './dto/link-entities.dto';
 import { paginated } from '../common/paginated';
 
@@ -38,7 +41,66 @@ export class CrmController {
   constructor(
     private crmService: CrmService,
     private relations: EntityRelationService,
+    private readonly comments: CommentService,
   ) {}
+
+  // ==================== COMMENTS ====================
+  //
+  // Any record, not just tasks. Document annotations, case file notes and
+  // breach investigation notes are one feature wearing three names.
+
+  @Post('entities/:id/comments')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Comment on a record' })
+  @ApiResponse({ status: 201, description: 'Comment added' })
+  @ApiResponse({ status: 400, description: 'Empty body, or no such record here' })
+  addComment(
+    @Request() req: ExpressRequest,
+    @Param('id') id: string,
+    @Body() dto: AddCommentDto,
+  ) {
+    const user = req.user as UserPayload;
+    return this.comments.add(user.tenantId, 'record', id, {
+      body: dto.body,
+      authorId: user.id,
+      internal: dto.internal,
+    });
+  }
+
+  @Get('entities/:id/comments')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Comments on a record, oldest first',
+    description:
+      'Internal notes are withheld unless `includeInternal=true` is asked for ' +
+      'explicitly — the client portal reads this route too, and a default ' +
+      'that leaks is a default that will leak.',
+  })
+  @ApiQuery({ name: 'includeInternal', required: false, type: Boolean })
+  listComments(
+    @Request() req: ExpressRequest,
+    @Param('id') id: string,
+    @Query('includeInternal') includeInternal?: string,
+  ) {
+    const user = req.user as UserPayload;
+    return this.comments.list(user.tenantId, id, {
+      includeInternal: includeInternal === 'true',
+    });
+  }
+
+  @Delete('entities/comments/:id')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Remove a comment',
+    description: 'Soft delete — a file note is part of the record.',
+  })
+  removeComment(@Request() req: ExpressRequest, @Param('id') id: string) {
+    const user = req.user as UserPayload;
+    return this.comments.remove(user.tenantId, id);
+  }
 
   @Post('entities')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
