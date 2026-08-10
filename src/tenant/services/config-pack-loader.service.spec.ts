@@ -298,6 +298,54 @@ describe('packs on disk', () => {
   );
 
   it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
+    '%s fees and payment plans are chargeable as authored',
+    (_label, file) => {
+      const result = safeValidateConfigPack(
+        JSON.parse(fs.readFileSync(file, 'utf-8')),
+      );
+      if (!result.success) throw new Error('pack did not validate');
+
+      const fees = result.data.fees ?? [];
+      const plans = result.data.paymentPlans ?? [];
+      if (!fees.length && !plans.length) return;
+
+      // Every step id the pack's workflows actually define. A fee or a stage
+      // pinned to a step that does not exist is never collected and never
+      // gates anything — the same dangling-reference class as the adapter ids.
+      const steps = new Set(
+        (result.data.workflows ?? []).flatMap((w) => w.steps.map((s) => s.id)),
+      );
+
+      const feeKeys = fees.map((f) => f.key);
+      expect(new Set(feeKeys).size).toBe(feeKeys.length);
+
+      for (const fee of fees) {
+        expect(fee.currency).toMatch(/^[A-Z]{3}$/);
+        // Money is minor units and integral. A fractional cent in a regulated
+        // ledger is a reportable incident, not a rounding preference.
+        expect(Number.isInteger(fee.amountMinor)).toBe(true);
+        if (fee.atStep) expect(steps).toContain(fee.atStep);
+        // A government charge that is refundable is almost always an
+        // authoring slip — regulators do not refund lodgement fees.
+        if (fee.kind === 'government') expect(fee.refundable).toBe(false);
+      }
+
+      for (const plan of plans) {
+        if (plan.type !== 'stage_gated') continue;
+
+        expect(plan.stages.length).toBeGreaterThan(0);
+        const total = plan.stages.reduce((sum, s) => sum + s.portionBps, 0);
+        // The expander refuses these at runtime; catching it here means a
+        // pack author finds out at review rather than a client finds out from
+        // an invoice for 90% of the fee.
+        expect(total).toBe(10_000);
+
+        for (const stage of plan.stages) expect(steps).toContain(stage.atStep);
+      }
+    },
+  );
+
+  it.each(files.map((f) => [path.basename(path.dirname(f)) + '/' + path.basename(f), f]))(
     '%s messaging sequences only reference templates that exist, and can stop',
     (_label, file) => {
       const result = safeValidateConfigPack(

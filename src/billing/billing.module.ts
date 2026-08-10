@@ -15,9 +15,13 @@ import { Tenant } from '../iam/entities/tenant.entity';
 import { Payment } from './entities/payment.entity';
 import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
+import { FeeScheduleService } from './fee-schedule.service';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
 
 @Module({
   imports: [
+    // Layer 4: the vertical's fee schedule and payment plans.
+    VerticalPackModule,
     TypeOrmModule.forFeature([
       BillingPlan,
       Subscription,
@@ -31,7 +35,7 @@ import { PaymentsController } from './payments.controller';
     SearchModule,
   ],
   controllers: [BillingController, StripeWebhookController, PaymentsController],
-  providers: [BillingService, StripeService, PaymentsService],
-  exports: [BillingService, StripeService, PaymentsService],
+  providers: [BillingService, StripeService, PaymentsService, FeeScheduleService],
+  exports: [BillingService, StripeService, PaymentsService, FeeScheduleService],
 })
 export class BillingModule {}

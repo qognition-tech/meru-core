@@ -92,6 +92,32 @@ export class Payment {
   @Index({ unique: true, where: '"providerRef" IS NOT NULL' })
   providerRef: string | null;
 
+  /**
+   * Whose money this is. `government` is collected on the regulator's behalf
+   * and is usually non-refundable and not revenue; `firm` is the firm's own
+   * charge; `disbursement` is a third-party cost passed through.
+   *
+   * Null for a payment recorded by hand rather than expanded from a config
+   * pack's `fees[]`.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  feeKind: 'government' | 'firm' | 'disbursement' | null;
+
+  /** `fees[].key` from the pack this was expanded from. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  feeKey: string | null;
+
+  /** `paymentPlans[].key` this instalment belongs to. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  planKey: string | null;
+
+  /**
+   * The workflow step this portion is due at. What the payment gate reads:
+   * progress past this step is blocked while the portion is unsettled.
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  atStep: string | null;
+
   @Column({ type: 'jsonb', default: {} })
   metadata: Record<string, unknown>;
 

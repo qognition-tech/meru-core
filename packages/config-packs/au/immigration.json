@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australia Immigration Pack",
   "description": "Australian immigration and visa management pack — covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "vertical": "immigration",
   "country": "AU",
   "locales": [
@@ -998,6 +998,98 @@
       "cooldownHours": 72,
       "escalateAfterHours": null,
       "escalateToRoles": []
+    }
+  ],
+  "fees": [
+    {
+      "key": "gov_482_primary",
+      "label": "Subclass 482 application charge — primary applicant",
+      "kind": "government",
+      "amountMinor": 305000,
+      "currency": "AUD",
+      "basis": "per_case",
+      "refundable": false,
+      "reference": "Migration Regulations 1994, Schedule 1, item 1237",
+      "atStep": "lodgement"
+    },
+    {
+      "key": "gov_482_dependent",
+      "label": "Subclass 482 application charge — each dependent",
+      "kind": "government",
+      "amountMinor": 153000,
+      "currency": "AUD",
+      "basis": "per_dependent",
+      "refundable": false,
+      "reference": "Migration Regulations 1994, Schedule 1, item 1237",
+      "atStep": "lodgement"
+    },
+    {
+      "key": "firm_professional_482",
+      "label": "Professional fees — subclass 482",
+      "kind": "firm",
+      "amountMinor": 350000,
+      "currency": "AUD",
+      "basis": "per_case",
+      "refundable": true
+    },
+    {
+      "key": "disb_health_examination",
+      "label": "Health examination (panel physician)",
+      "kind": "disbursement",
+      "amountMinor": 40000,
+      "currency": "AUD",
+      "basis": "per_applicant",
+      "refundable": false,
+      "atStep": "document_collection"
+    },
+    {
+      "key": "disb_police_check",
+      "label": "Police clearance certificate",
+      "kind": "disbursement",
+      "amountMinor": 5200,
+      "currency": "AUD",
+      "basis": "per_applicant",
+      "refundable": false,
+      "atStep": "document_collection"
+    }
+  ],
+  "paymentPlans": [
+    {
+      "key": "upfront",
+      "label": "Pay in full on engagement",
+      "type": "upfront",
+      "blockProgressOnArrears": false
+    },
+    {
+      "key": "staged_482",
+      "label": "Staged — engagement, lodgement, decision",
+      "type": "stage_gated",
+      "stages": [
+        {
+          "atStep": "intake",
+          "portionBps": 3000,
+          "label": "On engagement"
+        },
+        {
+          "atStep": "lodgement",
+          "portionBps": 5000,
+          "label": "On lodgement"
+        },
+        {
+          "atStep": "dha_processing",
+          "portionBps": 2000,
+          "label": "On decision"
+        }
+      ],
+      "blockProgressOnArrears": true
+    },
+    {
+      "key": "three_monthly",
+      "label": "Three monthly instalments",
+      "type": "installments",
+      "installmentCount": 3,
+      "intervalDays": 30,
+      "blockProgressOnArrears": false
     }
   ]
 }

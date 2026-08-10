@@ -13,6 +13,7 @@ import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -28,6 +29,8 @@ import { TasksModule } from '../tasks/tasks.module';
     AuditModule,
     NotificationsModule,
     TasksModule,
+    // The payment gate reads the pack's payment plans and the case's arrears.
+    forwardRef(() => BillingModule),
   ],
   controllers: [WorkflowController],
   providers: [WorkflowEngineService, SlaWatchdogService],

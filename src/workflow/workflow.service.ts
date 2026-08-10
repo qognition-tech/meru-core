@@ -38,6 +38,7 @@ import {
   NotificationCategory,
 } from '../notifications/entities/notification.entity';
 import { TaskService, CreateTaskDto } from '../tasks/task.service';
+import { FeeScheduleService } from '../billing/fee-schedule.service';
 
 export interface TransitionRequest {
   instanceId: string;
@@ -91,6 +92,8 @@ export class WorkflowEngineService {
     private documentHubService: DocumentHubService,
     private notificationsService: NotificationsService,
     private taskService: TaskService,
+    @Inject(forwardRef(() => FeeScheduleService))
+    private feeScheduleService: FeeScheduleService,
   ) {}
 
   // ==================== WORKFLOW DEFINITION ====================
@@ -335,6 +338,33 @@ export class WorkflowEngineService {
     // Check permissions
     if (!this.checkPermissions(transition.permissions, request.userId)) {
       throw new BadRequestException('Insufficient permissions');
+    }
+
+    // The payment gate — "case freeze on non-payment" (parity map §5.1).
+    //
+    // The pack's `paymentPlans[].blockProgressOnArrears` declares it and WF
+    // enforces it here, keyed on the state being *left*: a stage-gated portion
+    // is due at a step, so progress past that step is what the arrears block.
+    // Silent unless a plan opts in, so a firm that never asked for frozen
+    // cases cannot have its workflows stopped by someone authoring a fee
+    // schedule.
+    //
+    // This relies on the workflow state's `name` being the pack step id it was
+    // built from. Where a workflow was created by hand with unrelated state
+    // names, no portion will match and the gate is inert rather than wrong.
+    const blocking = await this.feeScheduleService.arrearsBlocking(
+      instance.tenantId,
+      instance.vertical ?? null,
+      instance.entityId,
+      instance.currentState.name,
+    );
+    if (blocking.length) {
+      const total = blocking.reduce((sum, p) => sum + Number(p.amountMinor), 0);
+      throw new BadRequestException(
+        `Cannot progress past '${instance.currentState.name}': ` +
+          `${blocking.length} payment(s) totalling ${total} ${blocking[0].currency} ` +
+          `(minor units) are outstanding at this step.`,
+      );
     }
 
     // Execute transition
