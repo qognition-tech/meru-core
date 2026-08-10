@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { WorkflowController } from './workflow.controller';
 import { WorkflowEngineService } from './workflow.service';
 import { SlaWatchdogService } from './services/sla-watchdog.service';
+import { TatService } from './services/tat.service';
 import { Workflow } from './entities/workflow.entity';
 import { WorkflowState } from './entities/workflow-state.entity';
 import { WorkflowTransition } from './entities/workflow-transition.entity';
@@ -33,7 +34,7 @@ import { BillingModule } from '../billing/billing.module';
     forwardRef(() => BillingModule),
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowEngineService, SlaWatchdogService],
-  exports: [WorkflowEngineService, SlaWatchdogService],
+  providers: [WorkflowEngineService, SlaWatchdogService, TatService],
+  exports: [WorkflowEngineService, SlaWatchdogService, TatService],
 })
 export class WorkflowModule {}

@@ -165,10 +165,35 @@ export class SlaWatchdogService {
         // does not model yet, so it is deliberately not faked here.
         await this.notifyRecipients(instance, escalation.notify, 'escalate');
         break;
-      case 'auto_approve':
-        this.logger.log(`Auto-approving due to SLA breach`);
-        // TODO: Execute auto-transition
+      case 'auto_approve': {
+        // Take the first transition out of the current state, as the
+        // configured actor. Deliberately only the first: an auto-approval that
+        // guessed between two branches would be inventing a decision nobody
+        // made, and an unmoved instance is recoverable where a wrongly
+        // approved one is not.
+        const moved = await this.workflowService
+          .getAvailableTransitions(instance.id)
+          .then((available) => available[0])
+          .catch(() => undefined);
+
+        if (!moved) {
+          this.logger.warn(
+            `Cannot auto-approve instance ${instance.id}: no available transition`,
+          );
+          break;
+        }
+
+        await this.workflowService.transition({
+          instanceId: instance.id,
+          transitionId: moved.id,
+          userId: instance.startedBy,
+          context: { autoApprovedBySlaBreach: true },
+        });
+        this.logger.log(
+          `Auto-approved instance ${instance.id} via transition ${moved.id} after SLA breach`,
+        );
         break;
+      }
       case 'cancel':
         this.logger.log(`Cancelling workflow due to SLA breach`);
         await this.instanceRepo.update(instance.id, {

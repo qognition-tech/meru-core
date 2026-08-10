@@ -18,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { WorkflowEngineService } from './workflow.service';
+import { TatService } from './services/tat.service';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { StartWorkflowDto } from './dto/start-workflow.dto';
 import { TransitionDto } from './dto/transition.dto';
@@ -28,7 +29,53 @@ import { PolicyGuard } from '../iam/guards/policy.guard';
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class WorkflowController {
-  constructor(private workflowService: WorkflowEngineService) {}
+  constructor(
+    private workflowService: WorkflowEngineService,
+    private readonly tat: TatService,
+  ) {}
+
+  // ==================== TURNAROUND TIME ====================
+  //
+  // Declared before the `:id` routes below: Nest matches in declaration order,
+  // and `instances/tat` would otherwise be read as an instance id.
+
+  @Get('tat')
+  @ApiOperation({
+    summary: 'Stage turnaround times, aggregated across instances',
+    description:
+      'Median and p90 alongside the mean, because one stalled case moves a ' +
+      'mean on its own. Stages still in progress are excluded — an open stage ' +
+      'has not turned around yet. `breachRate: null` means no entry in that ' +
+      'stage declared an SLA to breach.',
+  })
+  @ApiQuery({ name: 'workflowId', required: false })
+  @ApiQuery({ name: 'since', required: false, description: 'ISO date' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async tatAggregate(
+    @Request() req,
+    @Query('workflowId') workflowId?: string,
+    @Query('since') since?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.tat.aggregate(req.user.tenantId, {
+      workflowId,
+      since: since ? new Date(since) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('instances/:id/tat')
+  @ApiOperation({
+    summary: 'Per-stage turnaround for one instance',
+    description:
+      'Derived from the instance transition history, so it cannot drift from ' +
+      'the record it describes. The final entry is the stage the record is ' +
+      'in now and is marked `open`.',
+  })
+  @ApiResponse({ status: 404, description: 'No such instance for this tenant' })
+  async tatForInstance(@Request() req, @Param('id') id: string) {
+    return this.tat.forInstance(req.user.tenantId, id);
+  }
 
   // ==================== WORKFLOW DEFINITIONS ====================
 
