@@ -89,6 +89,7 @@ export class NotificationsService {
       priority: options.priority || NotificationPriority.NORMAL,
       category: options.category || NotificationCategory.SYSTEM,
       recipientId: options.recipientId,
+      threadKey: this.threadKeyFor(options),
       subject: options.subject,
       content: options.content,
       metadata: options.metadata || {},
@@ -574,6 +575,7 @@ export class NotificationsService {
       priority: options.priority || NotificationPriority.NORMAL,
       category: options.category || NotificationCategory.SYSTEM,
       recipientId: options.recipientId,
+      threadKey: this.threadKeyFor(options),
       subject: options.subject,
       content: options.content,
       metadata: options.metadata || {},
@@ -584,5 +586,22 @@ export class NotificationsService {
     });
 
     return this.notificationRepo.save(notification);
+  }
+
+  /**
+   * The thread this message belongs to, from the best identifier available.
+   *
+   * `sendNotification` is usually handed a `recipientId` and no address — the
+   * dispatcher resolves that later — so the key starts out id-based and
+   * `NotificationDispatchService` re-keys it once it knows the address. Both
+   * ends use the same derivation on purpose: two derivations means two threads
+   * for one person, and nobody notices until a client asks why half their
+   * correspondence is missing.
+   */
+  private threadKeyFor(options: SendNotificationOptions): string {
+    const metadata = (options.metadata ?? {}) as { email?: string; phone?: string };
+    const counterparty =
+      metadata.email || metadata.phone || options.recipientId;
+    return `${options.type}:${String(counterparty).trim().toLowerCase()}`;
   }
 }

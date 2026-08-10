@@ -46,12 +46,26 @@ export enum NotificationCategory {
   COLLABORATION = 'collaboration',
 }
 
+/**
+ * Which way a message travelled.
+ *
+ * Everything COM has ever recorded is `OUTBOUND`. `INBOUND` exists because a
+ * thread with only one side is a send log wearing an inbox's clothes, and the
+ * provider webhook that fills it in should not need a schema change to land.
+ */
+export enum NotificationDirection {
+  OUTBOUND = 'outbound',
+  INBOUND = 'inbound',
+}
+
 @Entity('notifications')
 @Index(['tenantId', 'recipientId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'createdAt'])
+// The thread read: "this counterparty's correspondence, oldest first".
+@Index(['tenantId', 'threadKey', 'createdAt'])
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -88,6 +102,23 @@ export class Notification {
     default: NotificationCategory.SYSTEM,
   })
   category: NotificationCategory;
+
+  /**
+   * Groups every message exchanged with one counterparty on one channel.
+   *
+   * `channel:counterparty`, derived by `ThreadService.deriveKey`. Nullable only
+   * so the column could be added without rewriting the table in one statement;
+   * every write sets it and the migration backfilled the history.
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  threadKey: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: NotificationDirection.OUTBOUND,
+  })
+  direction: NotificationDirection;
 
   @Column()
   recipientId: string;

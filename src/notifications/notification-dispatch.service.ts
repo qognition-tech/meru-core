@@ -96,6 +96,17 @@ export class NotificationDispatchService {
           continue;
         }
 
+        // Persist what the address turned out to be, and re-key the thread if
+        // the row was created before anyone knew it. A message keyed by user id
+        // and its reply keyed by address are the same conversation, and leaving
+        // them in two threads is invisible until a client asks where the rest
+        // of their correspondence went.
+        notification.recipientEmail = address;
+        const addressKey = `${notification.type}:${address.trim().toLowerCase()}`;
+        if (notification.threadKey !== addressKey) {
+          notification.threadKey = addressKey;
+        }
+
         const result = await this.mailService.send({
           to: address,
           subject: notification.subject || 'Notification',

@@ -267,3 +267,43 @@ export class MarkAsReadDto {
   @IsString({ each: true })
   notificationIds: string[];
 }
+
+/**
+ * A message a human sends from the UI.
+ *
+ * Deliberately not `SendNotificationDto`: that one addresses a platform *user*
+ * by id, and a client with no login has an email address and nothing else.
+ */
+export class SendThreadMessageDto {
+  @ApiProperty({
+    description: 'Channel to send on',
+    enum: NotificationType,
+    example: NotificationType.EMAIL,
+  })
+  @IsEnum(NotificationType)
+  channel: NotificationType;
+
+  @ApiProperty({
+    description: "Counterparty's email address or phone number",
+    example: 'jane@example.com',
+  })
+  @IsString()
+  to: string;
+
+  @ApiProperty({ description: 'Subject line', example: 'Your 482 application' })
+  @IsString()
+  subject: string;
+
+  @ApiProperty({ description: 'Message body', example: 'We have lodged your application.' })
+  @IsString()
+  content: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Anything the UI wants recorded against the message — `entityId` and ' +
+      '`entityType` link it to a case without threading on the case.',
+  })
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, any>;
+}

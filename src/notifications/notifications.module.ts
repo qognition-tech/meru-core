@@ -15,6 +15,8 @@ import { SequenceRunnerService } from './sequence-runner.service';
 import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
+import { ThreadService } from './thread.service';
+import { CommunicationsController } from './communications.controller';
 
 @Module({
   imports: [
@@ -38,12 +40,14 @@ import { Tenant } from '../iam/entities/tenant.entity';
     NotificationsService,
     NotificationDispatchService,
     SequenceRunnerService,
+    ThreadService,
   ],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, CommunicationsController],
   exports: [
     NotificationsService,
     NotificationDispatchService,
     SequenceRunnerService,
+    ThreadService,
   ],
 })
 export class NotificationsModule {}
