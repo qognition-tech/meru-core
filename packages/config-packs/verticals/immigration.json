@@ -1,35 +1,11 @@
 {
-  "code": "au-immigration",
-  "name": "Australia Immigration Pack",
-  "description": "Australian immigration and visa management pack \u2014 covers 482, 186, 187, student, visitor, and partner visas. Wired to Department of Home Affairs.",
-  "version": "1.7.0",
+  "code": "immigration",
+  "name": "Immigration Practice Management",
+  "description": "Shared immigration vocabulary \u2014 every country overlay inherits this.",
+  "version": "2.0.0",
   "vertical": "immigration",
-  "country": "AU",
   "locales": [
-    "en-AU"
-  ],
-  "regulators": [
-    {
-      "id": "au-home-affairs",
-      "name": "Department of Home Affairs",
-      "country": "AU",
-      "baseUrl": "https://immi.homeaffairs.gov.au/api",
-      "sandboxUrl": "https://sandbox.immi.homeaffairs.gov.au/api",
-      "authMethod": "oauth2",
-      "adapterId": "au-home-affairs",
-      "documentation": "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing",
-      "availability": "adapter"
-    },
-    {
-      "id": "au-vevo",
-      "name": "Visa Entitlement Verification Online (VEVO)",
-      "country": "AU",
-      "baseUrl": "https://vevo.homeaffairs.gov.au/EvInquiryWeb",
-      "authMethod": "api_key",
-      "adapterId": "au-home-affairs",
-      "documentation": "https://immi.homeaffairs.gov.au/visas/already-have-a-visa/check-visa-details-and-conditions/check-conditions-online",
-      "availability": "adapter"
-    }
+    "en"
   ],
   "roles": [
     {
@@ -1695,6 +1671,271 @@
           "type": "checklist",
           "source": "documentTypes",
           "span": 12
+        }
+      ]
+    }
+  ],
+  "entityTypes": [
+    {
+      "type": "lead",
+      "label": "Lead",
+      "pluralLabel": "Leads",
+      "module": "crm",
+      "workable": true,
+      "statusLabels": {
+        "open": "New",
+        "in_progress": "Contacted",
+        "blocked": "Unqualified",
+        "resolved": "Qualified",
+        "closed": "Converted",
+        "cancelled": "Lost"
+      },
+      "fields": [
+        {
+          "key": "source",
+          "label": "Source",
+          "type": "select",
+          "options": [
+            "website",
+            "referral",
+            "whatsapp",
+            "agent",
+            "event",
+            "social",
+            "other"
+          ],
+          "required": true
+        },
+        {
+          "key": "visaInterest",
+          "label": "Visa Interest",
+          "type": "text"
+        },
+        {
+          "key": "nationality",
+          "label": "Nationality",
+          "type": "country"
+        },
+        {
+          "key": "destinationCountry",
+          "label": "Destination",
+          "type": "country"
+        },
+        {
+          "key": "score",
+          "label": "Lead Score",
+          "type": "number"
+        },
+        {
+          "key": "consultationBookedAt",
+          "label": "Consultation Booked",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "person",
+      "label": "Client",
+      "pluralLabel": "Clients",
+      "module": "crm",
+      "workable": false,
+      "fields": [
+        {
+          "key": "passportNumber",
+          "label": "Passport Number",
+          "type": "text"
+        },
+        {
+          "key": "nationality",
+          "label": "Nationality",
+          "type": "country",
+          "required": true
+        },
+        {
+          "key": "dateOfBirth",
+          "label": "Date of Birth",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "currentVisa",
+          "label": "Current Visa",
+          "type": "text"
+        },
+        {
+          "key": "visaExpiry",
+          "label": "Visa Expiry",
+          "type": "date"
+        },
+        {
+          "key": "preferredLanguage",
+          "label": "Preferred Language",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "case",
+      "label": "Application",
+      "pluralLabel": "Applications",
+      "module": "cases",
+      "workable": true,
+      "statusLabels": {
+        "open": "Preparing",
+        "in_progress": "Lodged",
+        "blocked": "Awaiting Payment / Documents",
+        "resolved": "Granted",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "visaSubclass",
+          "label": "Visa Subclass",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "applicantId",
+          "label": "Applicant",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "lodgedAt",
+          "label": "Lodged",
+          "type": "date"
+        },
+        {
+          "key": "decisionDueAt",
+          "label": "Decision Due",
+          "type": "date"
+        },
+        {
+          "key": "visaExpiry",
+          "label": "Visa Expiry",
+          "type": "date"
+        },
+        {
+          "key": "documentsComplete",
+          "label": "Documents Complete",
+          "type": "boolean"
+        },
+        {
+          "key": "sponsorName",
+          "label": "Sponsor",
+          "type": "text"
+        },
+        {
+          "key": "governmentRef",
+          "label": "Government Reference",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "rfi",
+      "label": "Document Request",
+      "pluralLabel": "Document Requests",
+      "module": "forms",
+      "workable": true,
+      "statusLabels": {
+        "open": "Requested",
+        "in_progress": "Partially Supplied",
+        "blocked": "Overdue",
+        "resolved": "Supplied",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "caseId",
+          "label": "Application",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "requestedDocuments",
+          "label": "Documents Requested",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "dueAt",
+          "label": "Due",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "chaseCount",
+          "label": "Times Chased",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "obligation",
+      "label": "Sponsor Obligation",
+      "pluralLabel": "Sponsor Obligations",
+      "module": "cases",
+      "workable": true,
+      "statusLabels": {
+        "open": "Active",
+        "in_progress": "In Progress",
+        "blocked": "At Risk",
+        "resolved": "Met",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "sponsorName",
+          "label": "Sponsor",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "obligationType",
+          "label": "Obligation",
+          "type": "select",
+          "options": [
+            "market_salary",
+            "record_keeping",
+            "training_levy",
+            "notify_changes",
+            "no_recovery_of_costs"
+          ],
+          "required": true
+        },
+        {
+          "key": "nextDueAt",
+          "label": "Next Due",
+          "type": "date",
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": "knowledge_article",
+      "label": "Guidance Note",
+      "pluralLabel": "Knowledge Base",
+      "module": "knowledge_base",
+      "workable": false,
+      "fields": [
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "text"
+        },
+        {
+          "key": "sourceUrl",
+          "label": "Official Source",
+          "type": "text"
+        },
+        {
+          "key": "lastReviewedAt",
+          "label": "Last Reviewed",
+          "type": "date"
         }
       ]
     }

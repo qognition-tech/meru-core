@@ -108,6 +108,92 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
     );
   }
 
+  /**
+   * Deep-merge a country overlay onto its vertical base.
+   *
+   * Objects merge key-by-key; arrays merge **by identity** — an overlay entry
+   * whose `key`/`type`/`id`/`code` matches a base entry replaces that entry,
+   * anything unmatched is appended. Wholesale array replacement would force
+   * every country pack to restate the vertical's nine entity types to add one
+   * regulator, which is the duplication the base pack exists to remove.
+   *
+   * An array of scalars (`locales`) is replaced outright: there is no identity
+   * to match on, and "AE speaks Arabic and English" is a statement about AE,
+   * not an addition to the vertical's list.
+   */
+  static merge<T extends Record<string, unknown>>(base: T, overlay: T): T {
+    const out: Record<string, unknown> = { ...base };
+
+    for (const [key, value] of Object.entries(overlay)) {
+      if (value === undefined) continue;
+      const existing = out[key];
+
+      if (Array.isArray(value) && Array.isArray(existing)) {
+        out[key] = ConfigPackLoaderService.mergeArrays(existing, value);
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        existing &&
+        typeof existing === 'object' &&
+        !Array.isArray(existing)
+      ) {
+        out[key] = ConfigPackLoaderService.merge(
+          existing as Record<string, unknown>,
+          value as Record<string, unknown>,
+        );
+      } else {
+        out[key] = value;
+      }
+    }
+
+    return out as T;
+  }
+
+  /** The field an array element is identified by, in precedence order. */
+  private static identityOf(item: unknown): string | null {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    for (const field of ['key', 'type', 'id', 'code']) {
+      if (typeof record[field] === 'string') return `${field}:${record[field]}`;
+    }
+    return null;
+  }
+
+  private static mergeArrays(base: unknown[], overlay: unknown[]): unknown[] {
+    // Scalars, or objects with nothing to match on: the overlay is the answer.
+    if (overlay.some((i) => ConfigPackLoaderService.identityOf(i) === null)) {
+      return overlay;
+    }
+
+    const byIdentity = new Map<string, unknown>();
+    const order: string[] = [];
+
+    for (const item of base) {
+      const id = ConfigPackLoaderService.identityOf(item);
+      if (!id) continue;
+      byIdentity.set(id, item);
+      order.push(id);
+    }
+
+    for (const item of overlay) {
+      const id = ConfigPackLoaderService.identityOf(item)!;
+      const existing = byIdentity.get(id);
+      byIdentity.set(
+        id,
+        existing && typeof existing === 'object'
+          ? ConfigPackLoaderService.merge(
+              existing as Record<string, unknown>,
+              item as Record<string, unknown>,
+            )
+          : item,
+      );
+      if (!order.includes(id)) order.push(id);
+    }
+
+    return order.map((id) => byIdentity.get(id));
+  }
+
   private async loadAll(): Promise<ConfigPackLoadReport> {
     const files = this.findPackFiles(this.packsDir);
 
@@ -122,10 +208,28 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
       errors: [],
     };
 
+    // Read every file first, so an overlay can extend a base regardless of the
+    // order the directory walk happens to return them in.
+    const rawByCode = new Map<string, Record<string, unknown>>();
+    for (const file of files) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<
+          string,
+          unknown
+        >;
+        if (typeof raw.code === 'string') rawByCode.set(raw.code, raw);
+      } catch (err: unknown) {
+        report.errors.push(
+          `${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     for (const file of files) {
       try {
         const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-        const result = safeValidateConfigPack(raw);
+        const resolved = this.resolveInheritance(raw, rawByCode, report);
+        const result = safeValidateConfigPack(resolved);
 
         if (!result.success) {
           report.errors.push(
@@ -177,6 +281,62 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
     for (const error of report.errors) this.logger.error(error);
 
     return report;
+  }
+
+  /**
+   * Walk the `extends` chain and merge base-first.
+   *
+   * A missing base is reported and the overlay loads alone — a country pack
+   * that silently lost its vertical's entity types would present as an empty
+   * product, which is far worse than a named error. A cycle is broken at the
+   * repeat and reported for the same reason.
+   */
+  private resolveInheritance(
+    raw: Record<string, unknown>,
+    all: Map<string, Record<string, unknown>>,
+    report: ConfigPackLoadReport,
+  ): Record<string, unknown> {
+    const chain: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    let current = raw;
+
+    while (typeof current.extends === 'string') {
+      const parentCode = current.extends;
+      if (seen.has(parentCode)) {
+        report.errors.push(
+          `${String(raw.code)}: circular extends at '${parentCode}' — chain broken here`,
+        );
+        break;
+      }
+      seen.add(parentCode);
+
+      const parent = all.get(parentCode);
+      if (!parent) {
+        report.errors.push(
+          `${String(raw.code)}: extends '${parentCode}', which is not on disk — ` +
+            `loading the overlay alone, so anything the base defines is missing`,
+        );
+        break;
+      }
+
+      chain.unshift(parent);
+      current = parent;
+    }
+
+    if (chain.length === 0) return raw;
+
+    // Base-most first, then each descendant, then the pack itself last so it
+    // always wins.
+    const inherited = chain.reduce(
+      (acc, next) => ConfigPackLoaderService.merge(acc, next),
+      {} as Record<string, unknown>,
+    );
+
+    const merged = ConfigPackLoaderService.merge(inherited, raw);
+    // `extends` is a build-time instruction, not stored state — the row that
+    // lands in the database is already fully resolved.
+    delete merged.extends;
+    return merged;
   }
 
   private findPackFiles(dir: string): string[] {

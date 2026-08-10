@@ -1,0 +1,22 @@
+{
+  "code": "bh-grc",
+  "name": "Bahrain Banking Compliance",
+  "description": "Bahrain Banking Compliance \u2014 country overlay on the GRC vertical.",
+  "version": "2.0.0",
+  "vertical": "grc",
+  "country": "BH",
+  "extends": "grc",
+  "locales": [
+    "en",
+    "ar"
+  ],
+  "regulators": [
+    {
+      "id": "BH-CBB",
+      "name": "Central Bank of Bahrain",
+      "country": "BH",
+      "availability": "adapter",
+      "adapterId": "bh-central-bank"
+    }
+  ]
+}

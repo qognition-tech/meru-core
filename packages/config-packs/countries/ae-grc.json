@@ -1,0 +1,31 @@
+{
+  "code": "ae-grc",
+  "name": "UAE Banking Compliance",
+  "description": "UAE Banking Compliance \u2014 country overlay on the GRC vertical.",
+  "version": "2.0.0",
+  "vertical": "grc",
+  "country": "AE",
+  "extends": "grc",
+  "locales": [
+    "en",
+    "ar"
+  ],
+  "regulators": [
+    {
+      "id": "UAE-CBUAE",
+      "name": "Central Bank of the UAE",
+      "country": "AE",
+      "availability": "adapter",
+      "adapterId": "uae-central-bank"
+    }
+  ],
+  "screening": {
+    "lists": [
+      "ofac",
+      "un",
+      "eu",
+      "uk_hmt",
+      "uae_local"
+    ]
+  }
+}

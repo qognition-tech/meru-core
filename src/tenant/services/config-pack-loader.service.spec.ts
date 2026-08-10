@@ -37,6 +37,11 @@ describe('config pack schema ↔ loader parity', () => {
     'vertical',
     'defaults',
     'uiConfig',
+    // `extends` is a build-time instruction, not stored state: the loader
+    // resolves the inheritance chain and stores the merged result, then drops
+    // the key. Persisting it would invite a reader to re-resolve a pack that is
+    // already resolved.
+    'extends',
   ]);
 
   const sectionKeys = Object.keys(ConfigPackSchema.shape).filter(
@@ -114,6 +119,33 @@ describe('packs on disk', () => {
     }
   }
 
+  /**
+   * Every pack as the loader will actually store it — inheritance resolved.
+   *
+   * Checking raw files would assert that each country overlay restates its
+   * vertical's prompts and entity types, which is precisely what the base pack
+   * exists to stop it doing. What must hold is that the *resolved* pack is
+   * complete.
+   */
+  const rawByCode = new Map<string, Record<string, unknown>>();
+  for (const file of files) {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    rawByCode.set(raw.code, raw);
+  }
+
+  const resolveFile = (file: string): Record<string, unknown> => {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (typeof raw.extends !== 'string') return raw;
+    const base = rawByCode.get(raw.extends);
+    if (!base) return raw;
+    const merged = ConfigPackLoaderService.merge(base, raw) as Record<
+      string,
+      unknown
+    >;
+    delete merged.extends;
+    return merged;
+  };
+
   it('found packs to check', () => {
     expect(files.length).toBeGreaterThan(0);
   });
@@ -122,7 +154,7 @@ describe('packs on disk', () => {
     '%s validates',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) {
         throw new Error(
@@ -139,7 +171,7 @@ describe('packs on disk', () => {
     '%s ships a prompt library with one default per category',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -171,7 +203,7 @@ describe('packs on disk', () => {
     '%s only references adapters that actually exist',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -222,7 +254,7 @@ describe('packs on disk', () => {
     '%s alert rules only reference things that exist',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -279,7 +311,7 @@ describe('packs on disk', () => {
     '%s alert rules compile under the evaluator that will run them',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -301,7 +333,7 @@ describe('packs on disk', () => {
     '%s relationships link entity types core can actually store',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -350,7 +382,7 @@ describe('packs on disk', () => {
     '%s scoring models produce a band for every reachable score',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -391,7 +423,7 @@ describe('packs on disk', () => {
     '%s fees and payment plans are chargeable as authored',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -439,7 +471,7 @@ describe('packs on disk', () => {
     '%s messaging sequences only reference templates that exist, and can stop',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 
@@ -489,7 +521,7 @@ describe('packs on disk', () => {
     '%s ships message templates with unique keys and declared variables',
     (_label, file) => {
       const result = safeValidateConfigPack(
-        JSON.parse(fs.readFileSync(file, 'utf-8')),
+        resolveFile(file),
       );
       if (!result.success) throw new Error('pack did not validate');
 

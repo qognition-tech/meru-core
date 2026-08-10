@@ -48,10 +48,22 @@ export class VerticalPackService {
   async forVertical(vertical: string | null): Promise<ConfigPack | null> {
     if (!vertical) return null;
 
-    return this.configPackRepo.findOne({
-      where: { vertical, isActive: true },
-      order: { version: 'DESC' },
-    });
+    // The **base** pack wins over any country overlay, then the highest
+    // version. Since packs split into `grc` + `ae-grc`/`sa-grc`/`qa-grc`/
+    // `bh-grc`, five rows answer to `vertical = 'grc'` at the same version, and
+    // an unordered `findOne` would hand a UAE bank whichever row Postgres
+    // returned first — Bahrain's regulators, silently. A tenant that wants its
+    // country's overlay pins it explicitly; `ConfigPackService
+    // .getTenantEffectiveConfig` resolves that. This is the unpinned fallback,
+    // and the only defensible answer for it is the vertical-wide definition.
+    return this.configPackRepo
+      .createQueryBuilder('p')
+      .where('p.vertical = :vertical', { vertical })
+      .andWhere('p."isActive" = true')
+      .orderBy(`(p.schema->>'country') IS NULL`, 'DESC')
+      .addOrderBy('p.version', 'DESC')
+      .addOrderBy('p.code', 'ASC')
+      .getOne();
   }
 
   /**

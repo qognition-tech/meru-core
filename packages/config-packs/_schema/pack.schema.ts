@@ -619,12 +619,52 @@ export const ConfigPackSchema = z.object({
   // not the pack code.
   code: z
     .string()
-    .regex(/^[a-z]{2}-[a-z_]+$/, 'must be country-vertical like au-immigration'),
+    .regex(
+      /^[a-z_]+$|^[a-z]{2}-[a-z_]+$/,
+      'must be a vertical base code like `grc`, or country-vertical like `au-immigration`',
+    ),
   name: z.string().min(3),
   description: z.string().optional(),
   version: SemVer,
-  vertical: z.enum(['immigration', 'banking', 'health', 'tax', 'labour', 'education', 'legal']),
-  country: z.string().length(2),
+  /**
+   * Must match `VerticalType` in `src/iam/enums/vertical.enum.ts`, because
+   * `VerticalPackService` looks packs up by the tenant's stored vertical. They
+   * disagreed once — the banking pack declared `banking` while the tenant
+   * carried `grc` — and the result was silent and total: the GovernanceX tenant
+   * resolved to no pack, so every Layer 4 feature (prompts, alert rules,
+   * messaging, scoring, navigation, dashboards, entity types) was simply
+   * absent, with nothing logged. `banking` stays accepted as a legacy alias so
+   * an old pack still loads, but it resolves for no tenant.
+   */
+  vertical: z.enum([
+    'immigration',
+    'grc',
+    'labour',
+    'fintech',
+    'legal',
+    'health',
+    'tax',
+    'education',
+    'banking',
+  ]),
+  /**
+   * Country overlay only. Absent means this is a **vertical base pack** — the
+   * shared definition every country in that vertical inherits (CLAUDE.md §4,
+   * Layer 4 sitting under Layer 3).
+   */
+  country: z.string().length(2).optional(),
+  /**
+   * The pack `code` this one extends. A country overlay names its vertical
+   * base (`"grc"`), and the loader deep-merges base then overlay before
+   * storing — so `ae-grc` is stored fully resolved and every reader keeps
+   * working without knowing inheritance exists.
+   *
+   * Merging is by identity within arrays: an overlay entry whose `key`/`type`/
+   * `id` matches a base entry replaces it, anything new is appended. That is
+   * what makes an overlay worth having — the UAE pack adds its regulators and
+   * raises its screening threshold without restating nine entity types.
+   */
+  extends: z.string().optional(),
   locales: z.array(LocaleCode).min(1),
 
   regulators: z.array(RegulatorSchema).optional(),

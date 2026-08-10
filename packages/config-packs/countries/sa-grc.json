@@ -1,0 +1,22 @@
+{
+  "code": "sa-grc",
+  "name": "Saudi Banking Compliance",
+  "description": "Saudi Banking Compliance \u2014 country overlay on the GRC vertical.",
+  "version": "2.0.0",
+  "vertical": "grc",
+  "country": "SA",
+  "extends": "grc",
+  "locales": [
+    "en",
+    "ar"
+  ],
+  "regulators": [
+    {
+      "id": "KSA-SAMA",
+      "name": "Saudi Central Bank (SAMA)",
+      "country": "SA",
+      "availability": "adapter",
+      "adapterId": "sa-sama"
+    }
+  ]
+}

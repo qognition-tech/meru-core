@@ -1,60 +1,11 @@
 {
-  "code": "ae-banking",
-  "name": "UAE Banking & GRC Pack",
-  "description": "UAE banking governance, risk & compliance \u2014 covers AML screening, sanctions checks, trade finance (TBML), and CBUAE regulatory reporting.",
-  "version": "1.7.0",
-  "vertical": "banking",
-  "country": "AE",
+  "code": "grc",
+  "name": "Governance, Risk & Compliance",
+  "description": "Shared GRC vocabulary \u2014 every country overlay inherits this.",
+  "version": "2.0.0",
+  "vertical": "grc",
   "locales": [
-    "en",
-    "ar"
-  ],
-  "regulators": [
-    {
-      "id": "uae-cbuae",
-      "name": "Central Bank of the UAE (CBUAE)",
-      "country": "AE",
-      "baseUrl": "https://api.centralbank.ae/v1",
-      "authMethod": "mtls",
-      "adapterId": "uae-central-bank",
-      "documentation": "https://www.centralbank.ae/en/fmr/regulations",
-      "availability": "adapter"
-    },
-    {
-      "id": "uae-local-list",
-      "name": "UAE Local Terrorist Designations List",
-      "country": "AE",
-      "authMethod": "api_key",
-      "documentation": "https://www.uaeinteract.com/government/law-legislation/sanctions",
-      "availability": "planned"
-    },
-    {
-      "id": "refinitiv-worldcheck",
-      "name": "Refinitiv World-Check One",
-      "country": "XX",
-      "authMethod": "api_key",
-      "documentation": "https://www.refinitiv.com/en/products/world-check-kyc-screening",
-      "licensed": false,
-      "availability": "licence_required"
-    },
-    {
-      "id": "dowjones-rnc",
-      "name": "Dow Jones Risk & Compliance",
-      "country": "XX",
-      "authMethod": "api_key",
-      "documentation": "https://www.dowjones.com/professional/risk/",
-      "licensed": false,
-      "availability": "licence_required"
-    },
-    {
-      "id": "finacle-core",
-      "name": "Finacle Core Banking",
-      "country": "AE",
-      "authMethod": "oauth2",
-      "documentation": "https://www.edgeverve.com/finacle/",
-      "licensed": false,
-      "availability": "licence_required"
-    }
+    "en"
   ],
   "roles": [
     {
@@ -1019,6 +970,125 @@
           "key": "completions",
           "label": "Completions",
           "type": "json"
+        }
+      ]
+    },
+    {
+      "type": "obligation",
+      "label": "Obligation",
+      "pluralLabel": "Compliance Obligations",
+      "module": "obligations",
+      "workable": true,
+      "statusLabels": {
+        "open": "Registered",
+        "in_progress": "In Progress",
+        "blocked": "At Risk",
+        "resolved": "Met",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "obligationRef",
+          "label": "Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "regulator",
+          "label": "Regulator",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "frequency",
+          "label": "Frequency",
+          "type": "select",
+          "options": [
+            "once",
+            "monthly",
+            "quarterly",
+            "semi_annual",
+            "annual"
+          ],
+          "required": true
+        },
+        {
+          "key": "nextDueAt",
+          "label": "Next Due",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "owner",
+          "label": "Accountable Owner",
+          "type": "text"
+        },
+        {
+          "key": "evidenceRequired",
+          "label": "Evidence Required",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "breach",
+      "label": "Breach",
+      "pluralLabel": "Breach Register",
+      "module": "breaches",
+      "workable": true,
+      "statusLabels": {
+        "open": "Reported",
+        "in_progress": "Investigating",
+        "blocked": "Escalated",
+        "resolved": "Remediated",
+        "closed": "Closed",
+        "cancelled": "Dismissed"
+      },
+      "fields": [
+        {
+          "key": "breachRef",
+          "label": "Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "severity",
+          "label": "Severity",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "key": "obligationId",
+          "label": "Breached Obligation",
+          "type": "entityRef"
+        },
+        {
+          "key": "discoveredAt",
+          "label": "Discovered",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "reportableToRegulator",
+          "label": "Reportable",
+          "type": "boolean"
+        },
+        {
+          "key": "reportedAt",
+          "label": "Reported To Regulator",
+          "type": "date"
+        },
+        {
+          "key": "rootCause",
+          "label": "Root Cause",
+          "type": "textarea"
         }
       ]
     }

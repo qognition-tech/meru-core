@@ -1,0 +1,227 @@
+{
+  "code": "nz-immigration",
+  "name": "New Zealand Immigration",
+  "description": "New Zealand Immigration \u2014 country overlay on the immigration vertical.",
+  "version": "2.0.0",
+  "vertical": "immigration",
+  "country": "NZ",
+  "extends": "immigration",
+  "locales": [
+    "en"
+  ],
+  "regulators": [
+    {
+      "id": "NZ-INZ",
+      "name": "Immigration New Zealand",
+      "country": "NZ",
+      "availability": "adapter",
+      "adapterId": "nz-immigration"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "wf_saw_visa",
+      "name": "Skilled Accredited Employer Work Visa",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_student_nz",
+      "name": "Student Visa",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    }
+  ]
+}

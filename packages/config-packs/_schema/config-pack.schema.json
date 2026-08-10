@@ -7,7 +7,7 @@
   "properties": {
     "code": {
       "type": "string",
-      "pattern": "^[a-z]{2}-[a-z_]+$"
+      "pattern": "^[a-z_]+$|^[a-z]{2}-[a-z_]+$"
     },
     "name": {
       "type": "string",
@@ -24,18 +24,23 @@
       "type": "string",
       "enum": [
         "immigration",
-        "banking",
+        "grc",
+        "labour",
+        "fintech",
+        "legal",
         "health",
         "tax",
-        "labour",
         "education",
-        "legal"
+        "banking"
       ]
     },
     "country": {
       "type": "string",
       "minLength": 2,
       "maxLength": 2
+    },
+    "extends": {
+      "type": "string"
     },
     "locales": {
       "minItems": 1,
@@ -1472,7 +1477,6 @@
     "name",
     "version",
     "vertical",
-    "country",
     "locales"
   ]
 }
