@@ -283,6 +283,34 @@ Still to author, and it is domain work rather than engineering:
 - **Health, tax, labour and education verticals**, if those are still on the
   roadmap. Each is one base pack.
 
+### 4.2b Answered: should the visa lifecycle be a workflow?
+
+**Yes.** The frontend asked, having implemented 13 stages in
+`verticalAttributes.matter.stage`, and it is the right question — a stage stored
+as a loose attribute has no transition rules, no SLA clock and no audit of who
+moved it.
+
+`wf_visa_matter` is now authored in `au-immigration.json` with the frontend's own
+stage ids, so migration is a mapping exercise rather than a rewrite:
+
+```
+intake → cost_agreement → signup_payment → portal_access → document_request
+→ [health_insurance] → drafting → client_approval → [apf] → lodgement_fee
+→ lodged → decision → closed, with art_review branching off a refusal
+```
+
+**One thing blocks a clean migration, and it is a real gap:** no pack-declared
+transition condition has ever been evaluated. The pack schema types
+`transitions[].condition` as a *string*, while `WorkflowService.evaluateConditions`
+reads a structured `{operator, rules[]}` object that no pack ever supplies. So the
+two conditional branches — `health_insurance` for 500/485, `apf` for anything but
+500/600 — are recorded as prose in the pack and must be chosen by the caller. A UI
+must not present them as automatic.
+
+Fixing it means accepting JsonLogic on a transition and routing it through
+`RuleEvaluatorService`, which is what every other conditional in a pack already
+uses. Until then the workflow is a correct skeleton with manual branching.
+
 ### 4.3 Decisions needed from the business
 
 | # | Decision | Recommendation |

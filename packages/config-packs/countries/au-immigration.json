@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australian Immigration",
   "description": "Australian Immigration — country overlay on the immigration vertical.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "vertical": "immigration",
   "country": "AU",
   "extends": "immigration",
@@ -26,6 +26,220 @@
     }
   ],
   "workflows": [
+    {
+      "id": "wf_visa_matter",
+      "name": "Visa matter — full lifecycle",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Intake and eligibility",
+          "description": "Qualify the enquiry and confirm the subclass before any fee is quoted.",
+          "type": "form",
+          "assignedRole": "migration_agent",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "cost_agreement",
+              "label": "Proceed to engagement"
+            }
+          ]
+        },
+        {
+          "id": "cost_agreement",
+          "name": "Cost agreement issued",
+          "description": "Generated from the pack template; acceptance recorded against the matter.",
+          "type": "document",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "requiredDocuments": [
+            "cost_agreement"
+          ],
+          "transitions": [
+            {
+              "to": "signup_payment",
+              "label": "Client accepted"
+            }
+          ]
+        },
+        {
+          "id": "signup_payment",
+          "name": "Signup payment",
+          "description": "The workflow engine blocks progress while this is in arrears.",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "portal_access",
+              "label": "Payment received"
+            }
+          ]
+        },
+        {
+          "id": "portal_access",
+          "name": "Portal access granted",
+          "type": "notification",
+          "assignedRole": "case_coordinator",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "document_request",
+              "label": "Client can log in"
+            }
+          ]
+        },
+        {
+          "id": "document_request",
+          "name": "Documents requested",
+          "description": "The checklist is resolved per subclass from documentTypes[].appliesWhen.",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 168,
+          "transitions": [
+            {
+              "to": "health_insurance",
+              "label": "Insurance required",
+              "condition": "matter.subclass in ['500','485']"
+            },
+            {
+              "to": "drafting",
+              "label": "No insurance step required",
+              "condition": "matter.subclass not in ['500','485']"
+            }
+          ]
+        },
+        {
+          "id": "health_insurance",
+          "name": "Health insurance evidence",
+          "description": "OSHC for a 500, OVHC for a 485. Conditional on subclass.",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "drafting",
+              "label": "Cover confirmed"
+            }
+          ]
+        },
+        {
+          "id": "drafting",
+          "name": "Application drafted",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "client_approval",
+              "label": "Ready for client review"
+            }
+          ]
+        },
+        {
+          "id": "client_approval",
+          "name": "Client approval",
+          "type": "review",
+          "assignedRole": "client_portal",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "apf",
+              "label": "Approved — APF applies",
+              "condition": "matter.subclass not in ['500','600']"
+            },
+            {
+              "to": "lodgement_fee",
+              "label": "Approved — no APF",
+              "condition": "matter.subclass in ['500','600']"
+            }
+          ]
+        },
+        {
+          "id": "apf",
+          "name": "Additional applicant / APF charges",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement_fee",
+              "label": "Charges settled"
+            }
+          ]
+        },
+        {
+          "id": "lodgement_fee",
+          "name": "Department charge paid",
+          "description": "Recorded as an outbound payment — the firm pays the Department, which is not revenue.",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodged",
+              "label": "Charge forwarded to the Department"
+            }
+          ]
+        },
+        {
+          "id": "lodged",
+          "name": "Lodged with the Department",
+          "description": "Every adapter is sandbox; a lodgement confirmation is generated from the pack template.",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Department decided"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Decision received",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "closed",
+              "label": "Granted"
+            },
+            {
+              "to": "art_review",
+              "label": "Refused — seek ART review"
+            },
+            {
+              "to": "closed",
+              "label": "Refused — client declines to proceed"
+            }
+          ]
+        },
+        {
+          "id": "art_review",
+          "name": "ART review",
+          "description": "Administrative Review Tribunal. Branches off a refusal.",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 720,
+          "transitions": [
+            {
+              "to": "closed",
+              "label": "Review concluded"
+            }
+          ]
+        },
+        {
+          "id": "closed",
+          "name": "Matter closed",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 24
+        }
+      ]
+    },
     {
       "id": "wf_student_500",
       "name": "Student Visa (500)",
@@ -582,6 +796,7 @@
     }
   ],
   "metadata": {
-    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read."
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read.",
+    "workflowConditions": "The two conditional branches in wf_visa_matter (health_insurance for 500/485, apf for anything but 500/600) are recorded as prose in `transitions[].condition` and are NOT enforced. The pack schema types that field as a string, while WorkflowService.evaluateConditions reads a structured `{operator, rules[]}` object it never receives from a pack — so no pack-declared transition condition has ever been evaluated. Until that bridge exists the branches must be chosen by the caller, and a UI must not present them as automatic. Tracked in AGENTS.md."
   }
 }
