@@ -102,6 +102,7 @@ export interface ScreeningHit {
   matchScore: number; // 0-1
   algorithm:
     | 'exact'
+    | 'token_set'
     | 'levenshtein'
     | 'double_metaphone'
     | 'jaro_winkler'
@@ -271,7 +272,11 @@ export class ScreeningEngine {
     const watchlist = [
       ...(await this.loadWatchlist()),
       ...(request.customWatchlist ?? []),
-    ].filter((entry) => this.listMatchesTypes(entry, request.screeningTypes));
+    ].filter(
+      (entry) =>
+        this.listMatchesTypes(entry, request.screeningTypes) &&
+        this.typeCouldMatch(request.entityType, entry.type),
+    );
 
     for (const name of namesToCheck) {
       for (const entry of watchlist) {
@@ -349,17 +354,47 @@ export class ScreeningEngine {
         };
       }
 
-      // 2. Jaro-Winkler (best for names — prefix-sensitive)
+      // 2. Token set — the same name written in a different order.
+      //
+      // Sanctions lists store surname first ("PUTIN, Vladimir Vladimirovich");
+      // people type given name first. The exact path above never fires on that,
+      // so a genuine designation arrived as a ~0.87 Jaro-Winkler `warning`,
+      // scoring no differently from a coincidental prefix collision. Measured
+      // against the real lists, *no* hit for a genuinely designated individual ever
+      // reached the 0.95 `alert` band — which made "alert vs warning" a
+      // distinction the engine could describe but never draw.
+      //
+      // Requires every queried token to be present and at least two of them, so
+      // a lone forename cannot promote itself. An extra patronymic on the list
+      // side scores just below a pure reordering: still a confirmed match, but
+      // the response records that the two strings were not identical.
+      const tokenScore = this.tokenSetScore(name, candidate);
+      if (tokenScore) {
+        return {
+          source: entry.listSource.toUpperCase(),
+          matchName: entry.name,
+          matchScore: tokenScore,
+          algorithm: tokenScore === 1 ? 'exact' : 'token_set',
+          details:
+            `${tokenScore === 1 ? 'Exact' : 'Token-set'} match ` +
+            `(${(tokenScore * 100).toFixed(1)}%) against ` +
+            `${entry.listSource.toUpperCase()} entry "${entry.name}"`,
+          severity: 'alert',
+          listEntry: entry,
+        };
+      }
+
+      // 3. Jaro-Winkler (best for names — prefix-sensitive)
       const jw = this.jaroWinkler(name, candidate);
       if (jw > (best?.score ?? 0))
         best = { score: jw, algorithm: 'jaro_winkler', candidate };
 
-      // 3. Levenshtein ratio (good for OCR errors, typos)
+      // 4. Levenshtein ratio (good for OCR errors, typos)
       const lev = this.levenshteinRatio(name, candidate);
       if (lev > (best?.score ?? 0))
         best = { score: lev, algorithm: 'levenshtein', candidate };
 
-      // 4. Phonetic — CORROBORATING ONLY, never sufficient on its own.
+      // 5. Phonetic — CORROBORATING ONLY, never sufficient on its own.
       //
       // Double Metaphone encodes an alternate pronunciation, so Mohammed /
       // Muhammad / Mohamad all reduce to MHMT: the most common family of
@@ -397,7 +432,7 @@ export class ScreeningEngine {
         }
       }
 
-      // 5. Transliteration — Arabic/Latin normalisation
+      // 6. Transliteration — Arabic/Latin normalisation
       const translitName = this.transliterateArabic(name);
       const translitCandidate = this.transliterateArabic(candidate);
       if (translitName !== name || translitCandidate !== candidate) {
@@ -517,6 +552,40 @@ export class ScreeningEngine {
 
   // ── Normalisation ─────────────────────────────────────────────────────────
 
+  /**
+   * Score two names as *sets of words*, or 0 when they are not the same name.
+   *
+   * `1.0` when both contain exactly the same words in any order — "vladimir
+   * putin" against a list's "putin vladimir" is the same person, and the
+   * whole-string exact test cannot see that.
+   *
+   * `0.97` when every queried word appears on the list side and the list side
+   * carries extra ones, which is the usual shape of a patronymic or a middle
+   * name the enquirer omitted. Still a confirmed match; scored a shade lower so
+   * the response does not claim the two strings were identical.
+   *
+   * Deliberately asymmetric: extra words in the *query* do not match, because
+   * "john smith of 42 acacia avenue" against list entry "smith" is a coincidence
+   * of surname. And at least two queried words are required, so a bare forename
+   * can never promote itself into a confirmed hit against every entry that
+   * happens to contain it.
+   *
+   * Single-character tokens are dropped — initials carry too little information
+   * to be part of an identity claim.
+   */
+  private tokenSetScore(name: string, candidate: string): number {
+    const nameTokens = name.split(' ').filter((t) => t.length > 1);
+    const candidateTokens = candidate.split(' ').filter((t) => t.length > 1);
+
+    if (nameTokens.length < 2 || candidateTokens.length < 2) return 0;
+
+    const candidateSet = new Set(candidateTokens);
+    const everyTokenPresent = nameTokens.every((t) => candidateSet.has(t));
+    if (!everyTokenPresent) return 0;
+
+    return new Set(nameTokens).size === candidateSet.size ? 1 : 0.97;
+  }
+
   normalise(name: string): string {
     return name
       .toLowerCase()
@@ -525,6 +594,32 @@ export class ScreeningEngine {
       .replace(/[^a-z0-9\s؀-ۿ]/g, '') // keep Latin, digits, spaces, Arabic
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /**
+   * Whether a list entry is even the right *kind* of thing to compare against.
+   *
+   * Screening an individual used to compare their name against every vessel and
+   * company on the list, which is where the worst false positives came from:
+   * invented person "Zephyrine Bloxwich" matched OFAC's **vessel** "ZEPHYR I" at
+   * 0.86, because Jaro-Winkler's prefix bonus rewards a short candidate sharing
+   * a first syllable. "Vladimir Putin" likewise returned four ships called
+   * VLADIMIR-something. A person is not a boat and the comparison never had
+   * anything to say.
+   *
+   * Excluded only when both types are known and disagree. An entry whose type
+   * the source did not state is still compared — dropping it would silently
+   * narrow the list, and a missed designation is the one outcome worse than a
+   * false positive. `transaction` requests screen against everything, since a
+   * transaction's counterparty may be a person, a company or a vessel.
+   */
+  private typeCouldMatch(
+    requested: ScreeningRequest['entityType'] | undefined,
+    entryType: WatchlistEntry['type'] | undefined,
+  ): boolean {
+    if (!requested || !entryType) return true;
+    if (requested === 'transaction') return true;
+    return requested === entryType;
   }
 
   // ── Risk scoring ──────────────────────────────────────────────────────────
@@ -540,19 +635,30 @@ export class ScreeningEngine {
     if (hits.length === 0)
       return { riskScore: 0, riskLevel: 'low', status: 'clear' };
 
-    const alertHits = hits.filter((h) => h.severity === 'alert');
-    const warnHits = hits.filter((h) => h.severity === 'warning');
+    // Score the deduplicated set. Twelve fuzzy variants of one list entry are
+    // one piece of evidence, not twelve: counting the raw hits let a single
+    // near-miss name reach 100 by repetition alone.
+    const distinct = this.deduplicateHits(hits);
+    const alertHits = distinct.filter((h) => h.severity === 'alert');
+    const warnHits = distinct.filter((h) => h.severity === 'warning');
 
     let riskScore = 0;
     riskScore += alertHits.length * 40;
     riskScore += warnHits.length * 15;
     riskScore = Math.min(100, riskScore);
 
-    // Boost score for sanctions list hits (OFAC, UN, EU)
-    const sanctionHits = hits.filter((h) =>
+    // The sanctions floor applies to a *confirmed* match only.
+    //
+    // It used to apply to any hit from a sanctions source, and since every OFAC
+    // row is a sanctions source, one 0.86 fuzzy match floored the score at 75 —
+    // `critical`, `escalated`, "file a SAR if applicable". An invented name
+    // against a vessel produced the same output as a true designation, and a
+    // compliance officer acts on that. `severity` already draws the line at
+    // 0.95; this now respects it.
+    const confirmedSanctionHits = alertHits.filter((h) =>
       ['OFAC', 'UN', 'EU', 'UK_HMT', 'UAE_LOCAL'].includes(h.source),
     );
-    if (sanctionHits.length > 0) riskScore = Math.max(riskScore, 75);
+    if (confirmedSanctionHits.length > 0) riskScore = Math.max(riskScore, 75);
 
     let riskLevel: ScreeningResult['riskLevel'];
     let status: ScreeningResult['status'];
@@ -569,6 +675,17 @@ export class ScreeningEngine {
     } else {
       riskLevel = 'low';
       status = 'review_required';
+    }
+
+    // Nothing built out of warnings alone may present as a designation.
+    //
+    // Enough borderline matches still add up past the `critical` boundary
+    // arithmetically, and "we found five 0.87s" is a reason to have a human
+    // look, not grounds to refuse a customer and file a report. Capped at
+    // `high`/`hit` so the finding stays visible and stays honest.
+    if (alertHits.length === 0 && riskLevel === 'critical') {
+      riskLevel = 'high';
+      status = 'hit';
     }
 
     return { riskScore, riskLevel, status };
@@ -592,12 +709,30 @@ export class ScreeningEngine {
     return `${hits.length} match(es) found — ${alerts} alert(s), ${warnings} warning(s). Risk level: ${riskLevel.toUpperCase()}.`;
   }
 
+  /**
+   * What a human should do about this result.
+   *
+   * Says whether the finding is a confirmed match or a set of near-misses,
+   * because the two call for different actions and the text is the only part of
+   * the response a compliance officer necessarily reads. It previously
+   * recommended filing a SAR on the strength of a single 0.86 fuzzy hit against
+   * a vessel — advice that is wrong, expensive to follow, and indistinguishable
+   * from the advice given for a true designation.
+   */
   private buildRecommendation(riskLevel: string, hits: ScreeningHit[]): string {
+    const confirmed = hits.filter((h) => h.severity === 'alert').length;
+
     switch (riskLevel) {
       case 'critical':
-        return 'Immediate escalation required. Do not proceed without MLRO sign-off. File SAR if applicable.';
+        return (
+          `${confirmed} confirmed list match(es). Immediate escalation required. ` +
+          'Do not proceed without MLRO sign-off. File SAR if applicable.'
+        );
       case 'high':
-        return 'Refer to compliance officer for Enhanced Due Diligence (EDD). Do not onboard until cleared.';
+        return confirmed > 0
+          ? 'Refer to compliance officer for Enhanced Due Diligence (EDD). Do not onboard until cleared.'
+          : `${hits.length} close but unconfirmed match(es), none at confirmation ` +
+            'threshold. Refer to compliance officer to clear or discount each before onboarding.';
       case 'medium':
         return 'Flag for analyst review. Obtain additional identity documentation before proceeding.';
       default:
