@@ -32,7 +32,7 @@ import { AuditModule } from '../audit/audit.module';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Payment } from '../billing/entities/payment.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
-import { RulesModule } from '../rules/rules.module';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
 
 @Module({
   imports: [
@@ -74,7 +74,12 @@ import { RulesModule } from '../rules/rules.module';
     AuditModule,
     // The checklist's `appliesWhen` conditions are JsonLogic, evaluated by the
     // same service that backs `rules[]` and `alertRules[]`.
-    RulesModule,
+    //
+    // `RuleEvaluatorModule`, not `RulesModule`: the latter provides the alert
+    // sweep and does not export the evaluator, and importing it would drag
+    // NotificationsModule and TasksModule in behind one JSON predicate — the
+    // import cycle its own header warns about.
+    RuleEvaluatorModule,
   ],
   controllers: [DocumentsController],
   providers: [
