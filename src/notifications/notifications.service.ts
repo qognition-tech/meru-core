@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThan } from 'typeorm';
 import {
@@ -16,10 +21,31 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import type { PackMessageTemplate } from '../../packages/config-packs/_schema/pack.schema';
 
+/**
+ * Whether a value can be handed to a `uuid` column.
+ *
+ * `notifications.recipientId` is varchar but `users.id` and
+ * `notification_preferences.userId` are uuid, so an address stored in the first
+ * throws when used to query either. That mismatch stopped every notification
+ * platform-wide for a day and a half; both call sites now check first.
+ */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined | null): boolean {
+  return !!value && UUID_PATTERN.test(value);
+}
+
 export interface SendNotificationOptions {
   tenantId: string;
   type: NotificationType;
-  recipientId: string;
+  /**
+   * IAM user id. Optional when `recipientEmail` is supplied — most clients have
+   * a CRM record and an address but no id the caller can resolve.
+   */
+  recipientId?: string;
+  /** Address to deliver to when no platform user backs the recipient. */
+  recipientEmail?: string;
   subject: string;
   content: string;
   priority?: NotificationPriority;
@@ -60,13 +86,21 @@ export class NotificationsService {
   async sendNotification(
     options: SendNotificationOptions,
   ): Promise<Notification | null> {
-    // Check user preferences
-    const preferences = await this.getUserPreferences(
-      options.tenantId,
-      options.recipientId,
-    );
+    if (!options.recipientId && !options.recipientEmail) {
+      throw new BadRequestException(
+        'A recipient is required — supply `recipientId` (an IAM user id) or `recipientEmail`',
+      );
+    }
 
-    if (!this.shouldSendNotification(preferences, options)) {
+    // Preferences are keyed by IAM user id in a `uuid` column, so they can only
+    // be consulted for a real platform user. An address-only recipient has no
+    // preference row by definition, and asking for one with an email in place of
+    // a uuid is the same fault that took notification dispatch down for a day.
+    const preferences = isUuid(options.recipientId)
+      ? await this.getUserPreferences(options.tenantId, options.recipientId!)
+      : null;
+
+    if (preferences && !this.shouldSendNotification(preferences, options)) {
       this.logger.debug(
         `Notification skipped due to preferences: ${options.recipientId}`,
       );
@@ -74,7 +108,7 @@ export class NotificationsService {
     }
 
     // Check quiet hours
-    if (this.isInQuietHours(preferences)) {
+    if (preferences && this.isInQuietHours(preferences)) {
       // Queue for later delivery
       return this.scheduleNotification(
         options,
@@ -88,7 +122,11 @@ export class NotificationsService {
       status: NotificationStatus.PENDING,
       priority: options.priority || NotificationPriority.NORMAL,
       category: options.category || NotificationCategory.SYSTEM,
-      recipientId: options.recipientId,
+      // `recipientId` is varchar, so an address is storable here and the
+      // dispatcher knows to treat a non-uuid as one. Kept populated either way
+      // because the column is NOT NULL and every read path expects a value.
+      recipientId: options.recipientId ?? options.recipientEmail!,
+      recipientEmail: options.recipientEmail as string,
       threadKey: this.threadKeyFor(options),
       subject: options.subject,
       content: options.content,
@@ -601,7 +639,10 @@ export class NotificationsService {
   private threadKeyFor(options: SendNotificationOptions): string {
     const metadata = (options.metadata ?? {}) as { email?: string; phone?: string };
     const counterparty =
-      metadata.email || metadata.phone || options.recipientId;
+      metadata.email ||
+      metadata.phone ||
+      options.recipientEmail ||
+      options.recipientId;
     return `${options.type}:${String(counterparty).trim().toLowerCase()}`;
   }
 }

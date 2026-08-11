@@ -11,6 +11,10 @@ import { User } from '../iam/entities/user.entity';
 import { MailService } from '../core/mail/mail.service';
 import { TenantContext } from '../core/tenancy/tenant-context';
 
+/** Canonical UUID shape, used to keep non-uuid values out of uuid columns. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Actually delivers notifications. NotificationsService writes rows and emits
  * an event nobody consumed, so every notification sat at `pending` forever —
@@ -65,98 +69,139 @@ export class NotificationDispatchService {
       let delivered = 0;
       let failed = 0;
       let skipped = 0;
+      let poisoned = 0;
 
       for (const notification of due) {
-        // IN_APP needs no transport — the row IS the delivery.
-        if (notification.type === NotificationType.IN_APP) {
-          notification.status = NotificationStatus.DELIVERED;
-          notification.sentAt = new Date();
-          await this.notificationRepo.save(notification);
-          skipped += 1;
-          continue;
-        }
-
-        if (notification.type === NotificationType.WEBHOOK) {
-          const sent = await this.dispatchWebhook(notification);
-          if (sent) {
-            notification.status = NotificationStatus.SENT;
-            notification.sentAt = new Date();
-            delivered += 1;
-          } else {
-            notification.retryCount = (notification.retryCount ?? 0) + 1;
-            notification.status =
-              notification.retryCount >= 3
-                ? NotificationStatus.FAILED
-                : NotificationStatus.RETRYING;
-            failed += 1;
-          }
-          await this.notificationRepo.save(notification);
-          continue;
-        }
-
-        if (notification.type !== NotificationType.EMAIL) {
-          this.recordAttempt(
-            notification,
-            false,
-            `no transport configured for channel '${notification.type}'`,
+        // One row must never be able to stop the sweep.
+        //
+        // It did: a row with an address in the uuid `recipientId` column threw
+        // inside `resolveEmail`, the throw escaped this loop, and the job died
+        // with `invalid input syntax for type uuid`. Every notification for
+        // every tenant then sat pending for a day and a half, because the
+        // poison row is read first on every run and the batch never gets past
+        // it. `resolveEmail` no longer asks that question, but the isolation is
+        // the durable fix — the next unanticipated bad row costs one message
+        // instead of all of them.
+        try {
+          const outcome = await this.deliverOne(notification);
+          if (outcome === 'delivered') delivered += 1;
+          else if (outcome === 'skipped') skipped += 1;
+          else failed += 1;
+        } catch (error) {
+          poisoned += 1;
+          failed += 1;
+          const reason = error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Notification ${notification.id} could not be dispatched: ${reason}`,
           );
-          notification.status = NotificationStatus.FAILED;
-          await this.notificationRepo.save(notification);
-          failed += 1;
-          continue;
+          // Park it so the next sweep is not blocked by the same row. Best
+          // effort: if even this write fails the sweep still continues.
+          try {
+            this.recordAttempt(notification, false, `dispatch error: ${reason}`);
+            notification.status = NotificationStatus.FAILED;
+            await this.notificationRepo.save(notification);
+          } catch {
+            this.logger.error(
+              `Notification ${notification.id} could not be marked failed either`,
+            );
+          }
         }
-
-        const address = await this.resolveEmail(notification);
-        if (!address) {
-          this.recordAttempt(notification, false, 'recipient has no email address');
-          notification.status = NotificationStatus.FAILED;
-          await this.notificationRepo.save(notification);
-          failed += 1;
-          continue;
-        }
-
-        // Persist what the address turned out to be, and re-key the thread if
-        // the row was created before anyone knew it. A message keyed by user id
-        // and its reply keyed by address are the same conversation, and leaving
-        // them in two threads is invisible until a client asks where the rest
-        // of their correspondence went.
-        notification.recipientEmail = address;
-        const addressKey = `${notification.type}:${address.trim().toLowerCase()}`;
-        if (notification.threadKey !== addressKey) {
-          notification.threadKey = addressKey;
-        }
-
-        const result = await this.mailService.send({
-          to: address,
-          subject: notification.subject || 'Notification',
-          text: notification.content ?? '',
-        });
-
-        if (result.delivered) {
-          notification.status = NotificationStatus.SENT;
-          notification.sentAt = new Date();
-          this.recordAttempt(notification, true);
-          delivered += 1;
-        } else {
-          // Mail unconfigured or provider rejected: retry rather than lose it.
-          notification.retryCount = (notification.retryCount ?? 0) + 1;
-          notification.status =
-            notification.retryCount >= 3
-              ? NotificationStatus.FAILED
-              : NotificationStatus.RETRYING;
-          this.recordAttempt(notification, false, 'mail provider did not deliver');
-          failed += 1;
-        }
-        await this.notificationRepo.save(notification);
       }
 
       if (due.length) {
         this.logger.log(
-          `Notification dispatch: ${due.length} processed, ${delivered} delivered, ${failed} failed, ${skipped} in-app`,
+          `Notification dispatch: ${due.length} processed, ${delivered} delivered, ` +
+            `${failed} failed, ${skipped} in-app` +
+            (poisoned ? `, ${poisoned} errored and parked` : ''),
         );
       }
       return { processed: due.length, delivered, failed, skipped };
     });
+  }
+
+  /**
+   * Deliver exactly one notification. Throws only on genuinely unexpected
+   * faults; every anticipated failure is recorded on the row and reported as
+   * `'failed'`.
+   */
+  private async deliverOne(
+    notification: Notification,
+  ): Promise<'delivered' | 'failed' | 'skipped'> {
+    // IN_APP needs no transport — the row IS the delivery.
+    if (notification.type === NotificationType.IN_APP) {
+      notification.status = NotificationStatus.DELIVERED;
+      notification.sentAt = new Date();
+      await this.notificationRepo.save(notification);
+      return 'skipped';
+    }
+
+    if (notification.type === NotificationType.WEBHOOK) {
+      const sent = await this.dispatchWebhook(notification);
+      if (sent) {
+        notification.status = NotificationStatus.SENT;
+        notification.sentAt = new Date();
+      } else {
+        notification.retryCount = (notification.retryCount ?? 0) + 1;
+        notification.status =
+          notification.retryCount >= 3
+            ? NotificationStatus.FAILED
+            : NotificationStatus.RETRYING;
+      }
+      await this.notificationRepo.save(notification);
+      return sent ? 'delivered' : 'failed';
+    }
+
+    if (notification.type !== NotificationType.EMAIL) {
+      this.recordAttempt(
+        notification,
+        false,
+        `no transport configured for channel '${notification.type}'`,
+      );
+      notification.status = NotificationStatus.FAILED;
+      await this.notificationRepo.save(notification);
+      return 'failed';
+    }
+
+    const address = await this.resolveEmail(notification);
+    if (!address) {
+      this.recordAttempt(notification, false, 'recipient has no email address');
+      notification.status = NotificationStatus.FAILED;
+      await this.notificationRepo.save(notification);
+      return 'failed';
+    }
+
+    // Persist what the address turned out to be, and re-key the thread if
+    // the row was created before anyone knew it. A message keyed by user id
+    // and its reply keyed by address are the same conversation, and leaving
+    // them in two threads is invisible until a client asks where the rest
+    // of their correspondence went.
+    notification.recipientEmail = address;
+    const addressKey = `${notification.type}:${address.trim().toLowerCase()}`;
+    if (notification.threadKey !== addressKey) {
+      notification.threadKey = addressKey;
+    }
+
+    const result = await this.mailService.send({
+      to: address,
+      subject: notification.subject || 'Notification',
+      text: notification.content ?? '',
+    });
+
+    if (result.delivered) {
+      notification.status = NotificationStatus.SENT;
+      notification.sentAt = new Date();
+      this.recordAttempt(notification, true);
+    } else {
+      // Mail unconfigured or provider rejected: retry rather than lose it.
+      notification.retryCount = (notification.retryCount ?? 0) + 1;
+      notification.status =
+        notification.retryCount >= 3
+          ? NotificationStatus.FAILED
+          : NotificationStatus.RETRYING;
+      this.recordAttempt(notification, false, 'mail provider did not deliver');
+    }
+    await this.notificationRepo.save(notification);
+    return result.delivered ? 'delivered' : 'failed';
   }
 
   /**
@@ -252,7 +297,26 @@ export class NotificationDispatchService {
     )?.email;
     if (explicit) return explicit;
 
+    // The address column first. `ThreadService.send` fills it for every email
+    // it writes, and it is the only source that works for a counterparty with
+    // no platform account — which is most clients.
+    if (notification.recipientEmail) return notification.recipientEmail;
+
     if (!notification.recipientId) return null;
+
+    // `recipientId` is a varchar column but `users.id` is uuid, so a row
+    // carrying an address here — which `ThreadService.send` deliberately
+    // writes when no platform user sits behind the address — made Postgres
+    // throw `invalid input syntax for type uuid` on the lookup. Untrapped, that
+    // aborted the whole sweep, so one such row stopped *every* notification
+    // platform-wide. Guard rather than query: an address is not a user id, and
+    // asking the question at all is the bug.
+    if (!UUID_PATTERN.test(notification.recipientId)) {
+      return notification.recipientId.includes('@')
+        ? notification.recipientId
+        : null;
+    }
+
     const user = await this.userRepo.findOne({
       where: { id: notification.recipientId },
       select: ['id', 'email'],

@@ -8,6 +8,7 @@ import {
   IsArray,
   IsEmail,
   IsPhoneNumber,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -47,9 +48,18 @@ export class CreateNotificationDto {
   @IsOptional()
   category?: NotificationCategory;
 
-  @ApiProperty({ description: 'ID of the recipient user', example: 'user-123' })
+  @ApiPropertyOptional({
+    description:
+      'IAM user id of the recipient. Optional **if** `recipientEmail` is ' +
+      'given: a client with a portal login and a CRM record is linked to them ' +
+      'only by address, and `GET /iam/users` is `firm_admin`+, so a caseworker ' +
+      'cannot resolve the id of the client they are working with. Supply ' +
+      'either — one of the two is required.',
+    example: '9f1b2c3d-4e5f-6789-abcd-ef0123456789',
+  })
+  @ValidateIf((o: CreateNotificationDto) => !o.recipientEmail)
   @IsString()
-  recipientId: string;
+  recipientId?: string;
 
   @ApiPropertyOptional({
     description: 'Email address of the recipient',
@@ -283,12 +293,18 @@ export class SendThreadMessageDto {
   @IsEnum(NotificationType)
   channel: NotificationType;
 
-  @ApiProperty({
-    description: "Counterparty's email address or phone number",
+  @ApiPropertyOptional({
+    description:
+      "Counterparty's email address or phone number. Required for staff. " +
+      '**Ignored for a `client`-role caller**, whose own address is always the ' +
+      'counterparty — a client cannot address a message to another applicant, ' +
+      'and threading their reply on the firm\'s address would put every client ' +
+      'in one shared thread.',
     example: 'jane@example.com',
   })
   @IsString()
-  to: string;
+  @IsOptional()
+  to?: string;
 
   @ApiProperty({ description: 'Subject line', example: 'Your 482 application' })
   @IsString()
