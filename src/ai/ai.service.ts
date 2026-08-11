@@ -721,8 +721,11 @@ export class AiService {
    * AI Task Prioritization
    */
   async prioritizeTasks(tenantId: string, userId: string): Promise<AiResponse> {
-    const tasks = await this.taskService.listTasks(tenantId, {
+    // `limit` explicitly: prioritisation reads the whole list into a prompt, so
+    // the page size is a token budget, not a UI concern.
+    const { items: tasks } = await this.taskService.listTasks(tenantId, {
       assignedTo: userId,
+      limit: 200,
     });
 
     return this.execute({
@@ -898,7 +901,9 @@ export class AiService {
 
     if (searchModules.includes('tasks')) {
       try {
-        const tasks = await this.taskService.listTasks(tenantId);
+        const { items: tasks } = await this.taskService.listTasks(tenantId, {
+          limit: 200,
+        });
         results.tasks = tasks.filter((t) =>
           JSON.stringify(t).toLowerCase().includes(query.toLowerCase()),
         );

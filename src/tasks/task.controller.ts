@@ -21,6 +21,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { TaskService } from './task.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { paginated } from '../common/paginated';
 import {
   CalendarEventsQueryDto,
   ListTasksQueryDto,
@@ -54,11 +55,28 @@ export class TaskController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List tasks' })
+  @ApiOperation({
+    summary: 'List tasks',
+    description:
+      'Paginated via `?page`/`?limit`, defaulting to 50 and clamped to 200 — ' +
+      'the same contract as `GET /crm/entities`. `?limit` previously 400\'d ' +
+      'because the DTO did not declare it, so this returned every task in the ' +
+      'tenant in one response. Totals are in `meta.pagination`; `data` is still ' +
+      'the array, so existing callers are unaffected.',
+  })
   @ApiResponse({ status: 200, description: 'Tasks retrieved' })
   @ApiResponse({ status: 400, description: 'Unknown or malformed query param' })
   async listTasks(@Request() req, @Query() query: ListTasksQueryDto) {
-    return this.taskService.listTasks(req.user.tenantId, query);
+    const { dueBefore, dueAfter, ...rest } = query;
+    const { items, total, page, limit } = await this.taskService.listTasks(
+      req.user.tenantId,
+      {
+        ...rest,
+        ...(dueBefore ? { dueBefore: new Date(dueBefore) } : {}),
+        ...(dueAfter ? { dueAfter: new Date(dueAfter) } : {}),
+      },
+    );
+    return paginated(items, total, page, limit);
   }
 
   @Get('my-work')
@@ -95,7 +113,13 @@ export class TaskController {
   }
 
   @Get('calendar/events')
-  @ApiOperation({ summary: 'Get calendar events' })
+  @ApiOperation({
+    summary: 'Get calendar events',
+    description:
+      'Tasks with a due date inside the window. `?scope=firm` returns every ' +
+      "task in the tenant rather than only the caller's, which is what a " +
+      'shared team calendar needs.',
+  })
   @ApiResponse({ status: 200, description: 'Events retrieved' })
   @ApiResponse({ status: 400, description: 'Missing or malformed date range' })
   async getCalendarEvents(
@@ -107,6 +131,7 @@ export class TaskController {
       req.user.id,
       new Date(query.startDate),
       new Date(query.endDate),
+      query.scope ?? 'mine',
     );
   }
 

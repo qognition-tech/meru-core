@@ -7,7 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan, In } from 'typeorm';
+import { Between, In, LessThan, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 import {
   Task,
   TaskStatus,
@@ -97,27 +97,43 @@ export class TaskService {
       entityId?: string;
       dueBefore?: Date;
       dueAfter?: Date;
+      page?: number;
+      limit?: number;
     } = {},
-  ): Promise<Task[]> {
-    const where: any = { tenantId };
+  ): Promise<{ items: Task[]; total: number; page: number; limit: number }> {
+    const where: Record<string, unknown> = { tenantId };
 
     if (options.status) where.status = options.status;
     if (options.assignedTo) where.assignedTo = options.assignedTo;
     if (options.priority) where.priority = options.priority;
     if (options.type) where.type = options.type;
     if (options.entityId) where.entityId = options.entityId;
-    if (options.dueBefore) where.dueDate = LessThan(options.dueBefore);
-    if (options.dueAfter) {
-      where.dueDate = where.dueDate
-        ? { ...where.dueDate, $moreThan: options.dueAfter }
-        : MoreThan(options.dueAfter);
+
+    // Both bounds together used to build `{ ...LessThan(x), $moreThan: y }`.
+    // `$moreThan` is not a TypeORM operator — it is Mongo syntax — so the object
+    // was a `LessThan` with an inert extra key: the lower bound was silently
+    // dropped and the query answered a different question than it was asked.
+    // Same class of fault as the calendar range below.
+    if (options.dueBefore && options.dueAfter) {
+      where.dueDate = Between(options.dueAfter, options.dueBefore);
+    } else if (options.dueBefore) {
+      where.dueDate = LessThan(options.dueBefore);
+    } else if (options.dueAfter) {
+      where.dueDate = MoreThanOrEqual(options.dueAfter);
     }
 
-    return this.taskRepo.find({
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, Number(options.limit) || 50));
+
+    const [items, total] = await this.taskRepo.findAndCount({
       where,
       relations: ['comments'],
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { items, total, page, limit };
   }
 
   async updateTask(
@@ -465,21 +481,36 @@ export class TaskService {
     }
   }
 
-  // ==================== CALENDAR INTEGRATION (PLACEHOLDER) ====================
+  // ==================== CALENDAR INTEGRATION ====================
 
+  /**
+   * Tasks with a due date inside a window, as calendar events.
+   *
+   * The range filter was `MoreThan(start) && LessThan(end)`. `&&` evaluates to
+   * its right operand, so the expression *is* `LessThan(end)` and `startDate`
+   * was discarded — the endpoint silently answered "everything due before the
+   * end of the window", including last year's. It reads like a range and is not
+   * one, which is why it survived review. `Between` says what was meant.
+   *
+   * `scope: 'firm'` returns every task in the tenant. The endpoint was
+   * hard-scoped to the caller with no way to widen it, so a shared team calendar
+   * — the main thing a firm wants a calendar for — could not be built from it,
+   * and the frontend assembled its month grid client-side instead.
+   */
   async getCalendarEvents(
     tenantId: string,
     userId: string,
     startDate: Date,
     endDate: Date,
+    scope: 'mine' | 'firm' = 'mine',
   ): Promise<any[]> {
-    // Get tasks with due dates
     const tasks = await this.taskRepo.find({
       where: {
         tenantId,
-        assignedTo: userId,
-        dueDate: MoreThan(startDate) && LessThan(endDate),
+        ...(scope === 'firm' ? {} : { assignedTo: userId }),
+        dueDate: Between(startDate, endDate),
       },
+      order: { dueDate: 'ASC' },
     });
 
     // Convert to calendar events

@@ -1,4 +1,4 @@
-import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskPriority, TaskStatus, TaskType } from '../entities/task.entity';
 
@@ -31,6 +31,43 @@ export class ListTasksQueryDto {
   @IsOptional()
   @IsEnum(TaskType)
   type?: TaskType;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Tasks about one record' })
+  @IsOptional()
+  @IsUUID()
+  entityId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only tasks due before this instant.',
+    example: '2026-09-30',
+  })
+  @IsOptional()
+  @IsDateString()
+  dueBefore?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only tasks due on or after this instant.',
+    example: '2026-07-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  dueAfter?: string;
+
+  // `?limit` used to be a 400 — `forbidNonWhitelisted` rejected it because the
+  // DTO did not declare it, so `GET /tasks` had no pagination of any kind and
+  // returned every task in the tenant. Same names, defaults and ceiling as
+  // `GET /crm/entities`: three list endpoints with three different contracts is
+  // the complaint this closes, so matching matters more than the values.
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  page?: number;
+
+  @ApiPropertyOptional({
+    default: 50,
+    description: 'Clamped to 200, as on /crm/entities.',
+  })
+  @IsOptional()
+  limit?: number;
 }
 
 /**
@@ -62,4 +99,17 @@ export class CalendarEventsQueryDto {
     { message: 'endDate must be an ISO 8601 date, e.g. 2026-08-31' },
   )
   endDate: string;
+
+  @ApiPropertyOptional({
+    enum: ['mine', 'firm'],
+    default: 'mine',
+    description:
+      "Whose tasks to return. `mine` is the caller's own; `firm` is every " +
+      'task in the tenant, which is what a shared team calendar needs. The ' +
+      'endpoint was hard-scoped to the caller with no way to widen it, so a ' +
+      'firm-wide month view could not be built from it at all.',
+  })
+  @IsOptional()
+  @IsIn(['mine', 'firm'])
+  scope?: 'mine' | 'firm';
 }
