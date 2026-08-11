@@ -290,7 +290,11 @@ describe('FeeScheduleService', () => {
       const repo = {
         find: jest.fn(() =>
           Promise.resolve([
-            { id: 'p1', planKey: 'staged', status: PaymentStatus.PENDING } as Payment,
+            {
+              id: 'p1',
+              planKey: 'staged',
+              status: PaymentStatus.PENDING,
+            } as Payment,
           ]),
         ),
         create: jest.fn(),

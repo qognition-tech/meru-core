@@ -54,7 +54,7 @@ vertical through stable contracts.
 | 8 | **TASK** | Tasks | `src/tasks/` | assignments, recurrence, calendar |
 | 9 | **COM** | Communication | `src/notifications/` | email/SMS/WhatsApp, templates, sequences, threads |
 | 10 | **DOC** | Documents | `src/documents/`, `src/storage/` | OCR, versioning, S3, checklists |
-| 11 | **BILL** | Billing | `src/billing/`, `src/payments/` | Stripe (Meru→tenant), payments (tenant→client) |
+| 11 | **BILL** | Billing | `src/billing/`, `src/payments/` | Stripe (Meru→tenant), payments (tenant→client **and** firm→regulator) |
 | 12 | **BI** | Analytics | `src/analytics/` | reports, widgets, pack dashboards |
 | 13 | **AUD** | Audit | `src/audit/` | hash-chained, WORM-triggered logs |
 | 14 | **INT** | Integrations | `src/integrations/` | government adapters, connector registry |
@@ -237,6 +237,18 @@ Every state-changing action writes to AUD with hash-chained entries.
 owner would evade). Only `archived` may change; DELETE and TRUNCATE are refused.
 Not yet full WORM — a superuser can drop the trigger; real immutability needs S3
 Object Lock export.
+
+### 5.4b The ledger has two directions
+
+`payments.direction` is `inbound` (a client owes the firm) or `outbound` (the
+firm pays a regulator or supplier). One table, because a matter's financial
+history is one list — but **never summed together**. Counting a forwarded
+government charge as income overstates revenue by exactly the amount the firm
+never earned, so `GET /payments/summary` reports `receivableMinor` and
+`payableMinor` separately and keeps `direction` in every group key.
+
+A client-role caller sees `inbound` only, on both the list and by id. What the
+firm spends is its own business, including on that client's matter.
 
 ### 5.5 The 80/20 rule
 

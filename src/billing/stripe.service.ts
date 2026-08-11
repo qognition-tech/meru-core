@@ -54,15 +54,19 @@ export class StripeService {
   /** Checkout link for a plan; seats become the subscription quantity. */
   async createCheckoutSession(
     tenantId: string,
-    input: { planCode: string; seats?: number; successUrl: string; cancelUrl: string },
+    input: {
+      planCode: string;
+      seats?: number;
+      successUrl: string;
+      cancelUrl: string;
+    },
   ): Promise<{ url: string }> {
     const stripe = this.stripe();
 
     // Plan→price mapping is env config (STRIPE_PRICE_STARTER, …), not the
     // billing_plans table — that table models per-tenant plan documents, not
     // the platform's Stripe catalogue.
-    const priceId =
-      process.env[`STRIPE_PRICE_${input.planCode.toUpperCase()}`];
+    const priceId = process.env[`STRIPE_PRICE_${input.planCode.toUpperCase()}`];
     if (!priceId) {
       throw new BadRequestException(
         `Plan '${input.planCode}' has no Stripe price configured ` +
@@ -112,46 +116,61 @@ export class StripeService {
       name: tenant.name,
       metadata: { tenantId: tenant.id, slug: tenant.slug },
     });
-    tenant.metadata = { ...(tenant.metadata ?? {}), stripeCustomerId: customer.id };
+    tenant.metadata = {
+      ...(tenant.metadata ?? {}),
+      stripeCustomerId: customer.id,
+    };
     await this.tenantRepo.save(tenant);
     return customer.id;
   }
 
   /** Verify + apply a webhook. Runs as system: Stripe has no tenant binding. */
-  async handleWebhook(rawBody: Buffer, signature: string): Promise<{ received: true }> {
+  async handleWebhook(
+    rawBody: Buffer,
+    signature: string,
+  ): Promise<{ received: true }> {
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!secret) {
       throw new ServiceUnavailableException(
         'Billing webhooks not configured (STRIPE_WEBHOOK_SECRET missing)',
       );
     }
-    const event = this.stripe().webhooks.constructEvent(rawBody, signature, secret);
+    const event = this.stripe().webhooks.constructEvent(
+      rawBody,
+      signature,
+      secret,
+    );
 
-    await TenantContext.runAsSystem(`stripe webhook ${event.type}`, async () => {
-      switch (event.type) {
-        case 'checkout.session.completed': {
-          const session = event.data.object;
-          await this.applyPlan(
-            session.metadata?.tenantId,
-            session.metadata?.planCode,
-            typeof session.subscription === 'string' ? session.subscription : null,
-          );
-          break;
+    await TenantContext.runAsSystem(
+      `stripe webhook ${event.type}`,
+      async () => {
+        switch (event.type) {
+          case 'checkout.session.completed': {
+            const session = event.data.object;
+            await this.applyPlan(
+              session.metadata?.tenantId,
+              session.metadata?.planCode,
+              typeof session.subscription === 'string'
+                ? session.subscription
+                : null,
+            );
+            break;
+          }
+          case 'customer.subscription.updated':
+          case 'customer.subscription.deleted': {
+            const sub = event.data.object;
+            await this.syncSubscriptionStatus(
+              sub.metadata?.tenantId,
+              sub.id,
+              sub.status,
+            );
+            break;
+          }
+          default:
+            this.logger.debug(`Unhandled Stripe event: ${event.type}`);
         }
-        case 'customer.subscription.updated':
-        case 'customer.subscription.deleted': {
-          const sub = event.data.object;
-          await this.syncSubscriptionStatus(
-            sub.metadata?.tenantId,
-            sub.id,
-            sub.status,
-          );
-          break;
-        }
-        default:
-          this.logger.debug(`Unhandled Stripe event: ${event.type}`);
-      }
-    });
+      },
+    );
 
     return { received: true };
   }
@@ -162,7 +181,9 @@ export class StripeService {
     stripeSubscriptionId: string | null,
   ): Promise<void> {
     if (!tenantId || !planCode) {
-      this.logger.warn('checkout.session.completed without tenant/plan metadata');
+      this.logger.warn(
+        'checkout.session.completed without tenant/plan metadata',
+      );
       return;
     }
     const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });

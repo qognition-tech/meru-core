@@ -5,7 +5,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Payment, PaymentStatus } from './entities/payment.entity';
+import {
+  Payment,
+  PaymentDirection,
+  PaymentStatus,
+} from './entities/payment.entity';
 import {
   CreatePaymentDto,
   ListPaymentsQueryDto,
@@ -68,7 +72,17 @@ export class PaymentsService {
     const clientId = forceClientId ?? query.clientId;
     if (clientId) qb.andWhere('p."clientId" = :clientId', { clientId });
 
-    if (query.status) qb.andWhere('p.status = :status', { status: query.status });
+    // A client sees receivables only. Outbound rows are the firm's own
+    // expenditure — what it paid the Department, what it spent on a police
+    // check — and none of that is the client's business even on their own
+    // matter. Forced, not defaulted, so `?direction=outbound` cannot widen it.
+    const direction = forceClientId
+      ? PaymentDirection.INBOUND
+      : query.direction;
+    if (direction) qb.andWhere('p."direction" = :direction', { direction });
+
+    if (query.status)
+      qb.andWhere('p.status = :status', { status: query.status });
     if (query.entityId)
       qb.andWhere('p."entityId" = :entityId', { entityId: query.entityId });
 
@@ -110,27 +124,53 @@ export class PaymentsService {
     if (query.entityId)
       qb.andWhere('p."entityId" = :entityId', { entityId: query.entityId });
 
+    const direction = forceClientId
+      ? PaymentDirection.INBOUND
+      : query.direction;
+    if (direction) qb.andWhere('p."direction" = :direction', { direction });
+
     const rows = await qb
       .select('p.currency', 'currency')
       .addSelect('p.status', 'status')
+      .addSelect('p.direction', 'direction')
       .addSelect('SUM(p."amountMinor")', 'sum')
       .addSelect('COUNT(*)', 'count')
       .groupBy('p.currency')
       .addGroupBy('p.status')
+      .addGroupBy('p.direction')
       .getRawMany<{
         currency: string;
         status: PaymentStatus;
+        direction: PaymentDirection;
         sum: string;
         count: string;
       }>();
 
+    // `direction` is part of every group key, never summed across. A total that
+    // added forwarded government charges to the firm's fees would overstate
+    // revenue by exactly the amount the firm never earned.
+    const byStatus = rows.map((r) => ({
+      currency: r.currency,
+      status: r.status,
+      direction: r.direction,
+      amountMinor: Number(r.sum),
+      count: Number(r.count),
+    }));
+
+    const totalFor = (d: PaymentDirection) =>
+      byStatus
+        .filter((r) => r.direction === d)
+        .reduce<Record<string, number>>((acc, r) => {
+          acc[r.currency] = (acc[r.currency] ?? 0) + r.amountMinor;
+          return acc;
+        }, {});
+
     return {
-      byStatus: rows.map((r) => ({
-        currency: r.currency,
-        status: r.status,
-        amountMinor: Number(r.sum),
-        count: Number(r.count),
-      })),
+      byStatus,
+      // Per currency, per direction. Kept separate for the same reason the
+      // grouping is: these two numbers must never be added together.
+      receivableMinor: totalFor(PaymentDirection.INBOUND),
+      payableMinor: totalFor(PaymentDirection.OUTBOUND),
     };
   }
 
@@ -139,22 +179,51 @@ export class PaymentsService {
     // A client asking for another client's payment gets 404, not 403. A 403
     // confirms the row exists, which leaks the shape of someone else's ledger
     // to anyone willing to enumerate ids.
-    if (!payment || (forceClientId && payment.clientId !== forceClientId)) {
+    if (
+      !payment ||
+      (forceClientId &&
+        (payment.clientId !== forceClientId ||
+          payment.direction !== PaymentDirection.INBOUND))
+    ) {
       throw new NotFoundException('Payment not found');
     }
     return this.present(payment);
   }
 
+  /**
+   * Record a receivable, or a disbursement the firm owes.
+   *
+   * An outbound row needs a `payee` and needs no `clientId`: the firm paying the
+   * Department for a client's application names the client, but an annual
+   * registration fee has no client and must not be attributed to whichever
+   * applicant was handy.
+   */
   async create(tenantId: string, dto: CreatePaymentDto) {
+    const direction = dto.direction ?? PaymentDirection.INBOUND;
+
+    if (direction === PaymentDirection.INBOUND && !dto.clientId) {
+      throw new BadRequestException(
+        'clientId is required for an inbound payment — somebody has to owe it',
+      );
+    }
+    if (direction === PaymentDirection.OUTBOUND && !dto.payee) {
+      throw new BadRequestException(
+        'payee is required for an outbound payment — a disbursement to nobody is not a record',
+      );
+    }
+
     const payment = this.paymentRepo.create({
       tenantId,
-      clientId: dto.clientId,
+      clientId: dto.clientId ?? null,
       entityId: dto.entityId ?? null,
+      direction,
+      payee: dto.payee ?? null,
       amountMinor: String(dto.amountMinor),
       currency: dto.currency.toUpperCase(),
       description: dto.description,
       reference: dto.reference ?? null,
       dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+      feeKind: dto.feeKind ?? null,
       status: PaymentStatus.PENDING,
     });
     return this.present(await this.paymentRepo.save(payment));
@@ -199,7 +268,9 @@ export class PaymentsService {
 
     payment.status = dto.status;
     payment.paidAt =
-      dto.status === PaymentStatus.PAID ? (payment.paidAt ?? new Date()) : payment.paidAt;
+      dto.status === PaymentStatus.PAID
+        ? (payment.paidAt ?? new Date())
+        : payment.paidAt;
     payment.metadata = {
       ...(payment.metadata ?? {}),
       // How the money actually arrived. Free text on purpose: the set of

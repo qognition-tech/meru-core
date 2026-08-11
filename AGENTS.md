@@ -82,12 +82,13 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**301 operations across 252 paths.** Four added on 2026-08-11 after the
+**303 operations across 254 paths.** Six added on 2026-08-11 after the
 verification pass below; none removed or renamed, so nothing built against the
 previous surface breaks.
 
 Added: `POST /crm/entities/:id/convert`, `GET /documents/templates`,
-`POST /documents/generate/:templateKey`, `GET /analytics/trends/:kpiKey`.
+`POST /documents/generate/:templateKey`, `GET /analytics/trends/:kpiKey`,
+`GET /payments/plans`, `POST /payments/schedule`.
 `GET /tasks` gained `?page`/`?limit` and `GET /tasks/calendar/events` gained
 `?scope` — both additive, and `data` is still the array.
 

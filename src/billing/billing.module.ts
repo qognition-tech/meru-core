@@ -35,7 +35,12 @@ import { VerticalPackModule } from '../tenant/vertical-pack.module';
     SearchModule,
   ],
   controllers: [BillingController, StripeWebhookController, PaymentsController],
-  providers: [BillingService, StripeService, PaymentsService, FeeScheduleService],
+  providers: [
+    BillingService,
+    StripeService,
+    PaymentsService,
+    FeeScheduleService,
+  ],
   exports: [BillingService, StripeService, PaymentsService, FeeScheduleService],
 })
 export class BillingModule {}

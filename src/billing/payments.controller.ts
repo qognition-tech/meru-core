@@ -22,9 +22,11 @@ import { PolicyGuard } from '../iam/guards/policy.guard';
 import { Roles } from '../iam/decorators/roles.decorator';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { PaymentsService } from './payments.service';
+import { FeeScheduleService } from './fee-schedule.service';
 import {
   CreatePaymentDto,
   ListPaymentsQueryDto,
+  ScheduleFeesDto,
   SettlePaymentDto,
 } from './dto/payment.dto';
 import { paginated } from '../common/paginated';
@@ -43,7 +45,10 @@ import type { AuthenticatedRequest } from '../common/types';
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly feeSchedule: FeeScheduleService,
+  ) {}
 
   /**
    * A `client` is the person being billed, not staff: they see only their own
@@ -71,10 +76,12 @@ export class PaymentsController {
   @ApiOperation({
     summary: "The caller's payment ledger",
     description:
-      'Staff see the whole firm and may filter by ?clientId=. A client-role ' +
-      'caller is forced to their own rows regardless of query. For ledger ' +
-      'totals use GET /payments/summary — they cannot ride on this response, ' +
-      'because the envelope replaces a paginated payload with its items array.',
+      'Staff see the whole firm and may filter by ?clientId= and ' +
+      '?direction=. A client-role caller is forced to their own **inbound** ' +
+      "rows: the firm's disbursements are its own expenditure and are not " +
+      'visible to the client even on their own matter.\n\n' +
+      'Amounts are integer minor units. Totals are a separate call — see ' +
+      '`GET /payments/summary`.',
   })
   @ApiResponse({ status: 200, description: 'Payments retrieved' })
   async list(
@@ -87,6 +94,76 @@ export class PaymentsController {
       this.clientScope(req),
     );
     return paginated(items, total, page, limit);
+  }
+
+  @Get('plans')
+  @Roles(
+    PlatformRole.PLATFORM_ADMIN,
+    PlatformRole.FIRM_ADMIN,
+    PlatformRole.STAFF,
+  )
+  @ApiOperation({
+    summary: 'The fees and payment plans this vertical declares',
+    description:
+      "From the config pack's `fees[]` and `paymentPlans[]`. Render the " +
+      'instalment options from this response — the amounts, the number of ' +
+      'instalments and the interval are all per vertical and per country, and a ' +
+      'hardcoded plan list stops reflecting a pack update silently.\n\n' +
+      '`fees[].basis` matters when quoting: `per_applicant` and `per_dependent` ' +
+      'are multiplied by the counts passed to the schedule call, so a family ' +
+      'application costs more than the raw `amountMinor` suggests.',
+  })
+  @ApiResponse({ status: 200, description: 'Fees and plans retrieved' })
+  async listPlans(@Request() req: AuthenticatedRequest) {
+    return this.feeSchedule.catalogue(req.tenantVertical ?? null);
+  }
+
+  @Post('schedule')
+  @Roles(
+    PlatformRole.PLATFORM_ADMIN,
+    PlatformRole.FIRM_ADMIN,
+    PlatformRole.STAFF,
+  )
+  @ApiOperation({
+    summary: 'Expand pack fees into payable rows for a matter',
+    description:
+      'What the signup-payment and lodgement-fee steps need. Given fee keys ' +
+      'and an optional plan, this writes the real `payments` rows — one per ' +
+      'instalment for an `installments` plan, one per stage for a ' +
+      '`stage_gated` one.\n\n' +
+      '**Idempotent per (matter, fee).** Re-running returns the rows that ' +
+      'already exist rather than charging the client a second time; a retry ' +
+      'after a partial failure is the normal way this gets called twice, and ' +
+      'double-charging is not a recoverable class of bug.\n\n' +
+      'Instalment arithmetic is exact in minor units: the remainder from an ' +
+      'uneven split lands on the final instalment, so the parts always sum to ' +
+      'the total.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Rows created, or the existing ones',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Unknown fee or plan key, or fees in mixed currencies',
+  })
+  async schedule(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ScheduleFeesDto,
+  ) {
+    const rows = await this.feeSchedule.expand({
+      tenantId: req.user.tenantId,
+      vertical: req.tenantVertical ?? null,
+      entityId: dto.entityId,
+      clientId: dto.clientId,
+      feeKeys: dto.feeKeys,
+      planKey: dto.planKey,
+      applicants: dto.applicants,
+      dependents: dto.dependents,
+      startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+      reference: dto.reference,
+    });
+    return rows.map((r) => ({ ...r, amountMinor: Number(r.amountMinor) }));
   }
 
   /**
@@ -169,7 +246,7 @@ export class PaymentsController {
     summary: 'Record that a payment settled outside Meru',
     description:
       'Bank transfer, card terminal, trust account. No processor is called: ' +
-      "Stripe in this platform is Meru billing the firm, not the firm " +
+      'Stripe in this platform is Meru billing the firm, not the firm ' +
       'billing its clients. Transitions are constrained — paid → refunded ' +
       'only, and refunded/cancelled are terminal, so the ledger stays ' +
       'reconcilable.',

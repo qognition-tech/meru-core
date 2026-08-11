@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsEnum,
-  IsInt,
   IsISO8601,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
@@ -13,12 +16,53 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { PaymentStatus } from '../entities/payment.entity';
+import { PaymentDirection, PaymentStatus } from '../entities/payment.entity';
 
 export class CreatePaymentDto {
-  @ApiProperty({ description: 'users.id of the client who owes this' })
+  @ApiPropertyOptional({
+    enum: PaymentDirection,
+    default: PaymentDirection.INBOUND,
+    description:
+      '`inbound` (default) is what a client owes the firm. `outbound` is a ' +
+      'disbursement the firm pays out — chiefly the government charge it ' +
+      'forwards to the regulator, which is the other half of the lodgement ' +
+      'step and previously had nowhere to be recorded.',
+  })
+  @IsOptional()
+  @IsEnum(PaymentDirection)
+  direction?: PaymentDirection;
+
+  @ApiPropertyOptional({
+    description:
+      'users.id of the client who owes this. **Required for `inbound`.** ' +
+      'Optional for `outbound`: a firm-level expense has no client, and ' +
+      "attributing one would put the firm's own costs on an applicant.",
+  })
+  @IsOptional()
   @IsUUID()
-  clientId: string;
+  clientId?: string;
+
+  @ApiPropertyOptional({
+    example: 'Department of Home Affairs',
+    description:
+      'Who was paid. **Required for `outbound`** — enforced by a database ' +
+      'CHECK as well as here, because this table is the record of what the ' +
+      'firm spent and "paid to (blank)" records nothing.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  payee?: string;
+
+  @ApiPropertyOptional({
+    enum: ['government', 'firm', 'disbursement'],
+    description:
+      "What kind of charge this is. A forwarded government fee and the firm's " +
+      'own fee behave differently the moment a client withdraws.',
+  })
+  @IsOptional()
+  @IsIn(['government', 'firm', 'disbursement'])
+  feeKind?: 'government' | 'firm' | 'disbursement';
 
   @ApiPropertyOptional({
     description: 'universal_entities.id of the case/matter this relates to',
@@ -45,7 +89,9 @@ export class CreatePaymentDto {
   @ApiProperty({ example: 'AUD', description: 'ISO-4217, 3 letters' })
   @IsString()
   @Length(3, 3)
-  @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO-4217 code' })
+  @Matches(/^[A-Za-z]{3}$/, {
+    message: 'currency must be a 3-letter ISO-4217 code',
+  })
   currency: string;
 
   @ApiProperty({ example: 'Subclass 482 application fee' })
@@ -70,6 +116,17 @@ export class ListPaymentsQueryDto {
   @IsOptional()
   @IsEnum(PaymentStatus)
   status?: PaymentStatus;
+
+  @ApiPropertyOptional({
+    enum: PaymentDirection,
+    description:
+      'Receivables or disbursements. Omit for both. **Ignored for a ' +
+      "client-role caller**, who only ever sees `inbound` — the firm's own " +
+      'expenditure is not their business even on their own matter.',
+  })
+  @IsOptional()
+  @IsEnum(PaymentDirection)
+  direction?: PaymentDirection;
 
   @ApiPropertyOptional({
     description:
@@ -118,7 +175,8 @@ export class SettlePaymentDto {
 
   @ApiPropertyOptional({
     example: 'bank_transfer',
-    description: 'How the money arrived. Free text — the set of methods is a firm-level concern.',
+    description:
+      'How the money arrived. Free text — the set of methods is a firm-level concern.',
   })
   @IsOptional()
   @IsString()
@@ -136,4 +194,79 @@ export class SettlePaymentDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+/**
+ * Body for `POST /payments/schedule`.
+ *
+ * Fee keys rather than amounts, deliberately: the pack decides what a thing
+ * costs. A caller that could name its own amount would let a UI drift from the
+ * fee schedule the vertical publishes, which is the whole reason `fees[]` exists.
+ */
+export class ScheduleFeesDto {
+  @ApiProperty({ description: 'universal_entities.id of the matter' })
+  @IsUUID()
+  entityId: string;
+
+  @ApiProperty({ description: 'users.id of the client who owes these' })
+  @IsUUID()
+  clientId: string;
+
+  @ApiProperty({
+    description: '`fees[].key` values from the config pack',
+    example: ['gov_482_primary', 'firm_professional_482'],
+    type: [String],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  feeKeys: string[];
+
+  @ApiPropertyOptional({
+    description:
+      '`paymentPlans[].key`. Omit for one payment per fee, due immediately.',
+    example: 'instalments_3',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  planKey?: string;
+
+  @ApiPropertyOptional({
+    description: 'Multiplier for `per_applicant` fees.',
+    minimum: 1,
+    default: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  applicants?: number;
+
+  @ApiPropertyOptional({
+    description: 'Multiplier for `per_dependent` fees.',
+    minimum: 0,
+    default: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(50)
+  dependents?: number;
+
+  @ApiPropertyOptional({
+    description: 'When instalment clocks start. Defaults to now.',
+  })
+  @IsOptional()
+  @IsISO8601()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: 'MTR-1188' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  reference?: string;
 }

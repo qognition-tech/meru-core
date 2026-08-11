@@ -66,6 +66,26 @@ export class FeeScheduleService {
   ) {}
 
   /**
+   * What the vertical says things cost and how they may be paid.
+   *
+   * The expander existed and was reachable from no route, so the instalment
+   * options a pack declares could not be offered to anyone — the frontend had to
+   * treat EMI signup payments as missing. This is the read half.
+   */
+  async catalogue(vertical: string | null): Promise<{
+    fees: FeeDefinition[];
+    plans: PaymentPlanDefinition[];
+  }> {
+    const [fees, plans] = await Promise.all([
+      this.packs.list<FeeDefinition>(vertical, 'fees'),
+      this.packs.list<PaymentPlanDefinition>(vertical, 'paymentPlans'),
+    ]);
+    // Empty arrays are legitimate — a vertical need not publish a fee schedule —
+    // and are not an error to distinguish from "the pack is missing".
+    return { fees, plans };
+  }
+
+  /**
    * Expand fees into `payments` rows.
    *
    * Idempotent per (entity, fee, plan): re-running for the same case returns

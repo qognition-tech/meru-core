@@ -29,7 +29,9 @@ export class StripeWebhookController {
   @Post('webhook')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Stripe webhook (signature-verified machine endpoint)' })
+  @ApiOperation({
+    summary: 'Stripe webhook (signature-verified machine endpoint)',
+  })
   @ApiResponse({ status: 200, description: 'Event processed' })
   @ApiResponse({ status: 400, description: 'Missing/invalid signature' })
   @ApiResponse({ status: 503, description: 'Stripe not configured' })

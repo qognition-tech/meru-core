@@ -7,6 +7,21 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/**
+ * Which way the money moves.
+ *
+ * `inbound` is what a client owes the firm — the only thing this table could
+ * express originally. `outbound` is what the firm pays out on a matter, chiefly
+ * the government charge it forwards to the regulator. Both live in one ledger
+ * because a matter's financial history is one list, but they must never be
+ * summed together: counting forwarded visa fees as income overstates revenue by
+ * exactly the amount the firm never earned.
+ */
+export enum PaymentDirection {
+  INBOUND = 'inbound',
+  OUTBOUND = 'outbound',
+}
+
 export enum PaymentStatus {
   PENDING = 'pending',
   PAID = 'paid',
@@ -43,9 +58,36 @@ export class Payment {
    * not just display: RLS separates tenants but not users within one, so this
    * is what stops one applicant reading another's ledger. Not an FK — a
    * deprovisioned user must not orphan a financial record.
+   *
+   * Nullable only for `outbound` rows: a firm-level expense has no client, and
+   * forcing one would attribute the firm's own costs to whichever applicant
+   * happened to be handy.
    */
-  @Column({ type: 'uuid' })
-  clientId: string;
+  @Column({ type: 'uuid', nullable: true })
+  clientId: string | null;
+
+  /**
+   * Which way the money moves. See PaymentDirection.
+   *
+   * Defaulted so existing callers keep creating receivables without knowing this
+   * field exists.
+   */
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: PaymentDirection.INBOUND,
+  })
+  direction: PaymentDirection;
+
+  /**
+   * Who was paid, for `outbound` rows — "Department of Home Affairs".
+   *
+   * Required for outbound by a database CHECK, not only by a DTO: this table is
+   * the record of what the firm spent, and "we paid AUD 3,050.00 to (blank)" is
+   * not a record of anything.
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  payee: string | null;
 
   /** Optional `universal_entities.id` — the case/matter this relates to. */
   @Column({ type: 'uuid', nullable: true })
