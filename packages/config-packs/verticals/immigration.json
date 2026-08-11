@@ -1,8 +1,8 @@
 {
   "code": "immigration",
   "name": "Immigration Practice Management",
-  "description": "Shared immigration vocabulary \u2014 every country overlay inherits this.",
-  "version": "2.1.0",
+  "description": "Shared immigration vocabulary — every country overlay inherits this.",
+  "version": "2.2.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -178,12 +178,26 @@
         "duplicateHash": true,
         "fontConsistency": true
       }
+    },
+    {
+      "key": "cost_agreement",
+      "label": "Signed cost agreement",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
     }
   ],
   "workflows": [
     {
       "id": "482-tss-employer-sponsored",
-      "name": "482 TSS Visa \u2014 Employer Sponsored",
+      "name": "482 TSS Visa — Employer Sponsored",
       "entityType": "case",
       "steps": [
         {
@@ -262,11 +276,11 @@
           "transitions": [
             {
               "to": "document_collection",
-              "label": "Eligible \u2014 Collect Documents"
+              "label": "Eligible — Collect Documents"
             },
             {
               "to": "intake",
-              "label": "Return \u2014 More Info Needed"
+              "label": "Return — More Info Needed"
             }
           ]
         },
@@ -350,7 +364,7 @@
         },
         {
           "id": "refused",
-          "name": "Visa Refused \u2014 Review Options",
+          "name": "Visa Refused — Review Options",
           "type": "review",
           "transitions": [
             {
@@ -551,7 +565,7 @@
       "key": "risk_review",
       "category": "entity_analysis",
       "description": "Flag concerns on a record without inventing severity.",
-      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent \u2014 an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -563,7 +577,7 @@
       "key": "document_review",
       "category": "document_processing",
       "description": "Assess a supplied document against what the record expects.",
-      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document \u2014 do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.1,
@@ -575,7 +589,7 @@
       "key": "document_extraction",
       "category": "data_extraction",
       "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
-      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain \u2014 never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.0,
@@ -599,7 +613,7 @@
       "key": "next_action",
       "category": "workflow_decision",
       "description": "Recommend the next workflow step. Advisory only.",
-      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides \u2014 do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.2,
@@ -611,7 +625,7 @@
       "key": "assistant_command",
       "category": "entity_analysis",
       "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
-      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it \u2014 do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.3,
@@ -623,7 +637,7 @@
       "key": "visa_eligibility_note",
       "category": "entity_analysis",
       "description": "Draft an eligibility note for an applicant against a visa subclass.",
-      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent \u2014 it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
+      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent — it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
       "provider": "openai",
       "model": "gpt-4o-mini",
       "temperature": 0.2,
@@ -651,7 +665,7 @@
         "name": "Team invitation",
         "channel": "email",
         "subject": "You have been invited to {{firmName}}",
-        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation \u2014 the link cannot be reused.\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -666,7 +680,7 @@
         "name": "Password reset",
         "channel": "email",
         "subject": "Reset your {{productName}} password",
-        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email \u2014 your password has not changed. If you get these repeatedly, tell your administrator.\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -679,8 +693,8 @@
         "key": "task_assigned",
         "name": "Task assigned",
         "channel": "email",
-        "subject": "{{taskTitle}} \u2014 assigned to you",
-        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
+        "subject": "{{taskTitle}} — assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -697,7 +711,7 @@
         "name": "Task overdue",
         "channel": "email",
         "subject": "Overdue: {{taskTitle}}",
-        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -713,7 +727,7 @@
         "name": "Documents requested",
         "channel": "email",
         "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
-        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us \u2014 it may not have been recorded against your file.\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -728,7 +742,7 @@
         "name": "Document received",
         "channel": "email",
         "subject": "We received {{documentName}}",
-        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet \u2014 we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -741,8 +755,8 @@
         "key": "payment_due",
         "name": "Payment due",
         "channel": "email",
-        "subject": "{{firmName}} \u2014 {{amountFormatted}} due {{dueDate}}",
-        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n\u2014 {{firmName}}",
+        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -757,8 +771,8 @@
         "key": "payment_overdue",
         "name": "Payment overdue",
         "channel": "email",
-        "subject": "Overdue: {{amountFormatted}} \u2014 {{reference}}",
-        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us \u2014 tell us before the work stops rather than after.\n\n\u2014 {{firmName}}",
+        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -773,8 +787,8 @@
         "key": "payment_received",
         "name": "Payment receipt",
         "channel": "email",
-        "subject": "Receipt \u2014 {{amountFormatted}} received",
-        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n\u2014 {{firmName}}",
+        "subject": "Receipt — {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -790,7 +804,7 @@
         "name": "Case status change",
         "channel": "email",
         "subject": "{{entityLabel}} is now {{newStatus}}",
-        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -823,7 +837,7 @@
         "name": "Client portal welcome",
         "channel": "email",
         "subject": "Welcome to the {{firmName}} client portal",
-        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -850,7 +864,7 @@
         "name": "Visa expiry warning",
         "channel": "email",
         "subject": "Your visa expires on {{expiryDate}} ({{daysRemaining}} days)",
-        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} \u2014 {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us \u2014 treat your grant notice as correct, not this email.\n\n\u2014 {{firmName}}",
+        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} — {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us — treat your grant notice as correct, not this email.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -864,8 +878,8 @@
         "key": "lodgement_confirmation",
         "name": "Application lodged",
         "channel": "email",
-        "subject": "{{visaSubclass}} application lodged \u2014 {{referenceNumber}}",
-        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n\u2014 {{firmName}}",
+        "subject": "{{visaSubclass}} application lodged — {{referenceNumber}}",
+        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n— {{firmName}}",
         "variables": [
           "firstName",
           "firmName",
@@ -1071,7 +1085,7 @@
   "fees": [
     {
       "key": "gov_482_primary",
-      "label": "Subclass 482 application charge \u2014 primary applicant",
+      "label": "Subclass 482 application charge — primary applicant",
       "kind": "government",
       "amountMinor": 305000,
       "currency": "AUD",
@@ -1082,7 +1096,7 @@
     },
     {
       "key": "gov_482_dependent",
-      "label": "Subclass 482 application charge \u2014 each dependent",
+      "label": "Subclass 482 application charge — each dependent",
       "kind": "government",
       "amountMinor": 153000,
       "currency": "AUD",
@@ -1093,7 +1107,7 @@
     },
     {
       "key": "firm_professional_482",
-      "label": "Professional fees \u2014 subclass 482",
+      "label": "Professional fees — subclass 482",
       "kind": "firm",
       "amountMinor": 350000,
       "currency": "AUD",
@@ -1130,7 +1144,7 @@
     },
     {
       "key": "staged_482",
-      "label": "Staged \u2014 engagement, lodgement, decision",
+      "label": "Staged — engagement, lodgement, decision",
       "type": "stage_gated",
       "stages": [
         {
@@ -2030,6 +2044,301 @@
       ],
       "dedupeOn": [
         "email"
+      ]
+    }
+  ],
+  "documentTemplates": [
+    {
+      "key": "cost_agreement",
+      "label": "Cost agreement and engagement letter",
+      "documentTypeKey": "cost_agreement",
+      "fileName": "cost-agreement-{{client.lastName}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}} — Cost agreement",
+      "footer": "{{tenant.name}}   ·   Prepared {{today}}",
+      "requires": [
+        "client.fullName",
+        "paymentsTotal"
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "text": "Cost agreement and engagement letter",
+          "level": 1
+        },
+        {
+          "type": "paragraph",
+          "text": "This agreement is made on {{today}} between {{tenant.name}} (\"we\", \"us\") and {{client.fullName}} of {{client.email}} (\"you\", \"the client\")."
+        },
+        {
+          "type": "heading",
+          "text": "1. Scope of work",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "We will act as your registered migration agent in relation to the visa application identified below, and will advise you on eligibility, prepare and lodge your application, and correspond with the Department on your behalf until a decision is made."
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Client",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Contact email",
+              "value": "{{client.email}}"
+            },
+            {
+              "label": "Contact number",
+              "value": "{{client.phoneNumber}}"
+            },
+            {
+              "label": "Matter reference",
+              "value": "{{client.id}}"
+            },
+            {
+              "label": "Visa subclass",
+              "value": "{{client.attributes.matter.subclass}}"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "2. Fees and disbursements",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "Our professional fees and the disbursements payable in your matter are set out below. Department of Home Affairs charges are set by the Australian Government and are not within our control."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Item",
+            "Reference",
+            "Due",
+            "Amount"
+          ],
+          "from": "{{payments}}",
+          "cells": [
+            "{{item.description}}",
+            "{{item.reference}}",
+            "{{item.dueDate}}",
+            "{{item.amount}}"
+          ],
+          "widths": [
+            3.1,
+            1.5,
+            1.2,
+            1.2
+          ]
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Total",
+              "value": "{{paymentsTotal}}"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "3. Your obligations",
+          "level": 2
+        },
+        {
+          "type": "list",
+          "items": [
+            "Give us complete and accurate information, and tell us promptly if your circumstances change.",
+            "Provide requested documents by the dates we specify — many are subject to Department deadlines we cannot extend.",
+            "Pay fees and disbursements when they fall due. We cannot lodge an application until the relevant Department charge is paid."
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "4. No guarantee of outcome",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "We cannot and do not guarantee that your application will be successful. The decision is made by the Department of Home Affairs applying the Migration Act 1958 and the Migration Regulations 1994. Our fees are payable for the work performed regardless of the outcome."
+        },
+        {
+          "type": "heading",
+          "text": "5. Acceptance",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "By signing below you confirm that you have read and understood this agreement, including the fees payable and the statement that no outcome is guaranteed."
+        },
+        {
+          "type": "signature",
+          "signatories": [
+            "{{client.fullName}} (client)",
+            "For and on behalf of {{tenant.name}}"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "tax_invoice",
+      "label": "Tax invoice",
+      "fileName": "invoice-{{client.lastName}}-{{today}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}} — Tax invoice",
+      "footer": "{{tenant.name}}",
+      "requires": [
+        "client.fullName",
+        "paymentsTotal"
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "text": "Tax invoice",
+          "level": 1
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Issued to",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Email",
+              "value": "{{client.email}}"
+            },
+            {
+              "label": "Invoice date",
+              "value": "{{today}}"
+            },
+            {
+              "label": "Matter reference",
+              "value": "{{client.id}}"
+            }
+          ]
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Description",
+            "Reference",
+            "Status",
+            "Amount"
+          ],
+          "from": "{{payments}}",
+          "cells": [
+            "{{item.description}}",
+            "{{item.reference}}",
+            "{{item.status}}",
+            "{{item.amount}}"
+          ],
+          "widths": [
+            3.1,
+            1.5,
+            1.2,
+            1.2
+          ]
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Total",
+              "value": "{{paymentsTotal}}"
+            }
+          ]
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "Payment is due by the date shown against each item. Please quote the matter reference when paying. This invoice is issued by {{tenant.name}}; amounts marked as Department charges are collected on your behalf and remitted to the Department of Home Affairs."
+        }
+      ]
+    },
+    {
+      "key": "lodgement_confirmation",
+      "label": "Lodgement confirmation letter",
+      "fileName": "lodgement-{{client.lastName}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}}",
+      "footer": "{{tenant.name}}   ·   {{today}}",
+      "requires": [
+        "client.fullName"
+      ],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "{{today}}"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{client.fullName}}\n{{client.email}}"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "heading",
+          "text": "Your application has been lodged",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "Dear {{client.firstName}},"
+        },
+        {
+          "type": "paragraph",
+          "text": "We confirm that your application was lodged with the Department of Home Affairs. The details we hold are set out below. Please check them and tell us immediately if anything is incorrect."
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Applicant",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Visa subclass",
+              "value": "{{client.attributes.matter.subclass}}"
+            },
+            {
+              "label": "Department reference",
+              "value": "{{client.attributes.matter.departmentReference}}"
+            },
+            {
+              "label": "Lodged",
+              "value": "{{client.attributes.matter.lodgedAt}}"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Processing times are published by the Department and vary by subclass and by individual circumstances. We will contact you if the Department requests further information. You do not need to do anything further at this stage."
+        },
+        {
+          "type": "paragraph",
+          "text": "Yours sincerely,"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{tenant.name}}"
+        }
       ]
     }
   ]

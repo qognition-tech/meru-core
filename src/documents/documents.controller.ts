@@ -13,6 +13,7 @@ import {
   UploadedFile,
   BadRequestException,
   ParseUUIDPipe,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -21,10 +22,12 @@ import {
   ApiBearerAuth,
   ApiResponse,
   ApiConsumes,
+  ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { DocumentChecklistService } from './document-checklist.service';
+import { DocumentGenerationService } from './document-generation.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
@@ -33,6 +36,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import type { AuthenticatedRequest } from '../common/types';
 import { paginated } from '../common/paginated';
+import type { Response } from 'express';
 
 @ApiTags('documents')
 @Controller('documents')
@@ -42,6 +46,7 @@ export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
     private readonly documentChecklistService: DocumentChecklistService,
+    private readonly generation: DocumentGenerationService,
   ) {}
 
   @Post('upload')
@@ -148,6 +153,85 @@ export class DocumentsController {
       req.tenantVertical ?? null,
       entityId,
     );
+  }
+
+  @Get('templates')
+  @ApiOperation({
+    summary: 'Documents this tenant can generate',
+    description:
+      "From the vertical pack's `documentTemplates[]` — the counterpart to " +
+      '`documentTypes`, which are documents the platform *collects*. Render the ' +
+      'list from this response; the set differs per vertical and per country.',
+  })
+  @ApiResponse({ status: 200, description: 'Templates retrieved' })
+  async listTemplates(
+    @Request() req: AuthenticatedRequest & { tenantVertical?: string | null },
+  ) {
+    return this.generation.listTemplates(req.tenantVertical ?? null);
+  }
+
+  @Post('generate/:templateKey')
+  @ApiOperation({
+    summary: 'Generate a document from a pack template',
+    description:
+      'Returns the PDF bytes directly (`application/pdf`), so a UI can stream ' +
+      'it to the browser or attach it. Pass `?store=true` to also file it as a ' +
+      "versioned document against the record, which is what the client's " +
+      'document list reads.\n\n' +
+      '**A template may refuse.** When it declares `requires` and one of those ' +
+      'paths is empty on the record — a cost agreement with no fee, an invoice ' +
+      'with no amount — the response is a 400 naming the missing paths rather ' +
+      'than a document with blanks in it. Surface that message: it tells the ' +
+      'user exactly which field to fill in.\n\n' +
+      '`X-Unresolved-Placeholders` reports any *non*-required placeholder that ' +
+      'came back empty. The document is still produced; the header is there so ' +
+      'a UI can warn before the firm sends a half-filled letter.',
+  })
+  @ApiParam({ name: 'templateKey', example: 'cost_agreement' })
+  @ApiQuery({
+    name: 'entityId',
+    required: false,
+    description: 'The record the document is about. Required by most templates.',
+  })
+  @ApiQuery({
+    name: 'store',
+    required: false,
+    type: Boolean,
+    description: 'Also file the result as a versioned document on the record.',
+  })
+  @ApiResponse({ status: 200, description: 'PDF bytes' })
+  @ApiResponse({
+    status: 400,
+    description: 'A required value is missing on the record',
+  })
+  @ApiResponse({ status: 404, description: 'No such template in this pack' })
+  async generate(
+    @Request() req: AuthenticatedRequest & { tenantVertical?: string | null },
+    @Param('templateKey') templateKey: string,
+    @Res() res: Response,
+    @Query('entityId') entityId?: string,
+    @Query('store') store?: string,
+  ) {
+    const result = await this.generation.generate(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      templateKey,
+      entityId,
+    );
+
+    if (store === 'true') {
+      await this.generation.store(result, req.user.tenantId, req.user.id, entityId);
+    }
+
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.fileName}"`,
+    );
+    if (result.unresolved.length) {
+      res.setHeader('X-Unresolved-Placeholders', result.unresolved.join(','));
+    }
+    res.send(result.bytes);
   }
 
   @Get()

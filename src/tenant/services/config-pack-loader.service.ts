@@ -406,6 +406,8 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
         navigation: def.navigation ?? [],
         dashboards: def.dashboards ?? [],
         importMappings: def.importMappings ?? [],
+        // Documents the platform generates, read by DocumentGenerationService.
+        documentTemplates: def.documentTemplates ?? [],
         country: def.country,
         locales: def.locales,
         metadata: def.metadata ?? {},

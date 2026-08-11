@@ -20,6 +20,7 @@ import { DocumentHubService } from './document-hub.service';
 import { Document } from './entities/document.entity';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
 import { DocumentChecklistService } from './document-checklist.service';
+import { DocumentGenerationService } from './document-generation.service';
 import { DocumentVersion } from './entities/document-version.entity';
 import { DocumentMetadata } from './entities/document-metadata.entity';
 import { User } from '../iam/entities/user.entity';
@@ -28,6 +29,9 @@ import { IamModule } from '../iam/iam.module';
 import { SearchModule } from '../search/search.module';
 import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { Payment } from '../billing/entities/payment.entity';
+import { Tenant } from '../iam/entities/tenant.entity';
 
 @Module({
   imports: [
@@ -36,6 +40,11 @@ import { AuditModule } from '../audit/audit.module';
       DocumentVersion,
       DocumentMetadata,
       User,
+      // Read-only, for the document-generation render context: a generated
+      // cost agreement names the client and totals their payments.
+      UniversalEntity,
+      Payment,
+      Tenant,
     ]),
     // Layer 4 reads (the document checklist) go through the shared resolver.
     VerticalPackModule,
@@ -64,7 +73,12 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [DocumentsController],
-  providers: [DocumentsService, DocumentHubService, DocumentChecklistService],
-  exports: [DocumentsService, DocumentHubService],
+  providers: [
+    DocumentsService,
+    DocumentHubService,
+    DocumentChecklistService,
+    DocumentGenerationService,
+  ],
+  exports: [DocumentsService, DocumentHubService, DocumentGenerationService],
 })
 export class DocumentsModule {}

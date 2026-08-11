@@ -205,6 +205,142 @@
         ]
       }
     },
+    "documentTemplates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "documentTypeKey": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "pageSize": {
+            "default": "A4",
+            "type": "string",
+            "enum": [
+              "A4",
+              "LETTER"
+            ]
+          },
+          "header": {
+            "type": "string"
+          },
+          "footer": {
+            "type": "string"
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "heading",
+                    "paragraph",
+                    "spacer",
+                    "keyValue",
+                    "table",
+                    "list",
+                    "signature",
+                    "pageBreak"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ]
+                  }
+                },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "from": {
+                  "type": "string"
+                },
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "widths": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "signatories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "fontSize": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "bold": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "blocks"
+        ]
+      }
+    },
     "workflows": {
       "type": "array",
       "items": {

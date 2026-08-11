@@ -665,6 +665,19 @@ describe('a pack with every section survives load → persisted row', () => {
         fields: [{ from: 'Email', to: 'email', required: true }],
       },
     ],
+    documentTemplates: [
+      {
+        key: 'cost_agreement',
+        label: 'Cost agreement',
+        documentTypeKey: 'cost_agreement',
+        requires: ['client.firstName'],
+        blocks: [
+          { type: 'heading', text: 'Cost agreement', level: 1 },
+          { type: 'paragraph', text: 'Prepared for {{client.firstName}}.' },
+          { type: 'signature', signatories: ['Client'] },
+        ],
+      },
+    ],
   };
 
   let saved: Record<string, any> | undefined;
@@ -718,6 +731,7 @@ describe('a pack with every section survives load → persisted row', () => {
     'navigation',
     'dashboards',
     'importMappings',
+    'documentTemplates',
   ];
 
   it.each(arrays)('persists a non-empty "%s"', (key) => {

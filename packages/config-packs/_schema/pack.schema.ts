@@ -175,6 +175,92 @@ const DocumentTypeSchema = z.object({
   }).optional(),
 });
 
+// ── Document templates (generation) ───────────────────────────────────────
+
+/**
+ * A document the platform *produces*, as opposed to `documentTypes`, which are
+ * documents it collects.
+ *
+ * Layer 4 vocabulary, read by one generic renderer in DOC. A cost agreement, a
+ * tax invoice and a grant letter are the same operation — substitute values into
+ * a laid-out page and store the result as a versioned document — and none of
+ * their wording belongs in `src/` (CLAUDE.md §5.5). The renderer knows about
+ * headings, paragraphs, tables and signature blocks; it has never heard of a
+ * visa.
+ *
+ * Deliberately a block list rather than HTML or a template language. HTML would
+ * need a browser to paginate, which cannot run in a 60-second serverless
+ * function; a template language authored by a non-engineer in a multi-tenant
+ * pack is the sandbox-escape risk CLAUDE.md §4.2.3 rules out for `rules[]`, and
+ * the same reasoning applies here.
+ */
+const DocumentBlockSchema = z.object({
+  type: z.enum([
+    'heading',
+    'paragraph',
+    'spacer',
+    'keyValue',
+    'table',
+    'list',
+    'signature',
+    'pageBreak',
+  ]),
+  /** Heading/paragraph text, or a label for keyValue/signature. Supports `{{path}}`. */
+  text: z.string().optional(),
+  /** 1–3 for headings. Ignored by other block types. */
+  level: z.number().int().min(1).max(3).optional(),
+  /** `keyValue` rows: label on the left, resolved value on the right. */
+  rows: z
+    .array(z.object({ label: z.string(), value: z.string() }))
+    .optional(),
+  /** `table` header cells. */
+  columns: z.array(z.string()).optional(),
+  /**
+   * `table` body source: a `{{path}}` to an array in the render context. Each
+   * item is projected through `cells`.
+   */
+  from: z.string().optional(),
+  /** `table` cell expressions, evaluated per item of `from`. */
+  cells: z.array(z.string()).optional(),
+  /** `list` items. Supports `{{path}}`. */
+  items: z.array(z.string()).optional(),
+  /**
+   * `table` relative column widths, one per column. Absent means equal columns,
+   * which squeezes a description to the width of a date.
+   */
+  widths: z.array(z.number().positive()).optional(),
+  /** `signature`: who signs. Renders a ruled line, a name and a date field. */
+  signatories: z.array(z.string()).optional(),
+  /** Points. Omitted means the renderer's default for the block type. */
+  fontSize: z.number().positive().optional(),
+  bold: z.boolean().optional(),
+});
+
+const DocumentTemplateSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  /**
+   * Where the generated document is filed. Matches a `documentTypes[].key` when
+   * the output also satisfies a checklist requirement — a signed cost agreement
+   * is both produced and required.
+   */
+  documentTypeKey: z.string().optional(),
+  /** Filename stem. Supports `{{path}}`; the renderer appends `.pdf`. */
+  fileName: z.string().optional(),
+  pageSize: z.enum(['A4', 'LETTER']).default('A4'),
+  /** Repeated at the top of every page. */
+  header: z.string().optional(),
+  /** Repeated at the foot, alongside "Page n of m". */
+  footer: z.string().optional(),
+  /**
+   * Context paths that must resolve before rendering. A cost agreement with no
+   * fee amount is worse than no cost agreement, so the generator refuses rather
+   * than emitting a document with a blank where the number goes.
+   */
+  requires: z.array(z.string()).optional(),
+  blocks: z.array(DocumentBlockSchema),
+});
+
 // ── Screening configuration ────────────────────────────────────────────────
 
 const ScreeningConfigSchema = z.object({
@@ -670,6 +756,12 @@ export const ConfigPackSchema = z.object({
   regulators: z.array(RegulatorSchema).optional(),
   roles: z.array(RoleSchema).optional(),
   documentTypes: z.array(DocumentTypeSchema).optional(),
+
+  /**
+   * Documents the platform generates, as opposed to `documentTypes`, which it
+   * collects. Read by `DocumentGenerationService` — see DocumentTemplateSchema.
+   */
+  documentTemplates: z.array(DocumentTemplateSchema).optional(),
   workflows: z.array(z.object({
     id: z.string(),
     name: z.string(),
