@@ -82,7 +82,7 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**307 operations across 258 paths.** Ten added on 2026-08-11 after the
+**307 operations across 257 paths.** Ten added on 2026-08-11 after the
 verification pass below; none removed or renamed, so nothing built against the
 previous surface breaks.
 
@@ -92,6 +92,16 @@ Added: `POST /crm/entities/:id/convert`, `GET /documents/templates`,
 `GET /crm/entities/export`, and `GET`/`POST /crm/entities/:id/acceptance`.
 `GET /tasks` gained `?page`/`?limit` and `GET /tasks/calendar/events` gained
 `?scope` — both additive, and `data` is still the array.
+
+### 2.0 Storage is broken in production, and it is not new
+
+`POST /documents/upload` returns **500** —
+`{"code":"MER-SRV-0001","message":"timeout exceeded when trying to connect"}` —
+because no AWS credentials are configured. `meru-core-fe` lists that route as
+wired and working, so this had gone unnoticed. `POST /documents/generate/:key`
+without `?store=true` is unaffected and returns real PDF bytes; `?store=true`
+inherits the same failure. Belongs on the credentials list in §5, not the code
+list in §4.
 
 ### 2.1 What the 2026-08-11 validation pass found
 

@@ -355,6 +355,15 @@ npm run rls:verify     # tenant isolation still holds
 BASE_URL=https://meru-core.vercel.app npm run smoke:sweep
 ```
 
+**"307 routes mapped" is not "it booted".** The route table is built before
+providers are instantiated, so a DI fault prints a full route table and *then*
+dies. A deploy went out returning `FUNCTION_INVOCATION_FAILED` on every route
+because `DocumentsModule` imported `RulesModule` (which does not export the
+evaluator) instead of `RuleEvaluatorModule` — with 459 unit tests green, because
+every one constructs its service directly with mocked arguments and DI wiring is
+precisely what they cannot see. The line to grep for is **`Nest application
+successfully started`**, which only appears once every provider resolves.
+
 **A merged commit is not a shipped one.** Deploys are `vercel --prod`; pushing
 to GitHub does nothing. Check `/api-json`'s path count to know what is actually
 live, and tell the frontend — `meru-core-fe/BACKEND-CHANGES-*.md` is where each
