@@ -20,7 +20,9 @@ describe('CrmService.convertEntity', () => {
         return Promise.resolve(e);
       }),
     };
-    const searchService = { indexEntityData: jest.fn().mockResolvedValue(undefined) };
+    const searchService = {
+      indexEntityData: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new CrmService(
       entityRepo as any,
       {} as any,
@@ -85,8 +87,16 @@ describe('CrmService.convertEntity', () => {
     // branch in `convertEntity` is defensive, for when the allowlist grows —
     // there is no permitted conversion that exercises it today, and a test
     // claiming otherwise would be asserting nothing.
-    const { service } = build({ ...lead(), type: EntityType.PERSON, status: null });
-    const result = await service.convertEntity('e1', 't1', EntityType.ORGANIZATION);
+    const { service } = build({
+      ...lead(),
+      type: EntityType.PERSON,
+      status: null,
+    });
+    const result = await service.convertEntity(
+      'e1',
+      't1',
+      EntityType.ORGANIZATION,
+    );
     expect(result.status).toBeNull();
   });
 
@@ -96,7 +106,7 @@ describe('CrmService.convertEntity', () => {
     expect(searchService.indexEntityData).toHaveBeenCalled();
   });
 
-  it('404s on a record that is not this tenant\'s', async () => {
+  it("404s on a record that is not this tenant's", async () => {
     const { service } = build(null);
     await expect(
       service.convertEntity('e1', 't1', EntityType.PERSON),

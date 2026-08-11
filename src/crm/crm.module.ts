@@ -12,6 +12,7 @@ import { CoreModule } from '../core/core.module';
 import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { AuditModule } from '../audit/audit.module';
+import { AcceptanceService } from './acceptance.service';
 
 // CRM module per CLAUDE.md §2 row 3: polymorphic UniversalEntity.
 // All types (person, organization, case, note, tag, asset) live in one table.
@@ -30,7 +31,12 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [CrmController],
-  providers: [CrmService, EntityRelationService, CommentService],
+  providers: [
+    CrmService,
+    EntityRelationService,
+    CommentService,
+    AcceptanceService,
+  ],
   exports: [CrmService, EntityRelationService, CommentService],
 })
 export class CrmModule {}

@@ -224,6 +224,26 @@ well-meaning default:
   document: it looks executable and someone may sign it. `documentTemplates[]`
   declares `requires`, and generation refuses rather than filling a hole.
 
+### 5.2b Say what a record is not
+
+Two places now return a field whose only job is to deny a stronger claim:
+
+- `POST /crm/entities/:id/acceptance` returns `isSignature: false`. It is an
+  audited, hash-anchored record of assent — not an electronically signed
+  instrument, because there is no signatory certificate, no tamper-evident
+  envelope and no independent timestamp authority. "The client ticked a box" and
+  "the client signed" are not the same thing, and a firm will assume they are
+  unless told otherwise. Real e-signature needs a provider; it is a commercial
+  decision, not an afternoon's code.
+- `NotificationType.WHATSAPP` exists so a conversation can be *recorded* on it.
+  There is no transport, and dispatch fails such a row explicitly rather than
+  reporting `sent`.
+
+An exported file gets the same treatment: `GET /crm/entities/export` sets
+`X-Export-Truncated` when it hit its cap, because a file that is quietly a
+prefix of the answer is the same lie as a truncated count reported as exact —
+and worse, because it leaves the building.
+
 ### 5.3 Citations or silence
 
 No free-form generation for regulatory answers. Every GovAI response carries

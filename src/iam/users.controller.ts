@@ -58,6 +58,30 @@ export class UsersController {
     return this.iamService.listUsers(req.user.tenantId);
   }
 
+  // Before `:id`, or Nest resolves `/directory` as `getUser('directory')` and
+  // 400s on ParseUUIDPipe.
+  @Get('directory')
+  @Roles(
+    PlatformRole.PLATFORM_ADMIN,
+    PlatformRole.FIRM_ADMIN,
+    PlatformRole.STAFF,
+  )
+  @ApiOperation({
+    summary: 'Just the names — id, display name, primary role',
+    description:
+      'What an assignee picker and a comment author chip need, available to ' +
+      '`staff`. `GET /iam/users` is `firm_admin`+ and stays that way: it ' +
+      'carries email addresses, MFA state, invite status and last-login times. ' +
+      'Without this route staff could not resolve the author of a file note, so ' +
+      'the staff client page showed notes with no author.\n\n' +
+      'A fixed narrow projection rather than `?fields=` — a field selector is ' +
+      'one careless addition away from leaking what it was introduced to avoid.',
+  })
+  @ApiResponse({ status: 200, description: 'Names retrieved' })
+  async directory(@Request() req: AuthenticatedRequest) {
+    return this.iamService.listDirectoryNames(req.user.tenantId);
+  }
+
   @Get(':id')
   @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get a single directory user' })

@@ -1,4 +1,7 @@
-import { EntityRelationService, type RelationshipDefinition } from './entity-relation.service';
+import {
+  EntityRelationService,
+  type RelationshipDefinition,
+} from './entity-relation.service';
 import { EntityRelation } from './entities/entity-relation.entity';
 import {
   EntityStatus,
@@ -51,7 +54,10 @@ describe('EntityRelationService', () => {
       status,
     }) as UniversalEntity;
 
-  function build(entities: UniversalEntity[], relations: EntityRelation[] = []) {
+  function build(
+    entities: UniversalEntity[],
+    relations: EntityRelation[] = [],
+  ) {
     const rows = [...relations];
 
     const relationRepo = {
@@ -70,7 +76,10 @@ describe('EntityRelationService', () => {
           rows.filter((r) => {
             if (where.fromId && r.fromId !== where.fromId) return false;
             if (where.toId && r.toId !== where.toId) return false;
-            if (where.relationKey?._value && !where.relationKey._value.includes(r.relationKey))
+            if (
+              where.relationKey?._value &&
+              !where.relationKey._value.includes(r.relationKey)
+            )
               return false;
             return true;
           }),
@@ -86,7 +95,9 @@ describe('EntityRelationService', () => {
           ).length,
         ),
       ),
-      create: jest.fn((x: Partial<EntityRelation>) => ({ ...x }) as EntityRelation),
+      create: jest.fn(
+        (x: Partial<EntityRelation>) => ({ ...x }) as EntityRelation,
+      ),
       save: jest.fn((r: EntityRelation) => {
         rows.push(r);
         return Promise.resolve(r);
@@ -125,7 +136,11 @@ describe('EntityRelationService', () => {
     await service.link(TENANT, 'banking', 'blocks', A, B);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ relationKey: 'blocks', fromId: A, toId: B });
+    expect(rows[0]).toMatchObject({
+      relationKey: 'blocks',
+      fromId: A,
+      toId: B,
+    });
   });
 
   it('refuses a relation key the pack does not define, and lists what it does', async () => {

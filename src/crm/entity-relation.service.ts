@@ -233,7 +233,11 @@ export class EntityRelationService {
     vertical: string | null,
     entityId: string,
   ): Promise<void> {
-    const blockers = await this.completionBlockers(tenantId, vertical, entityId);
+    const blockers = await this.completionBlockers(
+      tenantId,
+      vertical,
+      entityId,
+    );
     if (!blockers.length) return;
 
     throw new BadRequestException(
@@ -309,10 +313,7 @@ export class EntityRelationService {
     return found;
   }
 
-  private async entity(
-    tenantId: string,
-    id: string,
-  ): Promise<UniversalEntity> {
+  private async entity(tenantId: string, id: string): Promise<UniversalEntity> {
     const found = await this.entityRepo.findOne({ where: { tenantId, id } });
     if (!found) throw new NotFoundException(`Entity ${id} not found`);
     return found;

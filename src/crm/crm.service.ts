@@ -16,6 +16,7 @@ import { SearchService } from '../search/search.service';
 import { CreateEntityInput } from '../common/types';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { deepMerge } from '../common/deep-merge';
+import { toCsv } from '../common/csv';
 import { Document } from '../documents/entities/document.entity';
 import { EntityRelationService } from './entity-relation.service';
 
@@ -63,15 +64,17 @@ function defaultStatusFor(type: EntityType): EntityStatus | null {
  * between generic types — a lead is a prospective subject in every vertical —
  * and carries no vertical vocabulary (CLAUDE.md §5.5).
  */
-const CONVERTIBLE_TYPES: ReadonlyMap<EntityType, ReadonlySet<EntityType>> =
-  new Map([
-    // The one the immigration lifecycle needs: a qualified lead becomes the
-    // client, or the organisation that engaged the firm.
-    [EntityType.LEAD, new Set([EntityType.PERSON, EntityType.ORGANIZATION])],
-    // Sole trader incorporates, or a company record turns out to be a person.
-    [EntityType.PERSON, new Set([EntityType.ORGANIZATION])],
-    [EntityType.ORGANIZATION, new Set([EntityType.PERSON])],
-  ]);
+const CONVERTIBLE_TYPES: ReadonlyMap<
+  EntityType,
+  ReadonlySet<EntityType>
+> = new Map([
+  // The one the immigration lifecycle needs: a qualified lead becomes the
+  // client, or the organisation that engaged the firm.
+  [EntityType.LEAD, new Set([EntityType.PERSON, EntityType.ORGANIZATION])],
+  // Sole trader incorporates, or a company record turns out to be a person.
+  [EntityType.PERSON, new Set([EntityType.ORGANIZATION])],
+  [EntityType.ORGANIZATION, new Set([EntityType.PERSON])],
+]);
 
 /**
  * The types a vertical's configured field list actually describes — the
@@ -395,9 +398,7 @@ export class CrmService {
     }
 
     if (entity.type === toType) {
-      throw new BadRequestException(
-        `Entity is already of type '${toType}'`,
-      );
+      throw new BadRequestException(`Entity is already of type '${toType}'`);
     }
 
     const permitted = CONVERTIBLE_TYPES.get(entity.type);
@@ -446,6 +447,70 @@ export class CrmService {
 
     void vertical;
     return saved;
+  }
+
+  /**
+   * The same filtered list, as CSV.
+   *
+   * Exported server-side because the frontend was building its file from
+   * whatever rows the browser had already loaded — so an export of a filtered
+   * list silently gave you page one of it, with no indication that was what
+   * happened.
+   *
+   * Capped, and a capped export says so. A file that is quietly a prefix of the
+   * answer is the same class of lie as a truncated count reported as exact
+   * (CLAUDE.md §5.2), and worse in practice because it leaves the building.
+   */
+  async exportEntitiesCsv(
+    tenantId: string,
+    filters: Parameters<CrmService['listEntities']>[1],
+  ): Promise<{ csv: string; rows: number; truncated: boolean }> {
+    const MAX_ROWS = 10_000;
+
+    const { items, total } = await this.listEntities(tenantId, {
+      ...filters,
+      page: 1,
+      limit: MAX_ROWS,
+    });
+
+    const headers = [
+      'id',
+      'type',
+      'firstName',
+      'lastName',
+      'email',
+      'phoneNumber',
+      'status',
+      'dueDate',
+      'assignedTo',
+      'createdAt',
+      'updatedAt',
+      // The vertical's own attributes, as JSON in one column. Flattening them
+      // into columns would give every export a different shape depending on
+      // which records happened to match — unusable for a spreadsheet.
+      'verticalAttributes',
+    ];
+
+    const rows = items.map((e) => [
+      e.id,
+      e.type,
+      e.firstName,
+      e.lastName,
+      e.email,
+      e.phoneNumber,
+      e.status,
+      e.dueDate,
+      e.assignedTo,
+      e.createdAt,
+      e.updatedAt,
+      e.verticalAttributes ?? {},
+    ]);
+
+    return {
+      csv: toCsv(headers, rows),
+      rows: items.length,
+      truncated: total > items.length,
+    };
   }
 
   // ==================== DOCUMENT INTEGRATION ====================

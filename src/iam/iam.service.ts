@@ -688,6 +688,40 @@ export class IamService {
     return users.map((u) => this.toDirectoryUser(u));
   }
 
+  /**
+   * The names behind the ids, for staff.
+   *
+   * `listUsers` is `firm_admin`+, which is right — it carries email addresses,
+   * MFA state, invite status and last-login times. But it meant the `staff` role
+   * could not resolve the author of a comment or choose an assignee, so the staff
+   * client page rendered file notes with no author at all.
+   *
+   * A deliberately narrow projection rather than `?fields=` on the full route: a
+   * field selector is one careless addition away from leaking the thing it was
+   * introduced to avoid, and there is no request here that wants "some of the
+   * sensitive fields". Id, display name and primary role are what a mention
+   * chip and an assignee picker need, and nothing else is returned.
+   */
+  async listDirectoryNames(
+    tenantId: string,
+  ): Promise<Array<{ id: string; name: string; role: string | null }>> {
+    const users = await this.userRepo.find({
+      where: { tenantId },
+      select: ['id', 'firstName', 'lastName', 'roles'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return users.map((u) => ({
+      id: u.id,
+      // Falls back to something rather than an empty chip: a comment attributed
+      // to "" reads as a rendering fault.
+      name:
+        [u.firstName, u.lastName].filter(Boolean).join(' ').trim() ||
+        'Unnamed user',
+      role: (u.roles ?? [])[0] ?? null,
+    }));
+  }
+
   async getUser(tenantId: string, userId: string): Promise<DirectoryUser> {
     const user = await this.userRepo.findOne({
       where: { id: userId, tenantId },

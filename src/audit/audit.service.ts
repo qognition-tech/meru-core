@@ -8,6 +8,7 @@ import {
   ComplianceStandard,
 } from './entities/audit-log.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { toCsv } from '../common/csv';
 import * as crypto from 'crypto';
 
 export interface LogAuditEventDto {
@@ -581,7 +582,7 @@ export class AuditService {
       'description',
     ];
     const rows = logs.map((log) => [
-      log.timestamp.toISOString(),
+      log.timestamp,
       log.userId,
       log.action,
       log.entityType,
@@ -590,7 +591,11 @@ export class AuditService {
       log.description || '',
     ]);
 
-    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    // `r.join(',')` was wrong for any description containing a comma, a quote or
+    // a newline: the row silently gained a column and every field after it
+    // shifted. In an export someone reconciles against, a shifted column is
+    // worse than a failed export because nothing announces it.
+    return toCsv(headers, rows);
   }
 
   private convertToXML(logs: AuditLog[]): string {

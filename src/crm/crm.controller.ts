@@ -13,6 +13,7 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -37,9 +38,12 @@ import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { UserPayload, type AuthenticatedRequest } from '../common/types';
 import { EntityRelationService } from './entity-relation.service';
 import { CommentService } from './comment.service';
+import { AcceptanceService } from './acceptance.service';
+import { RecordAcceptanceDto } from './dto/record-acceptance.dto';
 import { AddCommentDto } from './dto/add-comment.dto';
 import { LinkEntitiesDto } from './dto/link-entities.dto';
 import { paginated } from '../common/paginated';
+import type { Response } from 'express';
 
 @Controller('crm')
 @ApiTags('crm')
@@ -48,7 +52,35 @@ export class CrmController {
     private crmService: CrmService,
     private relations: EntityRelationService,
     private readonly comments: CommentService,
+    private readonly acceptance: AcceptanceService,
   ) {}
+
+  /**
+   * A `client` is an applicant, not staff: they may see only records assigned to
+   * them. RLS isolates one tenant from another, it does NOT isolate users inside
+   * a tenant — so without this a client token received every case in the firm.
+   * ImmiStack filtered in the browser, which is presentation, not authorisation.
+   *
+   * Forced rather than defaulted: a client cannot widen it by passing
+   * `?assignedTo=` for somebody else. Shared by the list and the export, so an
+   * export can never be broader than the list it mirrors.
+   */
+  private clientScoped(
+    user: UserPayload,
+    query: ListEntitiesQueryDto,
+  ): ListEntitiesQueryDto {
+    const roles = user.roles ?? [];
+    const isStaff = roles.some((r) =>
+      [
+        PlatformRole.PLATFORM_ADMIN,
+        PlatformRole.FIRM_ADMIN,
+        PlatformRole.STAFF,
+      ].includes(r as PlatformRole),
+    );
+    return roles.includes(PlatformRole.CLIENT) && !isStaff
+      ? { ...query, assignedTo: user.id }
+      : query;
+  }
 
   // ==================== COMMENTS ====================
   //
@@ -60,7 +92,10 @@ export class CrmController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Comment on a record' })
   @ApiResponse({ status: 201, description: 'Comment added' })
-  @ApiResponse({ status: 400, description: 'Empty body, or no such record here' })
+  @ApiResponse({
+    status: 400,
+    description: 'Empty body, or no such record here',
+  })
   addComment(
     @Request() req: ExpressRequest,
     @Param('id') id: string,
@@ -141,32 +176,52 @@ export class CrmController {
     @Query() query: ListEntitiesQueryDto,
   ) {
     const user = req.user as UserPayload;
-
-    // A `client` is an applicant, not staff: they may see only records
-    // assigned to them. RLS isolates one tenant from another, it does NOT
-    // isolate users inside a tenant — so without this a client token
-    // received every case in the firm. ImmiStack filtered in the browser,
-    // which is presentation, not authorisation.
-    //
-    // Forced rather than defaulted: a client cannot widen it by passing
-    // ?assignedTo= for somebody else.
-    const scoped =
-      (user.roles ?? []).includes(PlatformRole.CLIENT) &&
-      !(user.roles ?? []).some((r) =>
-        [
-          PlatformRole.PLATFORM_ADMIN,
-          PlatformRole.FIRM_ADMIN,
-          PlatformRole.STAFF,
-        ].includes(r as PlatformRole),
-      )
-        ? { ...query, assignedTo: user.id }
-        : query;
+    const scoped = this.clientScoped(user, query);
 
     const { items, total, page, limit } = await this.crmService.listEntities(
       user.tenantId,
       scoped,
     );
     return paginated(items, total, page, limit);
+  }
+
+  @Get('entities/export')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Export records as CSV',
+    description:
+      'Same filters as `GET /crm/entities`, returned as `text/csv`. The ' +
+      'frontend was exporting client-side from whatever rows happened to be ' +
+      'loaded, so an export of a filtered list silently gave you page one.\n\n' +
+      'Capped at 10,000 rows. `X-Export-Truncated: true` says the cap was hit ' +
+      'and the file is a prefix, not the whole set — a truncated export that ' +
+      'does not say so is the same class of lie as a truncated count.\n\n' +
+      'A `client`-role caller exports only their own records, exactly as on the ' +
+      'list route.',
+  })
+  @ApiResponse({ status: 200, description: 'CSV document' })
+  async exportEntities(
+    @Request() req: ExpressRequest,
+    @Res() res: Response,
+    @Query() query: ListEntitiesQueryDto,
+  ) {
+    const user = req.user as UserPayload;
+    const scoped = this.clientScoped(user, query);
+
+    const { csv, truncated, rows } = await this.crmService.exportEntitiesCsv(
+      user.tenantId,
+      scoped,
+    );
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="records-${new Date().toISOString().slice(0, 10)}.csv"`,
+    );
+    res.setHeader('X-Export-Rows', String(rows));
+    if (truncated) res.setHeader('X-Export-Truncated', 'true');
+    res.send(csv);
   }
 
   @Get('entities/:id')
@@ -221,6 +276,67 @@ export class CrmController {
       // PolicyGuard has already resolved it.
       (req as AuthenticatedRequest).tenantVertical ?? null,
     );
+  }
+
+  @Post('entities/:id/acceptance')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Record that someone accepted something',
+    description:
+      '**This is not an electronic signature and the response says so** ' +
+      '(`isSignature: false`). It is an audited record of assent: who, when, ' +
+      'from where, and — when `documentSha256` is supplied — a hash anchoring ' +
+      'exactly which bytes they were shown.\n\n' +
+      'For an immigration engagement letter, "the client ticked a box" and "the ' +
+      'client signed" are not equivalent, and only one is enforceable the way a ' +
+      'firm will assume. A UI collecting this must say which it is. Real ' +
+      'e-signature needs a provider or a certificate authority — a commercial ' +
+      'decision, on the same list as the regulator licences.\n\n' +
+      'Supply the hash. Without it the record shows that somebody clicked ' +
+      'something, not what they agreed to, and the wording can change afterwards ' +
+      'with nothing to detect it. `POST /documents/generate/:key` gives you the ' +
+      'bytes to hash.\n\n' +
+      'Acceptances append. Accepting revised terms does not erase the version ' +
+      'agreed to first, which is the one that governs what happened before.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 201, description: 'Acceptance recorded' })
+  @ApiResponse({ status: 404, description: 'No such record on this tenant' })
+  async recordAcceptance(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordAcceptanceDto,
+  ) {
+    const user = req.user as UserPayload;
+    return this.acceptance.record(user.tenantId, id, {
+      subject: dto.subject,
+      userId: user.id,
+      email: user.email,
+      // From the request, never the body: a client-supplied "I accepted from
+      // this address" is not evidence of anything.
+      ip: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+      documentSha256: dto.documentSha256,
+    });
+  }
+
+  @Get('entities/:id/acceptance')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Every acceptance on a record, oldest first',
+    description:
+      'Each carries `isSignature: false`. Render them as a history — the ' +
+      'earliest acceptance is what governed the period before any later one.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  async listAcceptances(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const user = req.user as UserPayload;
+    return this.acceptance.list(user.tenantId, id);
   }
 
   @Post('entities/:id/convert')
@@ -295,7 +411,10 @@ export class CrmController {
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'The "from" entity' })
   @ApiResponse({ status: 201, description: 'Relation created (idempotent)' })
-  @ApiResponse({ status: 400, description: 'Unknown relation key, wrong types, or cardinality violated' })
+  @ApiResponse({
+    status: 400,
+    description: 'Unknown relation key, wrong types, or cardinality violated',
+  })
   async link(
     @Request() req: ExpressRequest,
     @Param('id', ParseUUIDPipe) id: string,
@@ -318,7 +437,7 @@ export class CrmController {
   @ApiOperation({
     summary: 'Everything linked to this entity, both directions',
     description:
-      'Incoming edges are labelled with the relation\'s `inverseLabel`, so ' +
+      "Incoming edges are labelled with the relation's `inverseLabel`, so " +
       '"blocks" one way and "blocked by" the other come from one definition ' +
       'rather than two mirrored ones.',
   })

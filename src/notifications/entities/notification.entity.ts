@@ -10,6 +10,18 @@ import {
 export enum NotificationType {
   EMAIL = 'email',
   SMS = 'sms',
+  /**
+   * Declared so a thread can be keyed on it and a message recorded against it.
+   *
+   * **There is no WhatsApp transport.** `NotificationDispatchService` fails a
+   * non-email channel explicitly with "no transport configured for channel
+   * 'whatsapp'" rather than reporting `sent`, because a channel that claims
+   * delivery without a provider is worse than one that says why it cannot —
+   * a caseworker would believe the client had been told. Sending needs a Meta
+   * Business account and a template approved by WhatsApp, which is licensing
+   * rather than code.
+   */
+  WHATSAPP = 'whatsapp',
   PUSH = 'push',
   IN_APP = 'in_app',
   SLACK = 'slack',
