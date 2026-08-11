@@ -68,6 +68,29 @@ export const AI_PROVIDER_ADAPTERS = [
     ],
   },
   {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    docsUrl: 'https://platform.deepseek.com/api_keys',
+    // DeepSeek serves the OpenAI chat-completions protocol verbatim, so it
+    // needs no adapter of its own — the existing OpenAI client reaches it by
+    // base URL alone. It earns a named entry rather than being left to
+    // `custom-openai-compatible` because a tenant admin should not have to know
+    // a vendor's base URL to connect a mainstream provider, and because the
+    // default model belongs next to the credential rather than in someone's
+    // notes.
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    // `deepseek-chat` (V3), not `deepseek-reasoner` (R1). The reasoner emits a
+    // long chain-of-thought before its answer, which costs latency and tokens
+    // on the short extraction and summarisation prompts the packs actually
+    // ship. A pack that wants R1 pins it in `modelConfig.model`, which
+    // outranks this.
+    defaultModel: 'deepseek-chat',
+    fields: [
+      { key: 'apiKey', label: 'API key', secret: true, required: true },
+      { key: 'model', label: 'Model', secret: false, required: false },
+    ],
+  },
+  {
     id: 'custom-openai-compatible',
     label: 'Custom / self-hosted (OpenAI-compatible)',
     docsUrl: null,
@@ -159,7 +182,16 @@ export class ConnectorsService {
       where: { tenantId, enabled: true },
     });
 
-    const row = rows.find((r) => AI_PROVIDER_CODES.includes(r.adapterCode));
+    // Deterministic by catalogue order, not by whatever order Postgres
+    // returned. Nothing stops a tenant enabling two providers, and an
+    // unordered `find` would then route inference to a different vendor
+    // between two identical requests — the same defect that once handed a UAE
+    // bank an arbitrary config pack, and just as invisible, because both
+    // answers look correct in isolation.
+    const byCode = new Map(rows.map((r) => [r.adapterCode, r]));
+    const row = AI_PROVIDER_CODES.map((code) => byCode.get(code)).find(
+      (r) => r?.credentials,
+    );
     if (!row?.credentials) return null;
 
     const creds = decryptCredentials(row.credentials) as {

@@ -154,6 +154,80 @@ describe('ConnectorsService — AI providers', () => {
     });
   });
 
+  it('resolves DeepSeek without the tenant supplying a base URL', async () => {
+    // The point of a named adapter over `custom-openai-compatible`: a tenant
+    // admin pastes a key and nothing else. If the catalogue default were
+    // dropped, `baseUrl` would resolve null and the gateway would silently
+    // send DeepSeek's key to api.openai.com.
+    find.mockResolvedValue([
+      {
+        adapterCode: 'deepseek',
+        enabled: true,
+        credentials: encryptCredentials({ apiKey: 'sk-deepseek' }),
+      },
+    ]);
+
+    await expect(service.resolveAiProvider('t1')).resolves.toEqual({
+      adapterCode: 'deepseek',
+      apiKey: 'sk-deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
+    });
+  });
+
+  it('lets a tenant override the DeepSeek model without touching the base URL', async () => {
+    find.mockResolvedValue([
+      {
+        adapterCode: 'deepseek',
+        enabled: true,
+        credentials: encryptCredentials({
+          apiKey: 'sk-deepseek',
+          model: 'deepseek-reasoner',
+        }),
+      },
+    ]);
+
+    await expect(service.resolveAiProvider('t1')).resolves.toMatchObject({
+      model: 'deepseek-reasoner',
+      baseUrl: 'https://api.deepseek.com/v1',
+    });
+  });
+
+  it('picks the same provider every time when two are connected', async () => {
+    // Postgres returns rows in no guaranteed order. Before this was pinned to
+    // catalogue order, two identical requests could route to two different
+    // vendors — and both answers look correct in isolation, so nothing would
+    // have reported it.
+    const rows = [
+      {
+        adapterCode: 'deepseek',
+        enabled: true,
+        credentials: encryptCredentials({ apiKey: 'sk-deepseek' }),
+      },
+      {
+        adapterCode: 'openai',
+        enabled: true,
+        credentials: encryptCredentials({ apiKey: 'sk-openai' }),
+      },
+    ];
+
+    find.mockResolvedValue(rows);
+    const first = await service.resolveAiProvider('t1');
+
+    find.mockResolvedValue([...rows].reverse());
+    const second = await service.resolveAiProvider('t1');
+
+    expect(first?.adapterCode).toBe(second?.adapterCode);
+    // Catalogue order, which puts `openai` first.
+    expect(first?.adapterCode).toBe('openai');
+  });
+
+  it('refuses to enable DeepSeek with no key', async () => {
+    await expect(
+      service.upsert('t1', 'immigration', 'deepseek', { enabled: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('returns null when nothing is connected, rather than throwing', async () => {
     // A tenant with no provider is normal; the caller answers it by falling
     // back to the platform key.
