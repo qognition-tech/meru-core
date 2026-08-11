@@ -154,6 +154,7 @@
             "default": false,
             "type": "boolean"
           },
+          "appliesWhen": {},
           "acceptedFormats": {
             "type": "array",
             "items": {

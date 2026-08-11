@@ -1,8 +1,8 @@
 {
   "code": "au-immigration",
   "name": "Australian Immigration",
-  "description": "Australian Immigration \u2014 country overlay on the immigration vertical.",
-  "version": "2.1.0",
+  "description": "Australian Immigration — country overlay on the immigration vertical.",
+  "version": "2.2.0",
   "vertical": "immigration",
   "country": "AU",
   "extends": "immigration",
@@ -434,5 +434,154 @@
         }
       ]
     }
-  ]
+  ],
+  "alertRules": [
+    {
+      "key": "au_8503_no_further_stay",
+      "label": "Condition 8503 (No Further Stay) — a waiver must be requested before the visa expires",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.condition8503"
+              },
+              true
+            ]
+          },
+          {
+            "and": [
+              {
+                "<": [
+                  {
+                    "var": "matter.visaExpiry_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "matter.visaExpiry_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_485_lodgement_window",
+      "label": "Subclass 485 is lodged within 6 months of course completion — 2 months remain",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.subclass"
+              },
+              "485"
+            ]
+          },
+          {
+            ">": [
+              {
+                "var": "matter.courseCompletion_daysSince"
+              },
+              120
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_nomination_lapsing",
+      "label": "Employer nomination approval lapses 12 months after approval — 2 months remain",
+      "entityType": "case",
+      "when": {
+        ">": [
+          {
+            "var": "matter.nominationApproval_daysSince"
+          },
+          305
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_bridging_visa_expiry",
+      "label": "Bridging visa expiring — confirm the substantive application status",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "matter.bridgingVisaExpiry_daysUntil"
+              },
+              30
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "matter.bridgingVisaExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 48,
+      "escalateAfterHours": 96,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    }
+  ],
+  "metadata": {
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read."
+  }
 }

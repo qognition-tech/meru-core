@@ -2,7 +2,7 @@
   "code": "immigration",
   "name": "Immigration Practice Management",
   "description": "Shared immigration vocabulary — every country overlay inherits this.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -84,6 +84,53 @@
       }
     },
     {
+      "key": "cost_agreement",
+      "label": "Signed cost agreement",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "form_956",
+      "label": "Form 956 — appointment of a registered migration agent",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": false
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "identity_photo",
+      "label": "Passport-style photograph",
+      "required": false,
+      "acceptedFormats": [
+        "jpg",
+        "jpeg",
+        "png"
+      ],
+      "maxSizeMb": 5,
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
       "key": "skills_assessment",
       "label": "Skills Assessment",
       "required": false,
@@ -105,6 +152,18 @@
         "exifAnalysis": false,
         "duplicateHash": true,
         "fontConsistency": true
+      },
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
       }
     },
     {
@@ -132,6 +191,272 @@
         "exifAnalysis": false,
         "duplicateHash": true,
         "fontConsistency": true
+      },
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "nomination_approval",
+      "label": "Employer nomination approval",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "english_test",
+      "label": "English language test result (IELTS/PTE/TOEFL)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187",
+            "189",
+            "190",
+            "485"
+          ]
+        ]
+      },
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "testType",
+          "overallScore",
+          "testDate"
+        ]
+      }
+    },
+    {
+      "key": "coe",
+      "label": "Confirmation of Enrolment (CoE)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      },
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "coeNumber",
+          "providerName",
+          "courseName",
+          "courseStart",
+          "courseEnd"
+        ]
+      }
+    },
+    {
+      "key": "gs_statement",
+      "label": "Genuine Student statement",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "doc",
+        "docx"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "financial_capacity",
+      "label": "Evidence of financial capacity",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500",
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "oshc",
+      "label": "Overseas Student Health Cover (OSHC)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "guardian_consent",
+      "label": "Parental or guardian consent",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "matter.subclass"
+              },
+              [
+                "500"
+              ]
+            ]
+          },
+          {
+            "<": [
+              {
+                "var": "applicant.age"
+              },
+              18
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "completion_letter",
+      "label": "Completion letter from the education provider",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "academic_transcript",
+      "label": "Academic transcript",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "afp_check",
+      "label": "Australian Federal Police check",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485",
+            "186",
+            "187",
+            "189",
+            "190"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "ovhc",
+      "label": "Overseas Visitor Health Cover (OVHC)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485",
+            "482"
+          ]
+        ]
       }
     },
     {
@@ -154,6 +479,18 @@
         "exifAnalysis": false,
         "duplicateHash": true,
         "fontConsistency": false
+      },
+      "appliesWhen": {
+        "!": {
+          "in": [
+            {
+              "var": "matter.subclass"
+            },
+            [
+              "600"
+            ]
+          ]
+        }
       }
     },
     {
@@ -177,20 +514,55 @@
         "exifAnalysis": true,
         "duplicateHash": true,
         "fontConsistency": true
+      },
+      "appliesWhen": {
+        "!": {
+          "in": [
+            {
+              "var": "matter.subclass"
+            },
+            [
+              "600"
+            ]
+          ]
+        }
       }
     },
     {
-      "key": "cost_agreement",
-      "label": "Signed cost agreement",
+      "key": "relationship_evidence",
+      "label": "Evidence of relationship",
       "required": true,
       "acceptedFormats": [
         "pdf"
       ],
-      "maxSizeMb": 10,
-      "fraudChecks": {
-        "exifAnalysis": false,
-        "duplicateHash": true,
-        "fontConsistency": false
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        ">": [
+          {
+            "var": "applicant.dependents"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "key": "dependent_passports",
+      "label": "Passports of accompanying dependents",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "jpeg",
+        "png"
+      ],
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        ">": [
+          {
+            "var": "applicant.dependents"
+          },
+          0
+        ]
       }
     }
   ],

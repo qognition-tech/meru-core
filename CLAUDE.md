@@ -152,6 +152,15 @@ Learned the hard way, twice:
 3. **No `eval`.** Conditions are `json-logic-js`: declarative, serialisable, no
    host access. An expression language in a multi-tenant pack authored by a
    non-engineer is a sandbox escape with a JSON file for a payload.
+   **But JsonLogic is total over missing data, and `null < 90` is true in
+   JavaScript.** A comparison against a variable the record does not carry used to
+   satisfy itself, so "expires within 90 days" fired on every record with no
+   expiry date. `RuleEvaluatorService` now refuses to evaluate a rule whose
+   numeric comparison references an absent variable — absence stays meaningful to
+   `!` and `==`, where "not yet received" is the point. When authoring a date
+   rule, use only `<field>_daysUntil` / `_daysSince`: a threshold baked into the
+   name (`_daysUntil365`) resolves to undefined, and before this guard that meant
+   *always*, not never.
 4. **Bump the pack `version`.** The loader only upgrades on a greater version.
 5. **`documentTypes` and `documentTemplates` are opposites.** The first is what
    the platform *collects*, the second what it *produces*. A generated document

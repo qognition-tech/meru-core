@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Document } from './entities/document.entity';
 
 /** The `documentTypes` shape as authored in a pack. */
@@ -9,6 +11,8 @@ interface PackDocumentType {
   key: string;
   label: string;
   required?: boolean;
+  /** JsonLogic over the record; absent means the requirement always applies. */
+  appliesWhen?: unknown;
   acceptedFormats?: string[];
   maxSizeMb?: number;
   aiExtraction?: { enabled?: boolean; fields?: string[] };
@@ -47,6 +51,9 @@ export class DocumentChecklistService {
     private readonly packs: VerticalPackService,
     @InjectRepository(Document)
     private readonly documentRepo: Repository<Document>,
+    @InjectRepository(UniversalEntity)
+    private readonly entityRepo: Repository<UniversalEntity>,
+    private readonly rules: RuleEvaluatorService,
   ) {}
 
   async forEntity(
@@ -82,12 +89,36 @@ export class DocumentChecklistService {
       );
     }
 
-    const types = Array.isArray(section) ? section : [];
+    const allTypes = Array.isArray(section) ? section : [];
 
     // No entity named → report the requirements without pretending to know
     // what has been supplied. `uploaded: null` is deliberately not `false`:
     // "we did not look" and "it is missing" must not render the same, or a
     // checklist with no entityId shows every item as outstanding.
+    // The record the conditional requirements are evaluated against. Loaded
+    // once; without an entityId there is nothing to evaluate and every
+    // conditional requirement is reported as unresolved rather than guessed at.
+    const entity = entityId
+      ? await this.entityRepo.findOne({ where: { id: entityId, tenantId } })
+      : null;
+
+    const context = entity
+      ? {
+          ...(entity.verticalAttributes ?? {}),
+          type: entity.type,
+          status: entity.status,
+        }
+      : null;
+
+    const types = allTypes.filter((t) => {
+      if (t.appliesWhen === undefined || t.appliesWhen === null) return true;
+      // Unknown, not excluded: a requirement we cannot evaluate must still be
+      // visible. Dropping it would quietly shorten the checklist, and a missing
+      // requirement costs a refused application.
+      if (!context) return true;
+      return this.rules.matches(t.appliesWhen, context);
+    });
+
     let byType = new Map<string, Document[]>();
     if (entityId) {
       const docs = await this.documentRepo.find({
@@ -136,6 +167,19 @@ export class DocumentChecklistService {
             }
           : null,
         uploaded: entityId ? docs.length > 0 : null,
+        /**
+         * Whether this requirement is conditional, and whether the condition was
+         * actually evaluated. `conditional: true, applies: null` means "this may
+         * or may not apply to you and we could not tell" — render it as such
+         * rather than as a firm requirement.
+         */
+        conditional: t.appliesWhen !== undefined && t.appliesWhen !== null,
+        applies:
+          t.appliesWhen === undefined || t.appliesWhen === null
+            ? true
+            : context
+              ? this.rules.matches(t.appliesWhen, context)
+              : null,
         documents: docs.map((d) => ({
           id: d.id,
           name: d.name,

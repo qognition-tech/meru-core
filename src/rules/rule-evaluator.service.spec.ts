@@ -115,3 +115,134 @@ describe('RuleEvaluatorService', () => {
     });
   });
 });
+
+/**
+ * Two faults that turned the alert engine into a false-alarm generator, found
+ * while authoring the first country-specific `alertRules`.
+ *
+ * A rule reading `matter.visaExpiry_daysUntil` resolved to undefined, because
+ * flattening stopped at the top level of `verticalAttributes` and the packs — and
+ * the frontend — nest everything under `matter`. On its own that would have made
+ * the rule silent. But JsonLogic is total over missing data and JavaScript says
+ * `null < 90`, so "expires within 90 days" was **true for every record**.
+ *
+ * Silent would have been a missing feature. Firing on everything is the failure
+ * CLAUDE.md §5.2 warns about from the other side: an engine that flags the whole
+ * tenant gets switched off, and the real deadline goes with it.
+ */
+describe('RuleEvaluatorService — a missing date must not satisfy a comparison', () => {
+  const service = new RuleEvaluatorService();
+  const iso = (days: number) =>
+    new Date(Date.now() + days * 86_400_000).toISOString();
+
+  const record = (matter: Record<string, unknown>) => ({
+    type: 'case',
+    status: 'open',
+    verticalAttributes: { matter },
+  });
+
+  const expiringWithin = (field: string, days: number) => ({
+    and: [
+      { '<': [{ var: `${field}_daysUntil` }, days] },
+      { '>=': [{ var: `${field}_daysUntil` }, 0] },
+    ],
+  });
+
+  it('derives _daysUntil for a date nested one level down', () => {
+    const context = service.augment(record({ visaExpiry: iso(45) }));
+    const matter = context.matter as Record<string, unknown>;
+    expect(matter.visaExpiry_daysUntil).toBe(45);
+    expect(matter.visaExpiry_daysSince).toBe(-45);
+  });
+
+  it('puts them inside the object, because `var` treats dots as a path', () => {
+    // A flat key literally named `matter.visaExpiry_daysUntil` is unreachable:
+    // JsonLogic walks `matter` then `visaExpiry_daysUntil`.
+    const context = service.augment(record({ visaExpiry: iso(45) }));
+    expect(context['matter.visaExpiry_daysUntil']).toBeUndefined();
+    expect(
+      service.matches(expiringWithin('matter.visaExpiry', 90), record({ visaExpiry: iso(45) })),
+    ).toBe(true);
+  });
+
+  it('does not mutate the record it was given', () => {
+    // `verticalAttributes.matter` is the entity's own object; writing derived
+    // fields into it would persist them on the next save.
+    const data = record({ visaExpiry: iso(45) });
+    service.augment(data);
+    expect(
+      Object.keys((data.verticalAttributes as any).matter),
+    ).toEqual(['visaExpiry']);
+  });
+
+  it('does not fire when the date is absent', () => {
+    // The bug. Before the guard this returned true for every record.
+    expect(
+      service.matches(expiringWithin('matter.visaExpiry', 90), record({ subclass: '485' })),
+    ).toBe(false);
+  });
+
+  it('does not fire on a greater-than against an absent date either', () => {
+    expect(
+      service.matches(
+        { '>': [{ var: 'matter.medicalExam_daysSince' }, 305] },
+        record({ subclass: '485' }),
+      ),
+    ).toBe(false);
+  });
+
+  it('still fires when the date is present and inside the window', () => {
+    expect(
+      service.matches(expiringWithin('matter.visaExpiry', 90), record({ visaExpiry: iso(30) })),
+    ).toBe(true);
+  });
+
+  it('does not fire when the date is present and outside the window', () => {
+    expect(
+      service.matches(expiringWithin('matter.visaExpiry', 90), record({ visaExpiry: iso(200) })),
+    ).toBe(false);
+  });
+
+  it('leaves absence meaningful to negation, which is what rules rely on', () => {
+    // "the certificate has not been received" must still work — the guard covers
+    // numeric comparisons only.
+    expect(
+      service.matches(
+        { '!': [{ var: 'matter.atasCertificateReceived' }] },
+        record({ atasRequired: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it('respects an author-supplied default', () => {
+    // `{"var": ["x", 0]}` handles its own absence, so it is not a hazard.
+    expect(
+      service.matches(
+        { '<': [{ var: ['matter.nope_daysUntil', 5] }, 90] },
+        record({ subclass: '485' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('guards a comparison nested inside and/or', () => {
+    expect(
+      service.matches(
+        {
+          and: [
+            { '==': [{ var: 'matter.subclass' }, '485'] },
+            { '<': [{ var: 'matter.visaExpiry_daysUntil' }, 90] },
+          ],
+        },
+        record({ subclass: '485' }),
+      ),
+    ).toBe(false);
+  });
+
+  it('still derives top-level attributes as before', () => {
+    const context = service.augment({
+      type: 'case',
+      verticalAttributes: { visaExpiry: iso(10) },
+    });
+    expect(context.visaExpiry_daysUntil).toBe(10);
+  });
+});

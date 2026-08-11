@@ -1,8 +1,8 @@
 {
   "code": "uk-immigration",
   "name": "UK Immigration",
-  "description": "UK Immigration \u2014 country overlay on the immigration vertical.",
-  "version": "2.1.0",
+  "description": "UK Immigration — country overlay on the immigration vertical.",
+  "version": "2.2.0",
   "vertical": "immigration",
   "country": "GB",
   "extends": "immigration",
@@ -325,5 +325,136 @@
         }
       ]
     }
-  ]
+  ],
+  "alertRules": [
+    {
+      "key": "uk_cos_unused",
+      "label": "Certificate of Sponsorship is used within 3 months of assignment — 1 month remains",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            ">": [
+              {
+                "var": "matter.cosAssigned_daysSince"
+              },
+              60
+            ]
+          },
+          {
+            "!": [
+              {
+                "var": "matter.applicationLodged"
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "uk_leave_expiring",
+      "label": "Leave to remain expiring — an in-time application preserves continuity",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "matter.leaveExpiry_daysUntil"
+              },
+              60
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "matter.leaveExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "uk_atas_outstanding",
+      "label": "ATAS certificate outstanding and the course starts soon",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.atasRequired"
+              },
+              true
+            ]
+          },
+          {
+            "!": [
+              {
+                "var": "matter.atasCertificateReceived"
+              }
+            ]
+          },
+          {
+            "and": [
+              {
+                "<": [
+                  {
+                    "var": "matter.courseStart_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "matter.courseStart_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    }
+  ],
+  "metadata": {
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read."
+  }
 }

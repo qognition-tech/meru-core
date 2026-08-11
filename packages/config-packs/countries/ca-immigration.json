@@ -1,8 +1,8 @@
 {
   "code": "ca-immigration",
   "name": "Canadian Immigration",
-  "description": "Canadian Immigration \u2014 country overlay on the immigration vertical.",
-  "version": "2.1.0",
+  "description": "Canadian Immigration — country overlay on the immigration vertical.",
+  "version": "2.2.0",
   "vertical": "immigration",
   "country": "CA",
   "extends": "immigration",
@@ -326,5 +326,94 @@
         }
       ]
     }
-  ]
+  ],
+  "alertRules": [
+    {
+      "key": "ca_ime_expiring",
+      "label": "Immigration medical examination expires 12 months after the exam — 2 months remain",
+      "entityType": "case",
+      "when": {
+        ">": [
+          {
+            "var": "matter.medicalExam_daysSince"
+          },
+          305
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "ca_status_maintenance",
+      "label": "Status expiring — an application before expiry maintains status",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "matter.statusExpiry_daysUntil"
+              },
+              60
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "matter.statusExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "ca_biometrics_expiring",
+      "label": "Biometrics expire 10 years after collection — 3 months remain",
+      "entityType": "case",
+      "when": {
+        ">": [
+          {
+            "var": "matter.biometricsCollected_daysSince"
+          },
+          3560
+        ]
+      },
+      "severity": "info",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": false,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    }
+  ],
+  "metadata": {
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read."
+  }
 }

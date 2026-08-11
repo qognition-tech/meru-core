@@ -32,6 +32,7 @@ import { AuditModule } from '../audit/audit.module';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Payment } from '../billing/entities/payment.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
+import { RulesModule } from '../rules/rules.module';
 
 @Module({
   imports: [
@@ -71,6 +72,9 @@ import { Tenant } from '../iam/entities/tenant.entity';
     IamModule,
     SearchModule,
     AuditModule,
+    // The checklist's `appliesWhen` conditions are JsonLogic, evaluated by the
+    // same service that backs `rules[]` and `alertRules[]`.
+    RulesModule,
   ],
   controllers: [DocumentsController],
   providers: [

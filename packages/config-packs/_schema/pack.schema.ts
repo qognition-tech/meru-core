@@ -162,6 +162,25 @@ const DocumentTypeSchema = z.object({
   key: z.string(),
   label: z.string(),
   required: z.boolean().default(false),
+  /**
+   * When this requirement applies, as JsonLogic over the record.
+   *
+   * Absent means always. This is what makes per-subclass checklists possible
+   * without core learning what a subclass is: the pack writes
+   * `{"==": [{"var": "matter.subclass"}, "482"]}` and the generic evaluator in
+   * DOC decides. Both packs previously carried one flat list, so a 485 applicant
+   * was asked for an employer nomination and a 482 applicant was not asked for
+   * evidence of study.
+   *
+   * Evaluated against the record's `verticalAttributes` plus its top-level
+   * columns, so `matter.subclass`, `status` and `type` are all addressable.
+   *
+   * With no `entityId` on the request there is nothing to evaluate against, and
+   * every conditional requirement is reported with `appliesWhen` unresolved
+   * rather than silently included or excluded — the same "we did not look"
+   * distinction `uploaded: null` draws.
+   */
+  appliesWhen: z.unknown().optional(),
   acceptedFormats: z.array(z.string()),
   maxSizeMb: z.number().positive().default(10),
   aiExtraction: z.object({

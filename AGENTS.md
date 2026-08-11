@@ -270,11 +270,16 @@ Done: immigration `entityTypes` (6), GRC `obligation`/`breach`, and the AU / CA
 
 Still to author, and it is domain work rather than engineering:
 
-- **Per-subclass document checklists and eligibility rules.** The workflows
-  exist; the `documentTypes` behind each subclass are still the vertical's
-  generic five.
-- **Country-specific `alertRules`** — visa expiry windows differ per
-  jurisdiction, and the generic 90-day rule is a placeholder.
+- ~~Per-subclass document checklists~~ — **done.** `documentTypes[]` gained
+  `appliesWhen` (JsonLogic), so one pack expresses 21 requirements that resolve
+  to 11 for a 482, 10 for a 500, 12 for a 485, and 4 for a 600 visitor. A minor
+  on a 500 additionally needs guardian consent; a 482 with dependents needs
+  relationship evidence. Verified by resolving each.
+- ~~Country-specific `alertRules`~~ — **done for AU/CA/UK/NZ**, 13 rules.
+  **They still need a registered practitioner's sign-off per jurisdiction**
+  before a firm relies on them; each pack records that in
+  `metadata.alertRulesReview`. Every rule warns earlier than the deadline it
+  watches, so a wrong threshold surfaces work sooner rather than missing it.
 - **Health, tax, labour and education verticals**, if those are still on the
   roadmap. Each is one base pack.
 

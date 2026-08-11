@@ -85,9 +85,29 @@ export class RuleEvaluatorService {
     if (rule === null || rule === undefined) return false;
 
     try {
-      return Boolean(
-        jsonLogic.apply(rule as jsonLogic.RulesLogic, this.augment(data)),
-      );
+      const context = this.augment(data);
+
+      // A rule that compares a variable the record does not have must not fire.
+      //
+      // JsonLogic is total over missing data: `{"var": "nope"}` is null, and in
+      // JavaScript `null < 90` and `null >= 0` are both **true**. So
+      // "visa expires within 90 days" fired for every record with no visa expiry
+      // date at all — an alert engine that flags the whole tenant, which per
+      // §5.2 is the same failure as one that flags nothing, because the alerts
+      // get switched off either way.
+      //
+      // Only numeric comparisons are guarded. Absence is meaningful to `!`,
+      // `!!` and `==`, where "the certificate has not been received" is exactly
+      // what a rule wants to say.
+      const missing = this.missingComparisonVars(rule, context);
+      if (missing.length) {
+        this.logger.debug(
+          `Rule not evaluated: compares missing variable(s) ${missing.join(', ')}`,
+        );
+        return false;
+      }
+
+      return Boolean(jsonLogic.apply(rule as jsonLogic.RulesLogic, context));
     } catch (err) {
       this.logger.warn(
         `Rule evaluation failed, treating as no-match: ` +
@@ -113,6 +133,81 @@ export class RuleEvaluatorService {
       );
       return null;
     }
+  }
+
+  /** Numeric comparisons, where a missing operand cannot be judged. */
+  private static readonly COMPARISON_OPS = new Set([
+    '<',
+    '<=',
+    '>',
+    '>=',
+    'between',
+  ]);
+
+  /**
+   * Variables a rule compares numerically but the record does not carry.
+   *
+   * Walks the condition rather than the data, so it costs nothing on a rule with
+   * no comparisons. Returns names, not a boolean, because the log line naming
+   * `matter.visaExpiry_daysUntil` is what tells a pack author their rule is
+   * reading a field the vertical never writes — the failure is otherwise
+   * completely silent.
+   */
+  private missingComparisonVars(
+    rule: unknown,
+    context: Record<string, unknown>,
+  ): string[] {
+    const missing = new Set<string>();
+
+    const varNamesIn = (node: unknown): string[] => {
+      if (Array.isArray(node)) return node.flatMap(varNamesIn);
+      if (!node || typeof node !== 'object') return [];
+
+      const entries = Object.entries(node as Record<string, unknown>);
+      return entries.flatMap(([op, args]) => {
+        if (op === 'var') {
+          const name = Array.isArray(args) ? args[0] : args;
+          // `{"var": ["x", default]}` supplies its own fallback, so absence is
+          // handled by the author and is not a hazard.
+          return typeof name === 'string' && !(Array.isArray(args) && args.length > 1)
+            ? [name]
+            : [];
+        }
+        return varNamesIn(args);
+      });
+    };
+
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      if (!node || typeof node !== 'object') return;
+
+      for (const [op, args] of Object.entries(node as Record<string, unknown>)) {
+        if (RuleEvaluatorService.COMPARISON_OPS.has(op)) {
+          for (const name of varNamesIn(args)) {
+            if (this.lookup(context, name) === undefined) missing.add(name);
+          }
+        }
+        walk(args);
+      }
+    };
+
+    walk(rule);
+    return Array.from(missing);
+  }
+
+  /** `a.b.c` against the augmented context, matching JsonLogic's `var`. */
+  private lookup(context: Record<string, unknown>, path: string): unknown {
+    if (path in context) return context[path];
+
+    let current: unknown = context;
+    for (const part of path.split('.')) {
+      if (!current || typeof current !== 'object') return undefined;
+      current = (current as Record<string, unknown>)[part];
+    }
+    return current;
   }
 
   /**
@@ -155,14 +250,51 @@ export class RuleEvaluatorService {
       for (const [key, value] of Object.entries(
         vertical as Record<string, unknown>,
       )) {
-        if (key in out) continue;
-        out[key] = value;
+        if (!(key in out)) out[key] = value;
 
         const date = this.asDate(value);
-        if (!date) continue;
-        const days = Math.floor((date.getTime() - now.getTime()) / 86_400_000);
-        out[`${key}_daysUntil`] = days;
-        out[`${key}_daysSince`] = -days;
+        if (date) {
+          const days = Math.floor((date.getTime() - now.getTime()) / 86_400_000);
+          out[`${key}_daysUntil`] = days;
+          out[`${key}_daysSince`] = -days;
+          continue;
+        }
+
+        // One level deeper, with the derived keys placed *inside* the nested
+        // object rather than as flat dotted keys.
+        //
+        // Flattening stopped at the top level, and the immigration pack nests
+        // everything under `matter` — as does the frontend, which stores subclass
+        // and stage in `verticalAttributes.matter`. So no date under `matter` had
+        // a `_daysUntil` at all, and every rule written against
+        // `matter.visaExpiry_daysUntil` read undefined. Combined with the
+        // null-comparison hazard guarded above, such a rule fired on every record
+        // instead of none, which is exactly why it stayed invisible.
+        //
+        // Inside the object, because JsonLogic's `var` treats a dot as a path
+        // separator: a flat key literally named `matter.x_daysUntil` is
+        // unreachable, since the lookup walks `matter` → `x_daysUntil`.
+        //
+        // A copy, never a mutation: `value` is the entity's own
+        // `verticalAttributes` sub-object, and writing derived fields into it
+        // would persist them on the next save.
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const nested: Record<string, unknown> = {
+            ...(value as Record<string, unknown>),
+          };
+          for (const [inner, innerValue] of Object.entries(
+            value as Record<string, unknown>,
+          )) {
+            const innerDate = this.asDate(innerValue);
+            if (!innerDate) continue;
+            const days = Math.floor(
+              (innerDate.getTime() - now.getTime()) / 86_400_000,
+            );
+            nested[`${inner}_daysUntil`] = days;
+            nested[`${inner}_daysSince`] = -days;
+          }
+          out[key] = nested;
+        }
       }
     }
 
