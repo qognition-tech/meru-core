@@ -20,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { ThreadService } from './thread.service';
 import { NotificationType } from './entities/notification.entity';
 import { SendThreadMessageDto } from './dto/notification.dto';
@@ -42,12 +43,37 @@ import type { AuthenticatedRequest } from '../common/types';
 export class CommunicationsController {
   constructor(private readonly threads: ThreadService) {}
 
+  /**
+   * The caller's own address when they are a client rather than staff, else
+   * null for the firm-wide view.
+   *
+   * Threads are keyed on the counterparty's address, so a client's confinement
+   * is their email — not their user id as in CRM and payments, because no
+   * platform user id appears in a thread key. Same shape of check as
+   * `PaymentsController.clientScope`, third resource to need it.
+   */
+  private clientScope(req: AuthenticatedRequest): string | null {
+    const roles = req.user.roles ?? [];
+    const isStaff = roles.some((r) =>
+      [
+        PlatformRole.PLATFORM_ADMIN,
+        PlatformRole.FIRM_ADMIN,
+        PlatformRole.STAFF,
+      ].includes(r as PlatformRole),
+    );
+    return roles.includes(PlatformRole.CLIENT) && !isStaff
+      ? req.user.email
+      : null;
+  }
+
   @Get('threads')
   @ApiOperation({
     summary: 'List conversations, most recently active first',
     description:
       'One row per (counterparty, channel). `unreadCount` counts inbound ' +
-      'messages only — an outbound message is not something anyone has to read.',
+      'messages only — an outbound message is not something anyone has to read. ' +
+      '\n\n**A `client`-role caller sees only their own thread**, matched on ' +
+      'their account email. Staff see the whole firm. A client cannot widen it.',
   })
   @ApiQuery({ name: 'channel', required: false, enum: NotificationType })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -62,13 +88,20 @@ export class CommunicationsController {
       channel,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      counterparty: this.clientScope(req),
     });
   }
 
   @Get('threads/:threadKey')
   @ApiOperation({
     summary: 'One conversation, oldest message first',
+    description:
+      'A `client`-role caller may read only the thread whose counterparty is ' +
+      'their own address. Any other key returns **404, not 403** — the key ' +
+      'contains the counterparty, so confirming existence would leak who else ' +
+      'the firm corresponds with.',
   })
+  @ApiResponse({ status: 404, description: 'No such thread, or not the caller\'s' })
   @ApiParam({
     name: 'threadKey',
     description: 'Thread key, e.g. `email:jane@example.com`',
@@ -84,6 +117,7 @@ export class CommunicationsController {
     return this.threads.getThread(req.user.tenantId, threadKey, {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
+      counterparty: this.clientScope(req),
     });
   }
 
@@ -115,6 +149,7 @@ export class CommunicationsController {
       content: dto.content,
       threadKey,
       metadata: dto.metadata,
+      asCounterparty: this.clientScope(req),
     });
   }
 
@@ -137,6 +172,7 @@ export class CommunicationsController {
       subject: dto.subject,
       content: dto.content,
       metadata: dto.metadata,
+      asCounterparty: this.clientScope(req),
     });
   }
 
@@ -148,6 +184,10 @@ export class CommunicationsController {
     @Request() req: AuthenticatedRequest,
     @Param('threadKey') threadKey: string,
   ) {
-    return this.threads.markRead(req.user.tenantId, threadKey);
+    return this.threads.markRead(
+      req.user.tenantId,
+      threadKey,
+      this.clientScope(req),
+    );
   }
 }

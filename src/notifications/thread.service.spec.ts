@@ -106,4 +106,105 @@ describe('ThreadService — one conversation per counterparty', () => {
     expect(saved[0].recipientPhone).toBe('+971500000000');
     expect(saved[0].recipientEmail).toBeNull();
   });
+
+  // A client token used to list every thread in the firm and read any of them.
+  // RLS separates tenants, not the applicants inside one, so these are the only
+  // checks standing between two of the same firm's clients.
+  describe('client-role confinement', () => {
+    it('splits the counterparty on the first colon only', () => {
+      expect(service.counterpartyOf('email:jane@example.com')).toBe(
+        'jane@example.com',
+      );
+      // A key whose tail contains a colon must survive intact, or two
+      // counterparties collapse into one thread.
+      expect(service.counterpartyOf('sms:+1:555')).toBe('+1:555');
+    });
+
+    it('filters the thread list to the caller when a counterparty is given', async () => {
+      repo.query.mockReset();
+      repo.query.mockResolvedValueOnce([{ count: 1 }]).mockResolvedValueOnce([]);
+      await service.listThreads('t1', { counterparty: 'Jane@Example.com' });
+
+      const [sql, params] = repo.query.mock.calls[0];
+      expect(sql).toContain('position(\':\' in n."threadKey")');
+      // Case-folded to match `deriveKey`, or a client with a capitalised
+      // address silently sees nothing.
+      expect(params).toContain('jane@example.com');
+    });
+
+    it('does not filter for staff, who see the whole firm', async () => {
+      repo.query.mockReset();
+      repo.query.mockResolvedValueOnce([{ count: 0 }]).mockResolvedValueOnce([]);
+      await service.listThreads('t1', { counterparty: null });
+
+      const [sql] = repo.query.mock.calls[0];
+      expect(sql).not.toContain('position');
+    });
+
+    it("404s on another client's thread rather than 403", async () => {
+      // 403 would confirm the thread exists, and the key *is* the other
+      // client's email address.
+      await expect(
+        service.getThread('t1', 'email:someone-else@example.com', {
+          counterparty: 'jane@example.com',
+        }),
+      ).rejects.toThrow(/not found/i);
+    });
+
+    it('lets a client read their own thread', async () => {
+      repo.findAndCount.mockResolvedValueOnce([[], 0]);
+      const out = await service.getThread('t1', 'email:jane@example.com', {
+        counterparty: 'Jane@Example.com',
+      });
+      expect(out.counterparty).toBe('jane@example.com');
+    });
+
+    it('refuses to mark another client\'s thread read', async () => {
+      await expect(
+        service.markRead('t1', 'email:someone-else@example.com', 'jane@example.com'),
+      ).rejects.toThrow(/not found/i);
+    });
+
+    it('threads a client message on their own address, not the firm\'s', async () => {
+      // The reverse of the read leak: keyed on the firm's address, every client
+      // writing in would land in one thread and read each other's mail.
+      await service.send({
+        tenantId: 't1',
+        senderId: 'client-user',
+        channel: NotificationType.EMAIL,
+        to: 'firm@example.com',
+        subject: 'Question',
+        content: 'Any news?',
+        asCounterparty: 'jane@example.com',
+      });
+      expect(saved[0].threadKey).toBe('email:jane@example.com');
+      expect(saved[0].direction).toBe('inbound');
+    });
+
+    it('ignores a threadKey a client tries to aim elsewhere', async () => {
+      await service.send({
+        tenantId: 't1',
+        senderId: 'client-user',
+        channel: NotificationType.EMAIL,
+        to: 'someone-else@example.com',
+        subject: 'Question',
+        content: 'Any news?',
+        threadKey: 'email:someone-else@example.com',
+        asCounterparty: 'jane@example.com',
+      });
+      expect(saved[0].threadKey).toBe('email:jane@example.com');
+    });
+
+    it('does not queue a client message for delivery back to themselves', async () => {
+      await service.send({
+        tenantId: 't1',
+        senderId: 'client-user',
+        channel: NotificationType.EMAIL,
+        subject: 'Question',
+        content: 'Any news?',
+        asCounterparty: 'jane@example.com',
+      });
+      expect(saved[0].status).toBe('delivered');
+    });
+  });
 });

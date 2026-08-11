@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -39,13 +44,27 @@ export interface SendIntoThreadInput {
   /** Who is sending. Recorded so the audit trail names a human. */
   senderId: string;
   channel: NotificationType;
-  /** Email address or phone number of the counterparty. */
-  to: string;
+  /**
+   * Email address or phone number of the counterparty. Required for staff;
+   * ignored when `asCounterparty` is set.
+   */
+  to?: string;
   subject: string;
   content: string;
   /** Set when replying; derived from `channel` + `to` when starting. */
   threadKey?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * The caller's own address when the caller is a client rather than staff.
+   *
+   * When set, this *is* the counterparty: `to` and `threadKey` are ignored and
+   * the message is recorded as INBOUND. A client writing to the firm cannot be
+   * threaded on the firm's address — every client would land in one shared
+   * thread and read each other's mail, which is the same leak as listing
+   * threads unscoped. Keyed on the client's own address instead, so their
+   * message joins the thread staff already correspond with them on.
+   */
+  asCounterparty?: string | null;
 }
 
 /**
@@ -89,31 +108,81 @@ export class ThreadService {
   }
 
   /**
+   * The counterparty half of a thread key — everything after the first colon.
+   *
+   * Kept as one function because three places need to agree on it: the list
+   * filter, the access check, and the summary mapping. `slice(1).join(':')`
+   * rather than `split(':')[1]` because a phone number or an address with a
+   * colon in it must not be truncated into a different counterparty.
+   */
+  counterpartyOf(threadKey: string): string {
+    return threadKey.split(':').slice(1).join(':');
+  }
+
+  /**
+   * Refuse a thread that does not belong to the caller.
+   *
+   * 404 rather than 403, matching `/payments/:id` — a 403 on someone else's
+   * thread key confirms that the thread exists, which for `email:<address>`
+   * keys tells the caller who else the firm is corresponding with. The key is
+   * the counterparty, so the error would leak the very thing being protected.
+   */
+  private assertCounterparty(threadKey: string, counterparty: string | null): void {
+    if (!counterparty) return;
+    if (this.counterpartyOf(threadKey).toLowerCase() !== counterparty.toLowerCase()) {
+      throw new NotFoundException('Thread not found');
+    }
+  }
+
+  /**
    * Every thread in the tenant, most recently active first.
    *
    * Grouped in SQL rather than by loading rows: a firm with three years of
    * correspondence has hundreds of thousands of notifications, and an inbox
    * that pages through all of them to draw a list is the kind of endpoint that
    * works in demo and times out in production.
+   *
+   * `counterparty` restricts the list to one correspondent and is how a
+   * client-role caller is confined to their own mail. RLS isolates tenants, not
+   * users within a tenant, so without it a client token listed the firm's
+   * entire inbox — every other applicant's address in the thread keys, and
+   * their message bodies one request later. Third instance of this bug shape
+   * after CRM and payments; enforced here in the service rather than the
+   * controller so no future caller can forget it.
    */
   async listThreads(
     tenantId: string,
-    options: { channel?: NotificationType; limit?: number; page?: number } = {},
+    options: {
+      channel?: NotificationType;
+      limit?: number;
+      page?: number;
+      counterparty?: string | null;
+    } = {},
   ): Promise<{ items: ThreadSummary[]; total: number; page: number; limit: number }> {
     const limit = Math.min(options.limit ?? 25, 100);
     const page = Math.max(options.page ?? 1, 1);
 
     const params: unknown[] = [tenantId];
-    let channelFilter = '';
+    let rowFilters = '';
     if (options.channel) {
       params.push(options.channel);
-      channelFilter = `AND n."type" = $${params.length}`;
+      rowFilters = `AND n."type" = $${params.length}`;
+    }
+
+    if (options.counterparty) {
+      params.push(options.counterparty.trim().toLowerCase());
+      // Mirrors `counterpartyOf` in SQL. Thread keys are already case-folded by
+      // `deriveKey`, but lower() costs nothing and protects against rows written
+      // before that was true.
+      rowFilters +=
+        ` AND lower(substring(n."threadKey" from position(':' in n."threadKey") + 1))` +
+        ` = $${params.length}`;
     }
 
     const countRows = await this.notifications.query(
       `SELECT COUNT(DISTINCT n."threadKey")::int AS count
          FROM notifications n
-        WHERE n."tenantId" = $1 AND n."threadKey" IS NOT NULL ${channelFilter}`,
+        WHERE n."tenantId" = $1 AND n."threadKey" IS NOT NULL ${rowFilters}`,
       params,
     );
     const total = countRows[0]?.count ?? 0;
@@ -128,7 +197,7 @@ export class ThreadService {
                 COUNT(*) FILTER (WHERE n."readAt" IS NULL AND n."direction" = 'inbound')
                               OVER (PARTITION BY n."threadKey") AS unread_count
            FROM notifications n
-          WHERE n."tenantId" = $1 AND n."threadKey" IS NOT NULL ${channelFilter}
+          WHERE n."tenantId" = $1 AND n."threadKey" IS NOT NULL ${rowFilters}
        )
        SELECT "threadKey", "type", "recipientEmail", "recipientPhone", "recipientId",
               "subject", "content", "createdAt", "direction",
@@ -146,7 +215,7 @@ export class ThreadService {
       // The counterparty is in the key's tail, which survives even when the
       // latest row's address columns are null (a template send that only
       // carried a recipientId).
-      counterparty: String(r.threadKey).split(':').slice(1).join(':'),
+      counterparty: this.counterpartyOf(String(r.threadKey)),
       messageCount: Number(r.message_count),
       unreadCount: Number(r.unread_count),
       lastMessageAt: r.createdAt,
@@ -158,11 +227,17 @@ export class ThreadService {
     return { items, total, page, limit };
   }
 
-  /** One conversation, oldest first — the order a person reads it in. */
+  /**
+   * One conversation, oldest first — the order a person reads it in.
+   *
+   * `counterparty` is the client-role confinement; see `listThreads`. Checked
+   * before the query so another applicant's thread is indistinguishable from a
+   * thread that was never there.
+   */
   async getThread(
     tenantId: string,
     threadKey: string,
-    options: { limit?: number; page?: number } = {},
+    options: { limit?: number; page?: number; counterparty?: string | null } = {},
   ): Promise<{
     threadKey: string;
     counterparty: string;
@@ -171,6 +246,8 @@ export class ThreadService {
     page: number;
     limit: number;
   }> {
+    this.assertCounterparty(threadKey, options.counterparty ?? null);
+
     const limit = Math.min(options.limit ?? 50, 200);
     const page = Math.max(options.page ?? 1, 1);
 
@@ -183,7 +260,7 @@ export class ThreadService {
 
     return {
       threadKey,
-      counterparty: threadKey.split(':').slice(1).join(':'),
+      counterparty: this.counterpartyOf(threadKey),
       messages: rows.map((n) => ({
         id: n.id,
         direction: n.direction,
@@ -215,20 +292,24 @@ export class ThreadService {
    * pending, which is the truth.
    */
   async send(input: SendIntoThreadInput): Promise<Notification> {
-    const to = input.to?.trim();
+    // A client speaks only as themselves. Their address replaces whatever `to`
+    // and `threadKey` say, so they can neither open a thread against another
+    // applicant nor drop a message into one.
+    const inbound = !!input.asCounterparty;
+    const to = inbound ? input.asCounterparty!.trim() : input.to?.trim();
     if (!to) {
       throw new BadRequestException(
         'A recipient address is required — `to` is the counterparty email or phone number',
       );
     }
 
-    const threadKey = input.threadKey ?? this.deriveKey(input.channel, to);
+    const expected = this.deriveKey(input.channel, to);
+    const threadKey = inbound ? expected : (input.threadKey ?? expected);
 
     // A caller-supplied threadKey that disagrees with the address would put the
     // message in a thread the reply can never join. Refuse rather than write a
     // row that looks filed and is not.
-    const expected = this.deriveKey(input.channel, to);
-    if (input.threadKey && input.threadKey !== expected) {
+    if (!inbound && input.threadKey && input.threadKey !== expected) {
       throw new BadRequestException(
         `threadKey '${input.threadKey}' does not match channel '${input.channel}' ` +
           `and recipient '${to}' (expected '${expected}'). Omit threadKey to derive it.`,
@@ -240,10 +321,15 @@ export class ThreadService {
     const notification = this.notifications.create({
       tenantId: input.tenantId,
       type: input.channel,
-      status: NotificationStatus.PENDING,
       priority: NotificationPriority.NORMAL,
       category: NotificationCategory.COLLABORATION,
-      direction: NotificationDirection.OUTBOUND,
+      // A client's message travels *into* the firm. Recorded as inbound so it
+      // counts toward staff's unread badge and is never handed to a transport
+      // for delivery back to the person who wrote it.
+      direction: inbound
+        ? NotificationDirection.INBOUND
+        : NotificationDirection.OUTBOUND,
+      status: inbound ? NotificationStatus.DELIVERED : NotificationStatus.PENDING,
       threadKey,
       // No platform user sits behind a client's email address, so the
       // recipient columns carry the address and `recipientId` records who the
@@ -275,7 +361,13 @@ export class ThreadService {
   }
 
   /** Mark every inbound message in a thread read. */
-  async markRead(tenantId: string, threadKey: string): Promise<{ updated: number }> {
+  async markRead(
+    tenantId: string,
+    threadKey: string,
+    counterparty: string | null = null,
+  ): Promise<{ updated: number }> {
+    this.assertCounterparty(threadKey, counterparty);
+
     const result = await this.notifications
       .createQueryBuilder()
       .update(Notification)
