@@ -4,7 +4,7 @@
 > **Read this before any file edit.** Current state, gaps and what to build next
 > live in [AGENTS.md](AGENTS.md) — the only other document in this project.
 >
-> *Last updated: 2026-08-11.*
+> *Last updated: 2026-08-11 (post-validation).*
 
 ---
 
@@ -120,10 +120,10 @@ that wants its country's overlay pins it explicitly. Five packs answer to
 `vertical = 'grc'`, so an unordered lookup would hand a UAE bank whichever row
 Postgres returned first.
 
-### 4.1 The nine pack arrays and their evaluators
+### 4.1 The ten pack arrays and their evaluators
 
 Every one is Layer 4 vocabulary read by exactly one generic Layer 1 evaluator
-that has no idea which vertical it serves. **All nine are built.**
+that has no idea which vertical it serves. **All ten are built.**
 
 | Pack array | Evaluator | Lives in |
 |---|---|---|
@@ -136,6 +136,7 @@ that has no idea which vertical it serves. **All nine are built.**
 | `relationships[]` | `EntityRelationService` → `entity_relations` | CRM |
 | `navigation[]` + `dashboards[]` | `PackUiService` + `PackDashboardService` | TCM + BI |
 | `importMappings[]` | `ImportService` — parse → map → dry-run diff → commit | INT |
+| `documentTemplates[]` | `DocumentGenerationService` — block layout → PDF | DOC |
 
 ### 4.2 Rules for changing the pack schema
 
@@ -152,6 +153,10 @@ Learned the hard way, twice:
    host access. An expression language in a multi-tenant pack authored by a
    non-engineer is a sandbox escape with a JSON file for a payload.
 4. **Bump the pack `version`.** The loader only upgrades on a greater version.
+5. **`documentTypes` and `documentTemplates` are opposites.** The first is what
+   the platform *collects*, the second what it *produces*. A generated document
+   that also satisfies a checklist requirement names it with `documentTypeKey`,
+   or the checklist keeps asking for the document the firm just produced.
 
 ---
 
@@ -181,6 +186,14 @@ without an explicit god-mode audit entry.
   Cross-tenant operator access goes through `TenancyService.runAsGod`, which
   writes a `CRITICAL` audit entry first.
 
+**RLS isolates tenants, not users inside a tenant.** It is the wrong tool for
+"this applicant may see only their own rows", and every resource a client-role
+token can reach needs its own check. That has now been missed three times —
+`/crm/entities`, `/payments`, and `/communications/threads`, where a client read
+other clients' message bodies in production. When adding a resource the client
+portal touches, the question is not "is RLS on" but "what confines this to one
+user, and is it in the service rather than the controller".
+
 **Never trust "RLS is on" without `npm run rls:verify`.** It attempts real
 cross-tenant reads and writes and exits non-zero if any succeed.
 
@@ -201,6 +214,15 @@ well-meaning default:
   `provenance.sandbox`. **A sandbox regulator response must never be
   indistinguishable from a live one** — a compliance officer acts on a visa
   status.
+- **And the mirror image: noise must never present as a finding.** Screening an
+  invented name returned `riskLevel: critical` with "file a SAR if applicable"
+  on the strength of one 0.86 fuzzy match against a *vessel*. Over-escalation
+  costs the same thing as under-reporting in the end — the alerts get switched
+  off, and the real designation goes with them. A `warning` is a prompt for a
+  human; only an `alert` is a designation.
+- A generated document with a blank where a figure belongs is worse than no
+  document: it looks executable and someone may sign it. `documentTemplates[]`
+  declares `requires`, and generation refuses rather than filling a hole.
 
 ### 5.3 Citations or silence
 
@@ -301,6 +323,16 @@ delta is handed over, and it leads with whether the change has deployed yet.
 contract sweep passes on a well-formed 503, so it cannot tell you an adapter
 aimed at the real regulator and failed. Both adapter defects found to date were
 invisible to a green suite and obvious in one response body.
+
+**The sweep cannot see a wrong answer, only a malformed one.** 788 checks passed
+against a build where a client could read other clients' mail, notification
+dispatch had been dead for 34 hours, and screening recommended filing a SAR on a
+vessel-name collision. All three were well-formed 200s. Two things catch this
+class of fault and nothing else does: reading `/jobs/status` for a `lastError`,
+and calling the interesting routes as each role and looking at the body. A
+generated artefact — a PDF, a chart — must actually be opened; "valid PDF" and
+"correct document" are different claims, and rendering the real templates is
+what exposed `?` in place of every em dash.
 
 `rls:verify` needs `DATABASE_APP_URL`, which cannot be read back out of Vercel —
 `vercel env pull` returns encrypted values blank. Against a deployment, use

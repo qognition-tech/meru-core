@@ -82,8 +82,40 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**297 operations across 248 paths** — 22 added since the last deploy, none
-removed or renamed, so nothing built against the previous surface breaks.
+**301 operations across 252 paths.** Four added on 2026-08-11 after the
+verification pass below; none removed or renamed, so nothing built against the
+previous surface breaks.
+
+Added: `POST /crm/entities/:id/convert`, `GET /documents/templates`,
+`POST /documents/generate/:templateKey`, `GET /analytics/trends/:kpiKey`.
+`GET /tasks` gained `?page`/`?limit` and `GET /tasks/calendar/events` gained
+`?scope` — both additive, and `data` is still the array.
+
+### 2.1 What the 2026-08-11 validation pass found
+
+Every claim in `BACKEND-HANDOFF.md` and the frontend's
+`IMMISTACK-BACKEND-REQUESTS.md` was re-tested over HTTP against production. All
+six contract defects the frontend reported reproduced and are fixed. Two defects
+nobody had reported were found and fixed, and both were live:
+
+1. **A `client` token read other clients' message bodies.** `/communications/*`
+   was tenant-scoped, not user-scoped — the third instance of that shape after
+   CRM and payments, so the check now lives in `ThreadService`.
+2. **`notification-dispatch` had been dead for 34 hours.** One row with an
+   address in the uuid `recipientId` column threw inside the sweep, the throw
+   escaped the loop, and because the poison row is read first on every run no
+   notification was delivered for any tenant.
+
+Two documented claims turned out to be wrong and are corrected here:
+
+- **`verticalAttributes` merged only one level deep.** BACKEND-HANDOFF said
+  "merges"; the frontend said "replaces". Each was right about a different
+  depth, and nested siblings were being erased. Now a real deep merge.
+- **Screening escalated on noise.** An invented name scored `critical` with a
+  "file a SAR" recommendation off one 0.86 match against a *vessel*. Worse, no
+  genuine designation ever reached the `alert` band, so the severity distinction
+  the docs describe was one the engine could not draw. Both fixed; measured
+  before and after against the real 31,579 entries.
 
 Added: pack navigation and dashboards (4), communications threads (5), record
 comments (3), entity relations and blockers (4), scoring (2), import (2), TAT
@@ -211,9 +243,9 @@ already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
 | Item | Rows unblocked | Note |
 |---|---|---|
 | **Wire Elasticsearch** | 4 | `src/search/elasticsearch/` is finished and imported by nobody; the facade is Postgres `ILIKE` |
-| **Document generation** | 2 | cost agreements, invoice PDFs — `pdf-lib` |
+
 | **Storage drivers** | 2 | Google Drive, Azure Blob; the provider interface is already right |
-| **Trend analysis / time series** | 3 | BI is point-in-time only |
+
 | **XLSX import** | 1 | `ImportService` takes CSV; XLSX needs `exceljs` |
 | **CRM importers** | 3 | HubSpot / Zoho / Salesforce — three OAuth apps, one per importer |
 | **Email analytics** | 3 | delivery/open/click events, A/B assignment |
@@ -223,7 +255,9 @@ already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
 
 Shipped since the last revision of this table: the import pipeline, SLA
 escalation actions, TAT recording and analytics, generic comments, outbound
-webhooks and retention enforcement.
+webhooks, retention enforcement, **document generation** (`documentTemplates[]`
+→ `pdf-lib`, a tenth Layer 4 array) and **trend analysis**
+(`GET /analytics/trends/:kpiKey`).
 
 ### 4.2 Pack authoring — not engineering
 
