@@ -21,6 +21,7 @@ import { AnalyticsService } from './analytics.service';
 import { PackDashboardService } from './pack-dashboard.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CreateReportDto, CreateWidgetDto } from './dto/analytics.dto';
+import { TrendQueryDto } from './dto/trend-query.dto';
 import type { DashboardWidget } from './entities/dashboard-widget.entity';
 import type { AuthenticatedRequest } from '../common/types';
 import {
@@ -163,6 +164,60 @@ export class AnalyticsController {
       key,
       audience,
     );
+  }
+
+  @Get('trends/:kpiKey')
+  @ApiOperation({
+    summary: 'One pack KPI measured over time',
+    description:
+      'BI was point-in-time only, so no "is this getting better" question had ' +
+      'an endpoint. This runs the KPI\'s own `metric` once per bucket.\n\n' +
+      '**Read `value: null` carefully — it is not zero.** A `count` of zero in ' +
+      'a quiet week is a real measurement and is returned as `0`. A ' +
+      '`percentage` over a week with no records in its population is `null` ' +
+      'with `unavailableReason: "no_records_in_population"`, because plotting ' +
+      'that as 0% draws a cliff to the floor and invents a collapse that did ' +
+      'not happen. Break the line, or grey the point — do not zero-fill it.\n\n' +
+      '`population` per bucket is how many records the figure came from: a ' +
+      'reader needs it to tell a trend from one case in a quiet month. ' +
+      '`truncated: true` on the series means the scan hit its cap and **every** ' +
+      'bucket is a lower bound.',
+  })
+  @ApiParam({ name: 'kpiKey', description: 'KPI key from the config pack' })
+  @ApiQuery({
+    name: 'interval',
+    required: false,
+    enum: ['day', 'week', 'month'],
+    description: 'Bucket width. Defaults to month.',
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: 'ISO date. Defaults to 12 months / 12 weeks / 30 days back.',
+  })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO date. Defaults to now.' })
+  @ApiQuery({
+    name: 'dateField',
+    required: false,
+    description:
+      'Which date buckets a record. Defaults to `createdAt`. Use the field the ' +
+      'question is about — a grant rate by month buckets on the decision date, ' +
+      'not on when the case was opened.',
+  })
+  @ApiResponse({ status: 200, description: 'Series resolved' })
+  @ApiResponse({ status: 400, description: 'Malformed date or interval' })
+  async getTrend(
+    @Request() req: AuthenticatedRequest,
+    @Param('kpiKey') kpiKey: string,
+    @Query() query: TrendQueryDto,
+  ) {
+    return this.packDashboards.trend(req.user.tenantId, req.tenantVertical ?? null, {
+      kpiKey,
+      interval: query.interval,
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+      dateField: query.dateField,
+    });
   }
 
   // ==================== WIDGETS ====================

@@ -200,6 +200,117 @@ export class PackDashboardService {
   }
 
   /**
+   * The same KPI, measured repeatedly over time.
+   *
+   * BI was point-in-time only, so every "rate" question — is our grant rate
+   * improving, is turnaround getting worse — had no endpoint behind it. A trend
+   * is the existing KPI machinery run once per bucket, which is why it lives
+   * here rather than in a second service with its own copy of `aggregate`.
+   *
+   * The null-versus-zero rule matters more here than anywhere, because a chart
+   * makes the difference visible. A count of zero in a quiet month is a real
+   * measurement and is plotted as zero. A *percentage* over an empty month is
+   * unknown — plotting it as 0% draws a cliff to the floor and invents a
+   * collapse that did not happen (CLAUDE.md §5.2). That falls out of reusing
+   * `aggregate`, which already refuses zero-over-zero.
+   */
+  async trend(
+    tenantId: string,
+    vertical: string | null,
+    options: {
+      kpiKey: string;
+      interval?: 'day' | 'week' | 'month';
+      from?: Date;
+      to?: Date;
+      /** Which date buckets a row. Defaults to `createdAt`. */
+      dateField?: string;
+    },
+  ): Promise<{
+    kpi: string;
+    label: string;
+    unit?: KpiDefinition['unit'];
+    target: number | null;
+    interval: 'day' | 'week' | 'month';
+    dateField: string;
+    from: string;
+    to: string;
+    unavailableReason?: string;
+    truncated?: boolean;
+    scanned?: number;
+    buckets: Array<{
+      periodStart: string;
+      periodEnd: string;
+      value: number | null;
+      population: number;
+      unavailableReason?: string;
+    }>;
+  }> {
+    const interval = options.interval ?? 'month';
+    const dateField = options.dateField ?? 'createdAt';
+    const to = options.to ?? new Date();
+    const from = options.from ?? defaultFrom(to, interval);
+
+    const kpis = await this.packs.list<KpiDefinition>(vertical, 'kpis');
+    const kpi = kpis.find((k) => k.key === options.kpiKey);
+
+    const shell = {
+      kpi: options.kpiKey,
+      label: kpi?.label ?? options.kpiKey,
+      unit: kpi?.unit,
+      target: kpi?.target ?? null,
+      interval,
+      dateField,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      buckets: [] as Array<{
+        periodStart: string;
+        periodEnd: string;
+        value: number | null;
+        population: number;
+        unavailableReason?: string;
+      }>,
+    };
+
+    // The same three distinct nulls as a KPI tile, for the same reason: only one
+    // of them is a bug, and a caller that cannot tell them apart cannot report
+    // them usefully.
+    if (!kpi) return { ...shell, unavailableReason: 'kpi_not_in_pack' };
+    if (!kpi.metric) return { ...shell, unavailableReason: 'kpi_has_no_metric' };
+
+    const { rows, truncated } = await this.scan(tenantId, kpi.metric.source);
+
+    const periods = buildPeriods(from, to, interval);
+    const buckets = periods.map((period) => {
+      const inPeriod = rows.filter((row) => {
+        const at = this.asDate(this.field(row, dateField));
+        return !!at && at >= period.start && at < period.end;
+      });
+
+      const computed = this.aggregate(kpi.metric!, inPeriod);
+
+      return {
+        periodStart: period.start.toISOString(),
+        periodEnd: period.end.toISOString(),
+        value: computed.value,
+        // How many rows the bucket was computed from. A reader needs this to
+        // know whether a spike is a trend or one case in a quiet week.
+        population: inPeriod.length,
+        unavailableReason: computed.unavailableReason,
+      };
+    });
+
+    return {
+      ...shell,
+      // A truncated scan makes every bucket a lower bound, so it is reported on
+      // the series rather than per bucket — the caller must not plot any of it
+      // as exact.
+      truncated,
+      scanned: rows.length,
+      buckets,
+    };
+  }
+
+  /**
    * A KPI tile.
    *
    * Three distinct nulls, each with its own reason, because "no number" has
@@ -450,4 +561,78 @@ export class PackDashboardService {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
+}
+
+// ── Time bucketing ──────────────────────────────────────────────────────────
+
+/**
+ * How far back a trend reaches when the caller does not say.
+ *
+ * Chosen so each interval returns a chart worth looking at rather than a single
+ * point or a thousand of them.
+ */
+function defaultFrom(to: Date, interval: 'day' | 'week' | 'month'): Date {
+  const from = new Date(to);
+  if (interval === 'day') from.setUTCDate(from.getUTCDate() - 29);
+  else if (interval === 'week') from.setUTCDate(from.getUTCDate() - 7 * 11);
+  else from.setUTCMonth(from.getUTCMonth() - 11);
+  return from;
+}
+
+/**
+ * Half-open buckets `[start, end)` covering `from`..`to`.
+ *
+ * Half-open so a record on a boundary lands in exactly one bucket. Inclusive
+ * ends would double-count midnight, which shows up as a phantom duplicate in
+ * whichever bucket a reader looks at second.
+ *
+ * All arithmetic is UTC. Local-time bucketing shifts every boundary by the
+ * server's offset, so the same data would bucket differently depending on where
+ * the function happened to run — and Vercel runs this in `sin1`.
+ */
+function buildPeriods(
+  from: Date,
+  to: Date,
+  interval: 'day' | 'week' | 'month',
+): Array<{ start: Date; end: Date }> {
+  const periods: Array<{ start: Date; end: Date }> = [];
+  let cursor = truncateTo(from, interval);
+  let guard = 0;
+
+  while (cursor < to && guard < MAX_BUCKETS) {
+    const end = advance(cursor, interval);
+    periods.push({ start: cursor, end });
+    cursor = end;
+    guard += 1;
+  }
+
+  return periods;
+}
+
+/** Cap on buckets, so a decade-wide `?interval=day` cannot exhaust the function. */
+const MAX_BUCKETS = 400;
+
+function truncateTo(date: Date, interval: 'day' | 'week' | 'month'): Date {
+  const out = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
+  if (interval === 'month') {
+    return new Date(Date.UTC(out.getUTCFullYear(), out.getUTCMonth(), 1));
+  }
+  if (interval === 'week') {
+    // ISO weeks start Monday. `getUTCDay()` calls Sunday 0, so Sunday steps back
+    // six days rather than one.
+    const day = out.getUTCDay();
+    const back = day === 0 ? 6 : day - 1;
+    out.setUTCDate(out.getUTCDate() - back);
+  }
+  return out;
+}
+
+function advance(date: Date, interval: 'day' | 'week' | 'month'): Date {
+  const out = new Date(date);
+  if (interval === 'day') out.setUTCDate(out.getUTCDate() + 1);
+  else if (interval === 'week') out.setUTCDate(out.getUTCDate() + 7);
+  else out.setUTCMonth(out.getUTCMonth() + 1);
+  return out;
 }

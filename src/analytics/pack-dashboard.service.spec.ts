@@ -267,3 +267,232 @@ describe('PackDashboardService — widget arithmetic', () => {
     expect(empty.unavailableReason).toBe('no_records_in_population');
   });
 });
+
+/**
+ * Trends, and the one rule a chart makes impossible to hide.
+ *
+ * A count of zero in a quiet month is a measurement. A *percentage* over a month
+ * with nothing in its population is unknown, and plotting it as 0% draws a cliff
+ * to the floor — inventing a collapse that did not happen. That is CLAUDE.md
+ * §5.2 in the place where getting it wrong is most visible to a regulator.
+ */
+describe('PackDashboardService.trend — over time, without inventing zeroes', () => {
+  const at = (iso: string) => new Date(iso);
+
+  const rows = [
+    // June: one resolved, one closed → 50%
+    { id: '1', status: 'resolved', verticalAttributes: {}, createdAt: at('2026-06-05T00:00:00Z'), updatedAt: at('2026-06-05T00:00:00Z') },
+    { id: '2', status: 'closed', verticalAttributes: {}, createdAt: at('2026-06-20T00:00:00Z'), updatedAt: at('2026-06-20T00:00:00Z') },
+    // July: nothing at all → population empty
+    // August: two resolved → 100%
+    { id: '3', status: 'resolved', verticalAttributes: {}, createdAt: at('2026-08-02T00:00:00Z'), updatedAt: at('2026-08-02T00:00:00Z') },
+    { id: '4', status: 'resolved', verticalAttributes: {}, createdAt: at('2026-08-09T00:00:00Z'), updatedAt: at('2026-08-09T00:00:00Z') },
+  ];
+
+  const kpis = [
+    {
+      key: 'grant_rate',
+      label: 'Grant Rate',
+      unit: 'percentage' as const,
+      target: 95,
+      metric: {
+        source: 'case',
+        aggregate: 'percentage' as const,
+        when: { '==': [{ var: 'status' }, 'resolved'] },
+        of: { in: [{ var: 'status' }, ['resolved', 'closed']] },
+      },
+    },
+    {
+      key: 'volume',
+      label: 'Cases opened',
+      unit: 'count' as const,
+      metric: { source: 'case', aggregate: 'count' as const },
+    },
+    { key: 'declared_only', label: 'Declared', unit: 'count' as const },
+  ];
+
+  const build = (scanRows = rows, truncatedScan = false) => {
+    const entities = {
+      count: jest.fn(),
+      createQueryBuilder: jest.fn(() => {
+        const qb: any = {
+          where: () => qb,
+          andWhere: () => qb,
+          orderBy: () => qb,
+          take: () => qb,
+          getMany: () =>
+            Promise.resolve(
+              truncatedScan
+                ? Array.from({ length: 5001 }, (_, i) => ({
+                    ...rows[0],
+                    id: `x${i}`,
+                  }))
+                : scanRows,
+            ),
+        };
+        return qb;
+      }),
+    };
+    const packs = {
+      list: jest.fn((_v: string, key: string) =>
+        Promise.resolve(key === 'kpis' ? kpis : []),
+      ),
+    };
+    return new PackDashboardService(
+      entities as any,
+      { dashboardFor: jest.fn(), dashboardsFor: jest.fn() } as any,
+      packs as any,
+      new RuleEvaluatorService(),
+    );
+  };
+
+  const june1 = at('2026-06-01T00:00:00Z');
+  const sept1 = at('2026-09-01T00:00:00Z');
+
+  it('buckets by month across the window', async () => {
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'grant_rate',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    expect(out.buckets).toHaveLength(3);
+    expect(out.buckets[0].periodStart).toBe('2026-06-01T00:00:00.000Z');
+    expect(out.buckets[2].periodStart).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('computes a real percentage per bucket', async () => {
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'grant_rate',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    expect(out.buckets[0].value).toBe(50);
+    expect(out.buckets[2].value).toBe(100);
+  });
+
+  it('returns null, not zero, for a percentage over an empty month', async () => {
+    // The whole reason this endpoint needed care. July has no records.
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'grant_rate',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    const july = out.buckets[1];
+    expect(july.value).toBeNull();
+    expect(july.unavailableReason).toBe('no_records_in_population');
+    expect(july.population).toBe(0);
+  });
+
+  it('returns zero, not null, for a count over an empty month', async () => {
+    // The mirror case: nobody opened a case in July, and that *is* zero.
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    expect(out.buckets[1].value).toBe(0);
+    expect(out.buckets[1].unavailableReason).toBeUndefined();
+  });
+
+  it('reports the population behind each figure', async () => {
+    // 100% from one case and 100% from two hundred are not the same claim.
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'grant_rate',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    expect(out.buckets[0].population).toBe(2);
+    expect(out.buckets[2].population).toBe(2);
+  });
+
+  it('distinguishes a missing KPI from a KPI with no metric', async () => {
+    const svc = build();
+    const missing = await svc.trend('t1', 'immigration', { kpiKey: 'nope' });
+    expect(missing.unavailableReason).toBe('kpi_not_in_pack');
+    expect(missing.buckets).toEqual([]);
+
+    const declared = await svc.trend('t1', 'immigration', {
+      kpiKey: 'declared_only',
+    });
+    expect(declared.unavailableReason).toBe('kpi_has_no_metric');
+  });
+
+  it('marks the whole series truncated when the scan hits its cap', async () => {
+    // Per-bucket would be wrong: the cap drops rows before bucketing, so every
+    // bucket is a lower bound, not just the busy ones.
+    const out = await build(rows, true).trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    expect(out.truncated).toBe(true);
+  });
+
+  it('buckets weeks from Monday', async () => {
+    // 2026-08-09 is a Sunday. A Sunday-start week would put it in the following
+    // bucket and shift every weekly figure by a day.
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'week',
+      from: at('2026-08-03T00:00:00Z'),
+      to: at('2026-08-17T00:00:00Z'),
+    });
+    expect(out.buckets[0].periodStart).toBe('2026-08-03T00:00:00.000Z');
+    // Both August records (2nd and 9th) — the 2nd falls before the window, the
+    // 9th is a Sunday and belongs to the week beginning the 3rd.
+    expect(out.buckets[0].value).toBe(1);
+  });
+
+  it('puts a boundary record in exactly one bucket', async () => {
+    // Half-open ranges. Inclusive ends would count midnight twice.
+    const out = await build([
+      { id: 'b', status: 'resolved', verticalAttributes: {}, createdAt: at('2026-07-01T00:00:00.000Z'), updatedAt: at('2026-07-01T00:00:00Z') },
+    ] as any).trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+    });
+    const counted = out.buckets.filter((b) => (b.value ?? 0) > 0);
+    expect(counted).toHaveLength(1);
+    expect(counted[0].periodStart).toBe('2026-07-01T00:00:00.000Z');
+  });
+
+  it('buckets on the field the question is about', async () => {
+    // A grant rate by month is about the decision date, not the open date.
+    const out = await build([
+      { id: 'd1', status: 'resolved', verticalAttributes: { decidedAt: '2026-08-15T00:00:00Z' }, createdAt: at('2026-06-01T00:00:00Z'), updatedAt: at('2026-06-01T00:00:00Z') },
+    ] as any).trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'month',
+      from: june1,
+      to: sept1,
+      dateField: 'decidedAt',
+    });
+    expect(out.buckets[0].value).toBe(0);
+    expect(out.buckets[2].value).toBe(1);
+  });
+
+  it('caps the bucket count so a decade of days cannot exhaust the function', async () => {
+    const out = await build().trend('t1', 'immigration', {
+      kpiKey: 'volume',
+      interval: 'day',
+      from: at('2010-01-01T00:00:00Z'),
+      to: at('2026-08-11T00:00:00Z'),
+    });
+    expect(out.buckets.length).toBeLessThanOrEqual(400);
+  });
+
+  it('defaults to a window worth charting', async () => {
+    const out = await build().trend('t1', 'immigration', { kpiKey: 'volume' });
+    expect(out.interval).toBe('month');
+    expect(out.buckets.length).toBeGreaterThanOrEqual(11);
+    expect(out.buckets.length).toBeLessThanOrEqual(13);
+  });
+});
