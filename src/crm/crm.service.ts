@@ -15,6 +15,7 @@ import { TenantSettingsService } from '../tenant/tenant-settings.service';
 import { SearchService } from '../search/search.service';
 import { CreateEntityInput } from '../common/types';
 import { DocumentHubService } from '../documents/document-hub.service';
+import { deepMerge } from '../common/deep-merge';
 import { Document } from '../documents/entities/document.entity';
 import { EntityRelationService } from './entity-relation.service';
 
@@ -52,6 +53,25 @@ const WORKABLE_TYPES: ReadonlySet<EntityType> = new Set([
 function defaultStatusFor(type: EntityType): EntityStatus | null {
   return WORKABLE_TYPES.has(type) ? EntityStatus.OPEN : null;
 }
+
+/**
+ * Which type may become which, for `POST /crm/entities/:id/convert`.
+ *
+ * An allowlist rather than "anything to anything": a case is not a person, and
+ * a conversion that makes no sense is a data-modelling accident that the id
+ * keeps alive forever. Kept in core because these are structural relationships
+ * between generic types — a lead is a prospective subject in every vertical —
+ * and carries no vertical vocabulary (CLAUDE.md §5.5).
+ */
+const CONVERTIBLE_TYPES: ReadonlyMap<EntityType, ReadonlySet<EntityType>> =
+  new Map([
+    // The one the immigration lifecycle needs: a qualified lead becomes the
+    // client, or the organisation that engaged the firm.
+    [EntityType.LEAD, new Set([EntityType.PERSON, EntityType.ORGANIZATION])],
+    // Sole trader incorporates, or a company record turns out to be a person.
+    [EntityType.PERSON, new Set([EntityType.ORGANIZATION])],
+    [EntityType.ORGANIZATION, new Set([EntityType.PERSON])],
+  ]);
 
 /**
  * The types a vertical's configured field list actually describes — the
@@ -307,9 +327,6 @@ export class CrmService {
       throw new NotFoundException('Entity not found');
     }
 
-    // `verticalAttributes` merges rather than replaces. A PATCH that sends one
-    // attribute must not silently drop every other attribute the pack stored —
-    // `Object.assign` on the whole bag would do exactly that.
     // Dependency gate. A relation the pack marks `blocksCompletion` refuses
     // the close while the thing it points at is still open — which is what
     // makes a declared dependency a dependency rather than a note on a record.
@@ -327,11 +344,20 @@ export class CrmService {
     const { verticalAttributes, ...rest } = updates;
     Object.assign(entity, rest);
 
+    // `verticalAttributes` merges rather than replaces, at every depth.
+    //
+    // A top-level spread was not enough. Packs nest — the immigration pack keeps
+    // a lead's identity under `lead.fields` — so `{ lead: { lead_status: 'x' } }`
+    // replaced the whole `lead` object and destroyed `lead.fields.first_name`
+    // with it. The frontend hit exactly that during lead conversion and lost a
+    // person's name. Documenting a shallow merge was the alternative, but a
+    // PATCH that silently deletes data the caller never mentioned is a trap
+    // whichever way it is written down.
     if (verticalAttributes) {
-      entity.verticalAttributes = {
-        ...(entity.verticalAttributes ?? {}),
-        ...verticalAttributes,
-      };
+      entity.verticalAttributes = deepMerge(
+        entity.verticalAttributes ?? {},
+        verticalAttributes,
+      );
     }
 
     const updated = await this.entityRepo.save(entity);
@@ -339,6 +365,87 @@ export class CrmService {
     this.logger.log(`Entity updated: ${id}`);
 
     return updated;
+  }
+
+  /**
+   * Change a record's `type`, keeping its id and therefore its history.
+   *
+   * A lead that becomes a client is the same person. `PATCH /crm/entities/:id`
+   * refuses `type` — correctly, since a type change is not an ordinary field
+   * edit and should not be reachable by a stray key in a form payload — so the
+   * frontend had to create a *new* `person` and mark the lead resolved, which
+   * gives the client a new id. Every comment, document, task, payment and
+   * message filed against the lead then hangs off a record the UI no longer
+   * shows. That is precisely the discontinuity the architecture is supposed to
+   * avoid, and it was caused by a missing route rather than a decision.
+   *
+   * Deliberately a separate verb rather than a relaxed DTO: conversion is
+   * explicit, audited as its own action, and validated against what may become
+   * what.
+   */
+  async convertEntity(
+    id: string,
+    tenantId: string,
+    toType: EntityType,
+    vertical?: string | null,
+  ): Promise<UniversalEntity> {
+    const entity = await this.entityRepo.findOne({ where: { id, tenantId } });
+    if (!entity) {
+      throw new NotFoundException('Entity not found');
+    }
+
+    if (entity.type === toType) {
+      throw new BadRequestException(
+        `Entity is already of type '${toType}'`,
+      );
+    }
+
+    const permitted = CONVERTIBLE_TYPES.get(entity.type);
+    if (!permitted?.has(toType)) {
+      // Naming both halves, because "conversion not allowed" leaves the caller
+      // guessing which end of it was wrong.
+      const allowed = permitted?.size
+        ? Array.from(permitted).join(', ')
+        : 'nothing';
+      throw new BadRequestException(
+        `Cannot convert '${entity.type}' to '${toType}'. A '${entity.type}' may become: ${allowed}.`,
+      );
+    }
+
+    const fromType = entity.type;
+    entity.type = toType;
+
+    // A record acquiring a lifecycle needs a state to be in, and one losing its
+    // lifecycle should not keep a stale `status` that now means nothing.
+    if (WORKABLE_TYPES.has(toType) && !entity.status) {
+      entity.status = EntityStatus.OPEN;
+    } else if (!WORKABLE_TYPES.has(toType)) {
+      entity.status = null;
+    }
+
+    // Keep the trail on the record itself. `verticalAttributes` is where the
+    // pack's vocabulary lives, and the previous type is part of this record's
+    // history — a client who used to be a lead is a fact a caseworker asks
+    // about.
+    entity.verticalAttributes = deepMerge(entity.verticalAttributes ?? {}, {
+      conversion: {
+        fromType,
+        toType,
+        convertedAt: new Date().toISOString(),
+      },
+    });
+
+    const saved = await this.entityRepo.save(entity);
+    this.logger.log(`Entity ${id} converted: ${fromType} → ${toType}`);
+
+    // The search index carries `type`; leaving it stale would keep the record
+    // answering to its old type in every filtered list.
+    this.searchService.indexEntityData(saved).catch((err) => {
+      this.logger.error('Failed to re-index converted entity:', err);
+    });
+
+    void vertical;
+    return saved;
   }
 
   // ==================== DOCUMENT INTEGRATION ====================

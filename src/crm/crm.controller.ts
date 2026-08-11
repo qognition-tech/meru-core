@@ -11,6 +11,8 @@ import {
   Query,
   Delete,
   ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,7 +27,11 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { CrmService } from './crm.service';
 import { CreateEntityDto } from './dto/create-entity.dto';
-import { ListEntitiesQueryDto, UpdateEntityDto } from './dto/update-entity.dto';
+import {
+  ConvertEntityDto,
+  ListEntitiesQueryDto,
+  UpdateEntityDto,
+} from './dto/update-entity.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { UserPayload, type AuthenticatedRequest } from '../common/types';
@@ -185,8 +191,10 @@ export class CrmController {
     summary: 'Update a CRM entity (partial)',
     description:
       'The write half of the registers and the kanban: status transitions, ' +
-      'reassignment, due-date changes. `verticalAttributes` is merged, not ' +
-      'replaced. Tenant and type are immutable here.',
+      'reassignment, due-date changes.\n\n`verticalAttributes` is **deep**-merged: ' +
+      'send only the branch that changed and nested siblings survive. Send ' +
+      '`null` for a key to remove it. Tenant is immutable here; to change ' +
+      '`type` use `POST /crm/entities/:id/convert`, which keeps the id.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Entity updated' })
@@ -211,6 +219,45 @@ export class CrmController {
       },
       // Selects the pack whose `relationships[]` say what blocks completion.
       // PolicyGuard has already resolved it.
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+    );
+  }
+
+  @Post('entities/:id/convert')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Change a record's type, keeping its id and its history",
+    description:
+      'What lead conversion needs. `PATCH` refuses `type` so a stray key in a ' +
+      'form payload cannot reinterpret a record; this does it explicitly and ' +
+      '**keeps the same id**, so the comments, documents, tasks, payments and ' +
+      'messages already filed against the lead stay attached to the client. ' +
+      'Creating a new record instead leaves all of that hanging off a row the ' +
+      'UI no longer shows.\n\n' +
+      'Permitted transitions are constrained — `lead` → `person`/`organization`, ' +
+      'and `person` ↔ `organization`. Anything else is a 400 naming what is ' +
+      'allowed. The previous type is recorded under ' +
+      '`verticalAttributes.conversion`.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Entity converted' })
+  @ApiResponse({
+    status: 400,
+    description: 'Already that type, or the transition is not permitted',
+  })
+  @ApiResponse({ status: 404, description: 'No such entity on this tenant' })
+  async convertEntity(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConvertEntityDto,
+  ) {
+    const user = req.user as UserPayload;
+    return this.crmService.convertEntity(
+      id,
+      user.tenantId,
+      dto.toType,
       (req as AuthenticatedRequest).tenantVertical ?? null,
     );
   }

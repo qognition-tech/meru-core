@@ -7,7 +7,7 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { EntityStatus, EntityType } from '../entities/universal-entity.entity';
 
 /**
@@ -15,8 +15,16 @@ import { EntityStatus, EntityType } from '../entities/universal-entity.entity';
  *
  * There is no `tenantId` here and there never should be: the tenant is taken
  * from the caller's JWT, so this route cannot be used to move a record between
- * tenants. `type` is likewise immutable — changing a record's type after the
- * fact would silently reinterpret every field a vertical pack reads off it.
+ * tenants.
+ *
+ * `type` is deliberately absent too, but it is not immutable — changing it
+ * silently would reinterpret every field a vertical pack reads off the record,
+ * so it is an explicit action instead: `POST /crm/entities/:id/convert`. That
+ * route keeps the id, and therefore the comments, documents, tasks and payments
+ * already filed against it.
+ *
+ * `verticalAttributes` is **deep**-merged: send only the branch that changed and
+ * nested siblings survive. Send `null` for a key to remove it.
  */
 export class UpdateEntityDto {
   @ApiPropertyOptional({ example: 'Layla' })
@@ -118,4 +126,23 @@ export class ListEntitiesQueryDto {
   @ApiPropertyOptional({ default: 50 })
   @IsOptional()
   limit?: number;
+}
+
+/**
+ * Body for `POST /crm/entities/:id/convert`.
+ *
+ * One field on purpose. A conversion that also edited fields would make the
+ * audit entry ambiguous about what actually changed.
+ */
+export class ConvertEntityDto {
+  @ApiProperty({
+    enum: EntityType,
+    description:
+      'The type the record becomes. Permitted transitions are constrained: a ' +
+      '`lead` may become a `person` or an `organization`, and a `person` and ' +
+      '`organization` may swap. Anything else is a 400 naming what is allowed.',
+    example: EntityType.PERSON,
+  })
+  @IsEnum(EntityType)
+  toType: EntityType;
 }
