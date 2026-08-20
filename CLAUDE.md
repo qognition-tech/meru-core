@@ -316,12 +316,19 @@ So, before changing anything in `src/`:
 3. **Verify against a tenant of a vertical you were not working on.** Not the
    one you are building for — the other one.
 
-**The worked example — the entitlement vocabulary.** Replacing the module codes
-with a GRC price book looks like a rename. It is not. ImmiStack tenants are live
-on `forms, ai_automation, advanced_analytics, marketing, branding, api_access,
-sso`, and entitlements are **frozen into `tenant.settings.modules` at
-provisioning** (deliberately — a tenant's grant must not move when a plan
-definition changes). A migration that rewrites those codes rewrites **live
+**The worked example — the entitlement vocabulary.** This is a change *not yet
+made*: `ModuleCode` and `@RequiresModule` do not exist in `src/` today, and
+entitlement codes are plain strings in `tenant-provisioning.service.ts:48-75`.
+Read this as the template for making it safely, not as a description of shipped
+machinery.
+
+Replacing the module codes with a GRC price book looks like a rename. It is not.
+Every tenant carries six `CORE_MODULES` — `crm, cases, tasks, documents,
+payments, communications` — and the plan tiers add `forms, ai_automation,
+advanced_analytics, marketing, branding, api_access, sso` on top. ImmiStack
+tenants are live on those, and entitlements are **frozen into
+`tenant.settings.modules` at provisioning** (deliberately — a tenant's grant must
+not move when a plan definition changes). A migration that rewrites those codes rewrites **live
 immigration grants**, and it does so *silently*, because the grant is data, not
 code: nothing fails to compile, no test goes red, and the first symptom is a
 customer losing a module in production.
