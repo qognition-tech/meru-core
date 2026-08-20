@@ -390,6 +390,16 @@ out. A missing credential can only ever mean "not licensed yet"
 
 ## 7. Things that will bite you
 
+- **A change for one vertical can break another, silently.** Meru stacks —
+  country modules on verticals, verticals on this core — and each layer only
+  knows the one below it (`CLAUDE.md` §5.5b). The failure mode has no compile
+  error and no red test: entitlements are **frozen into `tenant.settings.modules`
+  at provisioning**, so a migration that rewrites module codes for GRC rewrites
+  **live ImmiStack grants** as data, and the first symptom is a customer losing
+  a module in production. Core changes driven by one vertical must be additive,
+  must leave existing values resolving, and must be verified against a tenant of
+  the vertical you were *not* working on. `@RequiresModule` in particular must
+  never be retrofitted onto a route ImmiStack already calls.
 - **Unit tests do not assemble the module graph.** A service can be perfectly
   tested and the app still fail to boot on a missing module import — this repo
   shipped exactly that twice. Run `npm start` and read the route table.

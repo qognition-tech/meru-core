@@ -31,7 +31,7 @@ regulator in once and every vertical inherits it.
 | `app.meru.com` | God UI | vertical/country registration, tenant health, flags, pack publishing |
 | `api.meru.com` | Core API | this repo — the 14 modules and 4 engines |
 | `app.immistack.com` | Vertical UI | immigration: firm admin, staff, client portals |
-| `app.governance.com` | Vertical UI | banking GRC: sanctions, trade finance, AML |
+| `app.govx.com` | Vertical UI | banking GRC: sanctions, trade finance, AML |
 
 The three frontends live in a separate repo, `meru-core-fe` (Next.js 15).
 
@@ -285,6 +285,57 @@ If you are tempted to put vertical-specific vocabulary into `src/` — **stop**.
 It belongs in a config pack. Core knows "a record that can be worked"; it does
 not know what a visa is. This is the rule that keeps one platform from becoming
 two bespoke products.
+
+### 5.5b One engine, many verticals — the stacking rule
+
+Meru stacks, and each layer may only know about the one below it:
+
+```
+        country modules      ae-grc · au-immigration · uk-immigration …
+              ↑              only what is LOCAL: regulators, locales, thresholds
+          verticals          grc.json · immigration.json
+              ↑              the vocabulary: entity types, workflows, navigation
+          MERU CORE          14 modules + 4 engines — this repo
+                             knows "a record that can be worked". Nothing else.
+```
+
+Core is the engine. Verticals are built **on top of** it, and country modules on
+top of the verticals. A vertical never reaches sideways into another vertical,
+and core never reaches upward into either.
+
+**The rule that follows: a change made for one vertical must not break another.**
+GovernanceX work that damages ImmiStack has broken the product, not a portal.
+This is the whole premise — if verticals can break each other, there is no
+horizontal core, only two bespoke products sharing a database.
+
+So, before changing anything in `src/`:
+
+1. **Ask whether it belongs in a pack instead.** Usually it does (§5.5).
+2. **If it must be core, make it additive.** Extend; do not replace. Existing
+   values keep resolving.
+3. **Verify against a tenant of a vertical you were not working on.** Not the
+   one you are building for — the other one.
+
+**The worked example — the entitlement vocabulary.** Replacing the module codes
+with a GRC price book looks like a rename. It is not. ImmiStack tenants are live
+on `forms, ai_automation, advanced_analytics, marketing, branding, api_access,
+sso`, and entitlements are **frozen into `tenant.settings.modules` at
+provisioning** (deliberately — a tenant's grant must not move when a plan
+definition changes). A migration that rewrites those codes rewrites **live
+immigration grants**, and it does so *silently*, because the grant is data, not
+code: nothing fails to compile, no test goes red, and the first symptom is a
+customer losing a module in production.
+
+Handled correctly, that change is:
+
+- new `ModuleCode` values **additive**, with the old codes still resolving;
+- `@RequiresModule` applied **only to GRC routes** — never retrofitted onto a
+  route ImmiStack already calls;
+- the migration **reversible, and verified against an immigration tenant**
+  before it touches anything;
+- the frontend sweep re-run **after every change**, not once at the end.
+
+Treat that as the template for any core change driven by one vertical's needs.
 
 ### 5.6 UI standards (for the frontend repo)
 
