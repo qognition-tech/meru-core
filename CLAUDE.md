@@ -180,8 +180,9 @@ without an explicit god-mode audit entry.
 `AddTenantRowLevelSecurity`):
 
 - The app connects as **`meru_app`**, a role *without* `BYPASSRLS`. This is the
-  whole ballgame: an owner role with `BYPASSRLS` (the default for Neon,
-  Supabase, RDS) ignores every policy while still reporting them as enabled.
+  whole ballgame: an owner role with `BYPASSRLS` — which is exactly what Neon
+  hands you as `neondb_owner` — ignores every policy while still reporting them
+  as enabled.
   `DATABASE_URL` (owner) is for migrations; `DATABASE_APP_URL` is for runtime.
 - Every table is `ENABLE` **and** `FORCE ROW LEVEL SECURITY` — without `FORCE`
   the table owner is exempt.
@@ -537,3 +538,65 @@ free external scheduler (cron-job.org, 1-minute granularity) at
 7. **Update CLAUDE.md and AGENTS.md in the same commit as the change they
    describe.** These two files are the whole documentation surface; there is no
    third place to put it.
+
+---
+
+## 11. TODO — open work
+
+Full cross-repo list lives in `../meru-core-fe/CLAUDE.md` §10. This is the
+backend half. State as of **2026-08-21**.
+
+### BLOCKER — this repo cannot be built from `~/Documents`
+
+`npm run build`, `npm test` and even the plain-Node `npm run check:cjs` all die
+with `ETIMEDOUT (errno -60)` on a `read` of a `node_modules` file. `brctl status`
+shows iCloud syncing `/Documents/GitHub/…`; the file provider intercepts reads.
+
+Move the repo to a non-synced path (`~/dev/meru-core`) or turn off iCloud
+*Desktop & Documents Folders*. **Until then nothing here has been compiled,
+tested or booted** — including §11's own first item.
+
+### Open
+
+- [x] **Capability report.** `src/health/capabilities.service.ts`,
+      `GET /health/capabilities` (platform_admin), counts-only summary on the
+      public `/health`, 8 unit tests. **Written, never compiled.**
+- [ ] **`ModuleCode` + `@RequiresModule` + 402 `MER-ENT-0001`.** Neither symbol
+      exists today; entitlement codes are plain strings in
+      `tenant-provisioning.service.ts:48-75`. This is the change §5.5b is about —
+      additive only, old codes keep resolving, GRC routes only, migration
+      reversible and **verified against an immigration tenant before it runs**.
+- [ ] Seed the price book · monitored-entity meter (snapshot, never increment) ·
+      GRC pack module gating + `screening.monitoredTypes[]` · workflow JsonLogic
+      conditions · XLSX import behind the existing interface (check `check:cjs`).
+- [ ] Add `sar` to `CreateEntityDto`'s type enum — GovX has a SAR page with
+      nowhere to store one (`../meru-core-fe/AGENTS.md` §11 item 20).
+- [ ] Drop the dead `storage_provider` column (`DEFAULT 'supabase'`, read by
+      nothing) in a **new** migration. Do not edit the applied one.
+- [ ] Remove the `governancex.com` CORS entries once DNS has moved to
+      `app.govx.com` — not before, or the cutover breaks anyone on the old origin.
+      `tenant-context.middleware.ts` also still hardcodes `api.governancex.com`
+      in its domain map (cosmetic; that middleware no longer does tenancy work).
+- [ ] Write `../meru-core-fe/BACKEND-CHANGES-<date>.md`, leading with whether it
+      has shipped. A merged commit is not a shipped one.
+
+### Storage — a decision, not a cleanup
+
+Supabase references are gone and the dead `AWS_RDS_SECRET_NAME` is removed.
+**`aws-sdk` S3 stays for now and cannot simply be deleted:** Neon is Postgres,
+not object storage, and `src/storage/providers/` holds only `s3.provider.ts`.
+
+- [ ] Choose the target — an S3-compatible store (Cloudflare R2, Backblaze B2)
+      keeps the same SDK and changes only the endpoint; anything else is a real
+      provider implementation.
+- [ ] `documents.service.ts:11` constructs `S3` **directly**, bypassing
+      `StorageModule`, so the provider abstraction buys nothing today. Any swap
+      is blocked behind that rewire.
+
+### Doc drift found by audit, still unfixed
+
+`src/payments/` does not exist (BILL is one directory); `src/health/` is
+undocumented in §2 and §7; 34 migrations not 32; 13 country workflows not 12;
+§7's repo tree still shows the pre-restructure pack paths; the `/jobs/tick`
+table omits `notification-dispatch`, `alert-rules` and `messaging-sequences`
+(15 jobs, not 12); tenancy code cites "§6.4" for a rule that lives at §5.1.

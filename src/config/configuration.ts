@@ -37,7 +37,6 @@ export const validationSchema = Joi.object({
 
   // AWS Secrets Manager
   AWS_REGION: Joi.string().empty('').default('ap-south-1'),
-  AWS_RDS_SECRET_NAME: Joi.string().empty('').optional().allow(''),
 
   // Database — DATABASE_URL (Neon) takes precedence over the discrete vars.
   DATABASE_URL: Joi.string().empty('').optional(),
@@ -125,7 +124,6 @@ export const configuration = () => ({
   },
   aws: {
     region: process.env.AWS_REGION || 'ap-south-1',
-    rdsSecretName: process.env.AWS_RDS_SECRET_NAME,
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     s3Bucket: process.env.AWS_S3_BUCKET || 'meru-documents',

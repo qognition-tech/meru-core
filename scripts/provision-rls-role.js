@@ -4,7 +4,7 @@
  *
  * Why a second role exists at all: row-level security is silently inert for any
  * role holding BYPASSRLS, and that is the default for managed-Postgres owner
- * accounts (Neon's `neondb_owner`, Supabase's `postgres`, RDS masters). Running
+ * accounts — on Neon, that is `neondb_owner`, which this project runs on. Running
  * the application as the owner means every tenant policy is decoration. So:
  *
  *   - migrations / DDL  -> owner role      (DATABASE_URL)

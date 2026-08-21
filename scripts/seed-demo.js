@@ -4,7 +4,7 @@
 // Run from repo root AFTER `npm run build` (and after scripts/sync-schema.js has
 // materialized the schema):   node scripts/seed-demo.js
 //
-// Connection: prefers DATABASE_URL (Neon / Supabase pooler connection string),
+// Connection: prefers DATABASE_URL (the Neon pooler connection string),
 // otherwise falls back to the discrete DATABASE_* vars.
 require('dotenv').config();
 const path = require('path');
