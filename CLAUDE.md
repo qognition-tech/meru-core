@@ -546,21 +546,34 @@ free external scheduler (cron-job.org, 1-minute granularity) at
 Full cross-repo list lives in `../meru-core-fe/CLAUDE.md` §10. This is the
 backend half. State as of **2026-08-21**.
 
-### BLOCKER — this repo cannot be built from `~/Documents`
+### RESOLVED — the toolchain works; it was a broken install
 
-`npm run build`, `npm test` and even the plain-Node `npm run check:cjs` all die
-with `ETIMEDOUT (errno -60)` on a `read` of a `node_modules` file. `brctl status`
-shows iCloud syncing `/Documents/GitHub/…`; the file provider intercepts reads.
+`npm run build`, `npm test` and even `check:cjs` were dying with
+`ETIMEDOUT (errno -60)` reading a `node_modules` file. That was **misdiagnosed
+as iCloud sync** — `~/Documents/GitHub` is not cloud-managed. The real cause was
+a **corrupt, partial `node_modules`**. Fix: `rm -rf node_modules && pnpm install
+--frozen-lockfile`, which completed in under 4s and turned every gate green.
 
-Move the repo to a non-synced path (`~/dev/meru-core`) or turn off iCloud
-*Desktop & Documents Folders*. **Until then nothing here has been compiled,
-tested or booted** — including §11's own first item.
+**Verified 2026-08-21:** `pnpm build` clean · `pnpm check:cjs` clean (50
+packages, no ESM-only deps) · `pnpm test` **29 suites / 467 tests, all pass**,
+including `capabilities.service.spec.ts` · DI graph assembles with **308 routes
+mapped**, one more than the previously published 307 because
+`GET /api/v1/health/capabilities` is now among them.
+
+Two gates need environment rather than code:
+
+- **`rls:verify`** needs `DATABASE_APP_URL`, which is unset locally. Isolation is
+  therefore proven as code and migration, not as observed behaviour.
+- **Boot stops at the RLS assertion, correctly.** `DATABASE_URL` points at
+  `neondb_owner`, which holds `BYPASSRLS`, so the app refuses to start rather
+  than serve traffic that only appears tenant-scoped — the fail-closed behaviour
+  §5.1 describes, working as designed. `JWT_SECRET` is also empty in `.env`.
 
 ### Open
 
 - [x] **Capability report.** `src/health/capabilities.service.ts`,
       `GET /health/capabilities` (platform_admin), counts-only summary on the
-      public `/health`, 8 unit tests. **Written, never compiled.**
+      public `/health`, 8 unit tests. **Built, tested and route-mapped.**
 - [ ] **`ModuleCode` + `@RequiresModule` + 402 `MER-ENT-0001`.** Neither symbol
       exists today; entitlement codes are plain strings in
       `tenant-provisioning.service.ts:48-75`. This is the change §5.5b is about —
