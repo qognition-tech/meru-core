@@ -29,6 +29,7 @@ import { AuditService } from '../audit/audit.service';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { ConnectorsService } from '../integrations/services/connectors.service';
 import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
+import { SYSTEM_ACTOR } from '../common/access';
 
 /**
  * A prompt the gateway can execute, whichever layer it came from.
@@ -636,10 +637,11 @@ export class AiService {
       });
 
       // Documents Context - Get recent documents
-      context.documents = await this.documentsService.findAll(tenantId, {
-        page: 1,
-        limit: 10,
-      });
+      context.documents = await this.documentsService.findAll(
+        tenantId,
+        { page: 1, limit: 10 },
+        SYSTEM_ACTOR,
+      );
 
       // Billing Context - Get subscription and usage
       const subscriptions = await this.billingService['subscriptionRepo']?.find(
@@ -755,7 +757,7 @@ export class AiService {
     const document = await this.documentsService.findOne(
       documentId,
       tenantId,
-      'system',
+      SYSTEM_ACTOR,
     );
 
     return this.execute({
@@ -912,11 +914,11 @@ export class AiService {
 
     if (searchModules.includes('documents')) {
       try {
-        const docs = await this.documentsService.findAll(tenantId, {
-          query,
-          page: 1,
-          limit: 20,
-        });
+        const docs = await this.documentsService.findAll(
+          tenantId,
+          { query, page: 1, limit: 20 },
+          SYSTEM_ACTOR,
+        );
         results.documents = docs.documents;
       } catch (e) {}
     }

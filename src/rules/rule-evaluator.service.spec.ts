@@ -132,8 +132,11 @@ describe('RuleEvaluatorService', () => {
  */
 describe('RuleEvaluatorService — a missing date must not satisfy a comparison', () => {
   const service = new RuleEvaluatorService();
+  // One second of headroom: `augment` reads its own `Date.now()` a few
+  // milliseconds after this one and floors the difference, so an exact
+  // `+45 days` came out as 44 whenever the suite ran under load.
   const iso = (days: number) =>
-    new Date(Date.now() + days * 86_400_000).toISOString();
+    new Date(Date.now() + days * 86_400_000 + 1_000).toISOString();
 
   const record = (matter: Record<string, unknown>) => ({
     type: 'case',

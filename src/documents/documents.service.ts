@@ -2,7 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -32,6 +31,8 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { OrchestrationService } from '../orchestration/orchestration.service';
+import { DocumentAccessService } from './document-access.service';
+import type { Actor } from '../common/access';
 
 // Exported because the controller now returns it directly (it used to be
 // re-boxed into an inline `{ success, data }` literal, which hid the type).
@@ -58,6 +59,7 @@ export class DocumentsService {
     private configService: ConfigService,
     private dataSource: DataSource,
     private orchestrationService: OrchestrationService,
+    private access: DocumentAccessService,
   ) {
     this.s3 = new S3({
       accessKeyId: this.configService.get('AWS_ACCESS_KEY_ID'),
@@ -159,7 +161,11 @@ export class DocumentsService {
       await queryRunner.commitTransaction();
 
       if (dto.triggerAI) {
-        this.triggerAIAnalysis(document.id, tenantId, userId);
+        // `null`, not the uploader: this runs after the response, on a document
+        // that was just created in this transaction. There is no read to scope
+        // and no user waiting, so passing an Actor here would imply an
+        // authorisation decision that is not being made.
+        this.triggerAIAnalysis(document.id, tenantId, null);
       }
 
       return {
@@ -223,8 +229,9 @@ export class DocumentsService {
     file: Express.Multer.File,
     changeDescription: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<UploadResult> {
+    const userId = actor.id;
     this.logger.log(`Creating new version for document: ${documentId}`);
 
     const document = await this.documentRepo.findOne({
@@ -234,7 +241,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'write');
+    await this.checkAccess(document, actor, 'write');
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -316,6 +323,7 @@ export class DocumentsService {
   async findAll(
     tenantId: string,
     searchDto: SearchDocumentsDto,
+    actor: Actor,
   ): Promise<{
     documents: Document[];
     total: number;
@@ -386,6 +394,13 @@ export class DocumentsService {
       }
     }
 
+    // User scoping, not just tenant scoping. RLS stops tenant A reading tenant
+    // B; nothing but this stops one of tenant A's clients listing the whole
+    // firm's document table. Applied to the query rather than filtered after,
+    // so `total` is also the caller's total and paging does not walk documents
+    // they cannot open.
+    await this.access.applyScope(queryBuilder, tenantId, actor);
+
     queryBuilder
       .orderBy(`document.${sortBy}`, sortOrder)
       .skip((page - 1) * limit)
@@ -404,7 +419,7 @@ export class DocumentsService {
   async findOne(
     id: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
@@ -415,7 +430,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     return document;
   }
@@ -423,7 +438,7 @@ export class DocumentsService {
   async getVersions(
     documentId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<DocumentVersion[]> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId, tenantId },
@@ -433,7 +448,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     return this.versionRepo.find({
       where: { documentId },
@@ -445,7 +460,7 @@ export class DocumentsService {
     documentId: string,
     versionId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<DocumentVersion> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId, tenantId },
@@ -455,7 +470,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     const version = await this.versionRepo.findOne({
       where: { id: versionId, documentId },
@@ -468,38 +483,38 @@ export class DocumentsService {
     return version;
   }
 
+  /**
+   * A signed URL for the bytes.
+   *
+   * `tenantId` and `actor` are required, and that is a fix rather than
+   * tidiness: they used to be optional, and when either was absent the whole
+   * access check was skipped *and* the fallback lookup dropped the tenant
+   * filter — so the one route that hands out the actual file content was the
+   * one with the weakest guard.
+   */
   async downloadUrl(
     documentId: string,
-    versionId?: string,
-    tenantId?: string,
-    userId?: string,
+    versionId: string | undefined,
+    tenantId: string,
+    actor: Actor,
   ): Promise<string> {
-    let document: Document | null = null;
     let version: DocumentVersion | null = null;
 
-    if (tenantId && userId) {
-      document = await this.documentRepo.findOne({
-        where: { id: documentId, tenantId },
-      });
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+    });
 
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
-
-      await this.checkAccess(document, userId, 'read');
+    if (!document) {
+      throw new NotFoundException('Document not found');
     }
+
+    await this.checkAccess(document, actor, 'read');
 
     if (versionId) {
       version = await this.versionRepo.findOne({
         where: { id: versionId, documentId },
       });
     } else {
-      document =
-        document ||
-        (await this.documentRepo.findOne({ where: { id: documentId } }));
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
       version = await this.versionRepo.findOne({
         where: { id: document.currentVersionId },
       });
@@ -516,7 +531,7 @@ export class DocumentsService {
     id: string,
     dto: UpdateDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
@@ -526,14 +541,14 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'write');
+    await this.checkAccess(document, actor, 'write');
 
     Object.assign(document, dto);
 
     return this.documentRepo.save(document);
   }
 
-  async remove(id: string, tenantId: string, userId: string): Promise<void> {
+  async remove(id: string, tenantId: string, actor: Actor): Promise<void> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
     });
@@ -542,7 +557,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'delete');
+    await this.checkAccess(document, actor, 'delete');
 
     document.status = DocumentStatus.DELETED;
     document.deletedAt = new Date();
@@ -550,23 +565,41 @@ export class DocumentsService {
     await this.documentRepo.save(document);
   }
 
+  /**
+   * Run document intelligence over a stored document.
+   *
+   * `actor` is checked before anything is read, because an analysis result is a
+   * derived read of the file: summarising a document the caller may not open
+   * discloses it just as surely as downloading it would.
+   *
+   * The check is skipped only for the internal call from `upload`, where the
+   * caller has just supplied the bytes — passed as `null` explicitly so that
+   * omitting an actor can never be mistaken for "no check needed".
+   */
   async triggerAIAnalysis(
     documentId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor | null,
   ): Promise<void> {
     this.logger.log(`Triggering AI analysis for document: ${documentId}`);
 
+    // Outside the try: the catch below swallows everything so a failed
+    // analysis does not fail an upload, and an authorisation failure swallowed
+    // into a 200 `{ triggered: true }` is a denial reported as a success.
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+      relations: ['uploadedBy'],
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (actor) {
+      await this.checkAccess(document, actor, 'read');
+    }
+
     try {
-      const document = await this.documentRepo.findOne({
-        where: { id: documentId, tenantId },
-        relations: ['uploadedBy'],
-      });
-
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
-
       const version = await this.versionRepo.findOne({
         where: { id: document.currentVersionId },
       });
@@ -719,29 +752,20 @@ export class DocumentsService {
     );
   }
 
+  /**
+   * Authorisation for one document.
+   *
+   * Delegates to `DocumentAccessService` so documents, the document hub and any
+   * future caller cannot disagree about who may see what. This method used to
+   * grant access to the uploader alone, which denied a caseworker the documents
+   * on their own cases; `DocumentHubService.canAccessDocument` meanwhile
+   * returned `true` unconditionally. One rule now answers both.
+   */
   private async checkAccess(
     document: Document,
-    userId: string,
+    actor: Actor,
     action: 'read' | 'write' | 'delete' | 'share',
   ): Promise<void> {
-    if (document.rbac.owner === userId) {
-      return;
-    }
-
-    if (document.rbac.permissions && document.rbac.permissions[action]) {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (user) {
-        const hasPermission = user.roles.some((role) =>
-          document.rbac.permissions![action].includes(role),
-        );
-        if (hasPermission) {
-          return;
-        }
-      }
-    }
-
-    throw new ForbiddenException(
-      `You don't have ${action} permission for this document`,
-    );
+    await this.access.assert(document, actor, action);
   }
 }

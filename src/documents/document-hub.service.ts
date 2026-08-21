@@ -21,6 +21,11 @@ import {
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { PromptCategory } from '../ai/entities/ai-prompt.entity';
+import {
+  DocumentAccessService,
+  type DocumentAction,
+} from './document-access.service';
+import type { Actor } from '../common/access';
 
 export interface DocumentAttachment {
   documentId: string;
@@ -68,6 +73,8 @@ export class DocumentHubService {
     private searchService: SearchService,
     @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    // One authorisation decision, shared with DocumentsService.
+    private access: DocumentAccessService,
   ) {}
 
   // ==================== CROSS-MODULE DOCUMENT ACCESS ====================
@@ -428,12 +435,27 @@ export class DocumentHubService {
   // ==================== DOCUMENT ACCESS CONTROL ====================
 
   /**
-   * Check if user can access document
+   * Check if this caller can access this document.
+   *
+   * This used to end in `return true; // Simplified for now` — it answered
+   * "yes" for every caller and every action. RLS scopes documents to a tenant
+   * but NOT to a user inside it (CLAUDE.md §5.1), so on ImmiStack that was one
+   * applicant able to open another applicant's passport. It survived because
+   * it had no callers: a method named `canAccessDocument` that always returns
+   * true is a trap for whoever wires it up next, not dead code.
+   *
+   * The decision now lives in `DocumentAccessService` so documents, the hub and
+   * anything built later share ONE answer rather than each re-deriving it.
+   *
+   * The signature changed: it takes an `Actor` (`{id, roles}`), not a bare
+   * `userId`, because a user id alone cannot express "staff may see the whole
+   * tenant caseload, a client may see only their own case file". A caller
+   * holding only an id was structurally unable to be authorised correctly.
    */
   async canAccessDocument(
     documentId: string,
-    userId: string,
-    requiredPermission: 'read' | 'write' | 'delete' = 'read',
+    actor: Actor,
+    requiredPermission: DocumentAction = 'read',
   ): Promise<boolean> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId },
@@ -444,15 +466,7 @@ export class DocumentHubService {
       return false;
     }
 
-    // Owner has full access
-    if (document.uploadedById === userId) {
-      return true;
-    }
-
-    // Check explicit permissions
-    // TODO: Implement proper permission checking based on document.accessControl
-
-    return true; // Simplified for now
+    return this.access.canAccess(document, actor, requiredPermission);
   }
 
   /**

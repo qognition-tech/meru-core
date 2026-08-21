@@ -16,6 +16,7 @@ import { memoryStorage } from 'multer';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
+import { DocumentAccessService } from './document-access.service';
 import { DocumentHubService } from './document-hub.service';
 import { Document } from './entities/document.entity';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
@@ -84,10 +85,25 @@ import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
   controllers: [DocumentsController],
   providers: [
     DocumentsService,
+    // Per-user document authorisation. RLS scopes documents to the tenant but
+    // NOT to a user within it (CLAUDE.md §5.1), so this is the only thing
+    // standing between one client and another client's passport. It is
+    // injected by DocumentsService and must stay registered here: a provider
+    // that is imported and injected but never listed fails at DI time, which
+    // on Vercel prints a full route table and *then* dies with
+    // FUNCTION_INVOCATION_FAILED on every route.
+    DocumentAccessService,
     DocumentHubService,
     DocumentChecklistService,
     DocumentGenerationService,
   ],
-  exports: [DocumentsService, DocumentHubService, DocumentGenerationService],
+  exports: [
+    DocumentsService,
+    DocumentHubService,
+    DocumentGenerationService,
+    // Exported so the document hub and any future consumer share one
+    // authorisation decision rather than re-deriving it.
+    DocumentAccessService,
+  ],
 })
 export class DocumentsModule {}

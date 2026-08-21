@@ -117,7 +117,7 @@ export class DocumentsController {
       file,
       changeDescription || `Version update by ${req.user.email}`,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return result;
@@ -247,6 +247,7 @@ export class DocumentsController {
     const result = await this.documentsService.findAll(
       req.user.tenantId,
       searchDto,
+      req.user,
     );
 
     return paginated(result.documents, result.total, result.page, result.limit);
@@ -260,10 +261,11 @@ export class DocumentsController {
     @Param('entityId', ParseUUIDPipe) entityId: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    const result = await this.documentsService.findAll(req.user.tenantId, {
-      linkedEntityType: entityType,
-      linkedEntityId: entityId,
-    });
+    const result = await this.documentsService.findAll(
+      req.user.tenantId,
+      { linkedEntityType: entityType, linkedEntityId: entityId },
+      req.user,
+    );
 
     return paginated(result.documents, result.total);
   }
@@ -279,7 +281,7 @@ export class DocumentsController {
     const document = await this.documentsService.findOne(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return document;
@@ -298,7 +300,7 @@ export class DocumentsController {
     const versions = await this.documentsService.getVersions(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return versions;
@@ -319,7 +321,7 @@ export class DocumentsController {
       id,
       versionId,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return version;
@@ -340,7 +342,7 @@ export class DocumentsController {
       id,
       versionId,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return { url };
@@ -360,7 +362,7 @@ export class DocumentsController {
       id,
       dto,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return document;
@@ -375,7 +377,7 @@ export class DocumentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    await this.documentsService.remove(id, req.user.tenantId, req.user.id);
+    await this.documentsService.remove(id, req.user.tenantId, req.user);
 
     return { deleted: true };
   }
@@ -393,7 +395,7 @@ export class DocumentsController {
     await this.documentsService.triggerAIAnalysis(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return { triggered: true };
