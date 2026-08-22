@@ -150,6 +150,48 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
     return out as T;
   }
 
+  /**
+   * Every `fees[].atStep` and `paymentPlans[].stages[].atStep` that names no
+   * `workflows[].steps[].id` in the resolved pack. Empty when the pack is
+   * consistent — or when it declares no workflows at all, in which case there
+   * is nothing for a step reference to be checked against and the fee is
+   * simply informational.
+   */
+  static danglingStepReferences(pack: ConfigPackDefinition): string[] {
+    const workflows = (pack.workflows ?? []) as Array<{
+      id?: string;
+      steps?: Array<{ id?: string }>;
+    }>;
+    if (!workflows.length) return [];
+    const stepIds = new Set<string>();
+    for (const wf of workflows) {
+      for (const step of wf.steps ?? []) {
+        if (typeof step.id === 'string') stepIds.add(step.id);
+      }
+    }
+    const problems: string[] = [];
+    for (const fee of (pack.fees ?? []) as Array<{ key: string; atStep?: string }>) {
+      if (fee.atStep && !stepIds.has(fee.atStep)) {
+        problems.push(
+          `fees[${fee.key}].atStep '${fee.atStep}' matches no workflow step`,
+        );
+      }
+    }
+    for (const plan of (pack.paymentPlans ?? []) as Array<{
+      key: string;
+      stages?: Array<{ atStep: string }>;
+    }>) {
+      for (const stage of plan.stages ?? []) {
+        if (!stepIds.has(stage.atStep)) {
+          problems.push(
+            `paymentPlans[${plan.key}].stages.atStep '${stage.atStep}' matches no workflow step`,
+          );
+        }
+      }
+    }
+    return problems;
+  }
+
   /** The field an array element is identified by, in precedence order. */
   private static identityOf(item: unknown): string | null {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
@@ -237,6 +279,21 @@ export class ConfigPackLoaderService implements OnApplicationBootstrap {
               .map((i) => `${i.path.join('.')} ${i.message}`)
               .join('; ')}`,
           );
+          continue;
+        }
+
+        // Referential check that Zod cannot express: a fee or a payment-plan
+        // stage is due "at" a workflow step, and the arrears gate
+        // (WorkflowService → FeeScheduleService.arrearsBlocking) matches that
+        // id against the state being left. An `atStep` naming no step in any
+        // of the pack's workflows is not a fee that is never due — it is a
+        // gate that is silently inert, which is the "everything freezes"
+        // promise quietly not kept. Reject the pack so the author sees it.
+        const dangling = ConfigPackLoaderService.danglingStepReferences(
+          result.data,
+        );
+        if (dangling.length) {
+          report.errors.push(`${file}: ${dangling.join('; ')}`);
           continue;
         }
 

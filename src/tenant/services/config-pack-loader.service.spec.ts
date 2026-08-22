@@ -146,6 +146,55 @@ describe('packs on disk', () => {
     return merged;
   };
 
+  it('every fee and payment-plan atStep names a real workflow step (resolved)', () => {
+    // The arrears gate keys on the step id; an id from a workflow the overlay
+    // replaced is a gate that never fires. AU's wf_visa_matter once inherited
+    // staged_482 pointing at 482-tss step ids for exactly this reason.
+    for (const file of files) {
+      const resolved = resolveFile(file);
+      const parsed = safeValidateConfigPack(resolved);
+      if (!parsed.success) continue; // the schema test below reports it
+      expect({
+        file: path.basename(file),
+        dangling: ConfigPackLoaderService.danglingStepReferences(parsed.data),
+      }).toEqual({ file: path.basename(file), dangling: [] });
+    }
+  });
+
+  it('danglingStepReferences names the offending fee and stage', () => {
+    const pack = safeValidateConfigPack({
+      code: 'x',
+      name: 'fixture',
+      version: '1.0.0',
+      vertical: 'immigration',
+      locales: ['en'],
+      workflows: [
+        {
+          id: 'wf',
+          name: 'wf',
+          entityType: 'case',
+          steps: [
+            { id: 'a', type: 'form', name: 'A' },
+            { id: 'b', type: 'review', name: 'B' },
+          ],
+        },
+      ],
+      fees: [
+        { key: 'f1', label: 'f1', kind: 'firm', amountMinor: 1, currency: 'AUD', basis: 'per_case', atStep: 'a' },
+        { key: 'f2', label: 'f2', kind: 'firm', amountMinor: 1, currency: 'AUD', basis: 'per_case', atStep: 'zzz' },
+      ],
+      paymentPlans: [
+        { key: 'p', label: 'p', type: 'stage_gated', stages: [{ atStep: 'b', portionBps: 5000 }, { atStep: 'nope', portionBps: 5000 }] },
+      ],
+    });
+    expect(pack.success ? [] : pack.error.issues).toEqual([]);
+    if (!pack.success) return;
+    expect(ConfigPackLoaderService.danglingStepReferences(pack.data)).toEqual([
+      "fees[f2].atStep 'zzz' matches no workflow step",
+      "paymentPlans[p].stages.atStep 'nope' matches no workflow step",
+    ]);
+  });
+
   it('found packs to check', () => {
     expect(files.length).toBeGreaterThan(0);
   });

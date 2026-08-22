@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australian Immigration",
   "description": "Australian Immigration — country overlay on the immigration vertical.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "vertical": "immigration",
   "country": "AU",
   "extends": "immigration",
@@ -793,6 +793,25 @@
       "escalateToRoles": [
         "firm_admin"
       ]
+    }
+  ],
+  "fees": [
+    { "key": "gov_482_primary", "atStep": "lodgement_fee" },
+    { "key": "gov_482_dependent", "atStep": "lodgement_fee" },
+    { "key": "disb_health_examination", "atStep": "document_request" },
+    { "key": "disb_police_check", "atStep": "document_request" }
+  ],
+  "paymentPlans": [
+    {
+      "key": "staged_482",
+      "label": "Staged — engagement, lodgement, decision",
+      "type": "stage_gated",
+      "stages": [
+        { "atStep": "signup_payment", "portionBps": 3000, "label": "On engagement" },
+        { "atStep": "lodgement_fee", "portionBps": 5000, "label": "On lodgement" },
+        { "atStep": "decision", "portionBps": 2000, "label": "On decision" }
+      ],
+      "blockProgressOnArrears": true
     }
   ],
   "metadata": {
