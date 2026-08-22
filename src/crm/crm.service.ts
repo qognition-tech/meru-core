@@ -276,6 +276,23 @@ export class CrmService {
     return { items, total, page, limit };
   }
 
+  /**
+   * Liveness probe for `GET /orchestration/health`: one cheap statement
+   * against the entities table on the pooled connection. Proves the table is
+   * reachable through this service's repository, nothing more — it is not a
+   * count and does not depend on the caller's tenant having any rows.
+   */
+  async probe(): Promise<{ ok: true } | { ok: false; reason: string }> {
+    try {
+      await this.entityRepo.manager.query(
+        'SELECT 1 FROM "universal_entities" LIMIT 1',
+      );
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async findEntityById(id: string): Promise<UniversalEntity | null> {
     return this.entityRepo.findOne({
       where: { id },

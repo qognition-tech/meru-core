@@ -45,6 +45,16 @@ export class SearchService {
     return this.searchRepo.save(searchData);
   }
 
+  /** Liveness probe for `GET /orchestration/health`; see CrmService.probe. */
+  async probe(): Promise<{ ok: true } | { ok: false; reason: string }> {
+    try {
+      await this.searchRepo.manager.query('SELECT 1 FROM "search_index" LIMIT 1');
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async search(tenantId: string, query: string, limit: number = 20) {
     const results = await this.searchRepo.find({
       where: [

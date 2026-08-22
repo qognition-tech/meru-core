@@ -432,29 +432,56 @@ export class OrchestrationService {
     }
   }
 
+  /**
+   * Health of the three things orchestration depends on, each actually
+   * probed. This used to hardcode `crm: true, search: true` and probe only
+   * AI — so a database that was down reported two healthy services out of
+   * three, and "degraded" meant exactly "OPENAI_API_KEY is unset".
+   *
+   * `true` is only ever the result of a probe that succeeded. `false` carries
+   * the reason. `null` would mean "not probed" and is not produced here —
+   * everything is probed — but the shape allows it so a future dependency
+   * that cannot be checked cheaply can say so instead of claiming health.
+   */
   async healthCheck(): Promise<{
-    status: string;
-    services: Record<string, boolean>;
+    status: 'healthy' | 'degraded';
+    services: Record<string, boolean | null>;
+    unavailableReason: Partial<Record<string, string>>;
   }> {
-    const checks = {
-      crm: true,
-      search: true,
-      ai: false,
+    const services: Record<string, boolean | null> = {
+      crm: null,
+      search: null,
+      ai: null,
     };
+    const unavailableReason: Partial<Record<string, string>> = {};
+
+    const [crm, search] = await Promise.all([
+      this.crmService.probe(),
+      this.searchService.probe(),
+    ]);
+    services.crm = crm.ok;
+    if (!crm.ok) unavailableReason.crm = crm.reason;
+    services.search = search.ok;
+    if (!search.ok) unavailableReason.search = search.reason;
 
     try {
       const aiHealth = await this.aiService.healthCheck();
-      checks.ai = aiHealth.openaiAvailable;
+      services.ai = aiHealth.openaiAvailable;
+      if (!aiHealth.openaiAvailable) {
+        unavailableReason.ai = 'OPENAI_API_KEY is unset; AI is not configured.';
+      }
     } catch (error) {
       this.logger.error('AI health check failed', error);
-      checks.ai = false;
+      services.ai = false;
+      unavailableReason.ai = errorMessage(error);
     }
 
-    const allHealthy = Object.values(checks).every((v) => v === true);
+    const allHealthy = Object.values(services).every((v) => v === true);
 
     return {
       status: allHealthy ? 'healthy' : 'degraded',
-      services: checks,
+      services,
+      unavailableReason,
     };
   }
 }
