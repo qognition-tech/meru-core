@@ -39,6 +39,7 @@ const DEFAULT_ORIGINS = [
   // owner of immistack.com) has the MARKETING site deployed into it since
   // 2026-08-22; the product lives in the `immistack-app` project.
   'https://immistack-app.vercel.app',
+  'https://immistack-app-eta.vercel.app', // the alias Vercel actually granted
   'https://immistack-app-qognitionagencys-projects.vercel.app',
   'https://immistack-plum.vercel.app',
   'https://immistack-qognitionagencys-projects.vercel.app',
