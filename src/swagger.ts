@@ -23,7 +23,8 @@ export function setupSwagger(app: INestApplication): void {
         '',
         '### Authentication',
         'Call `POST /api/v1/auth/login`, then paste the returned `access_token`',
-        'into **Authorize → JWT-auth**. Service-to-service callers use `x-api-key`.',
+        'into **Authorize → JWT-auth**. There is no API-key authentication:',
+        'nothing validates an `x-api-key` header, so do not send one.',
         '',
         '### Common Headers',
         '| Header | Description |',
@@ -80,15 +81,12 @@ export function setupSwagger(app: INestApplication): void {
       },
       'JWT-auth',
     )
-    .addApiKey(
-      {
-        type: 'apiKey',
-        name: 'x-api-key',
-        in: 'header',
-        description: 'API Key for service-to-service authentication',
-      },
-      'API-Key',
-    )
+    // No `x-api-key` scheme. One was advertised here for as long as the file
+    // has existed, and nothing ever enforced it: there is no passport strategy,
+    // no guard and no route that reads the header. A documented credential
+    // that the server ignores is worse than none — an integrator builds
+    // against it and their calls 401 on the JWT guard with no explanation. See
+    // `src/iam/entities/api-key.entity.ts` for the dead storage side.
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

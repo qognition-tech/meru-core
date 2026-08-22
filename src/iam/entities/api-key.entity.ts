@@ -10,6 +10,21 @@ import {
 import { Tenant } from './tenant.entity';
 import { User } from './user.entity';
 
+/**
+ * DEAD — not wired to any authentication path.
+ *
+ * `IamService.createApiKey` / `validateApiKey` write and read this table, but
+ * no controller exposes them, no passport strategy or guard reads an
+ * `x-api-key` header, and the Swagger scheme that advertised one has been
+ * removed (P0-4). A row here grants nothing; a key minted from it
+ * authenticates nowhere.
+ *
+ * Kept for now rather than dropped: removing the entity needs a migration that
+ * drops `api_keys`, and that is a separate, reversible commit once the
+ * business has decided whether service-to-service auth is wanted at all.
+ * If it is, the work is a `HeaderAPIKeyStrategy` + guard + `/iam/api-keys`
+ * routes — not a doc line. Until then, nothing may advertise this.
+ */
 @Entity('api_keys')
 @Index(['tenantId'])
 @Index(['keyHash'])

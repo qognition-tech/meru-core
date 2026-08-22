@@ -514,6 +514,10 @@ export class IamService {
 
   // ─── API Key Management ──────────────────────────────────────────
 
+  // ── API keys — DEAD CODE, see api-key.entity.ts ──────────────────────────
+  // No route calls createApiKey/listApiKeys/revokeApiKey and no strategy or
+  // guard calls validateApiKey. Left in place until the api_keys table is
+  // dropped by migration; do not expose these without building the guard.
   async createApiKey(
     userId: string,
     tenantId: string,

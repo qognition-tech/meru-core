@@ -44,7 +44,7 @@ vertical through stable contracts.
 
 | # | Code | Module | Directory | Responsibility |
 |---|---|---|---|---|
-| 1 | **IAM** | Identity & Access | `src/iam/` | OAuth2/OIDC, RBAC/ABAC, MFA, SAML SSO, sessions, API keys |
+| 1 | **IAM** | Identity & Access | `src/iam/` | OAuth2/OIDC, RBAC/ABAC, MFA, SAML SSO, sessions. **No API-key auth** — `api_keys` is a dead table (see its entity); Swagger no longer advertises `x-api-key` |
 | 2 | **TCM** | Tenant Config | `src/tenant/`, `src/config/` | config packs, pinning, feature flags, branding |
 | 3 | **CRM** | Universal Entity Manager | `src/crm/` | polymorphic entities + typed relationships |
 | 4 | **SRCH** | Universal Search | `src/search/` | Postgres facade, Elasticsearch + pgvector behind it |
@@ -192,7 +192,7 @@ without an explicit god-mode audit entry.
   connection* the query will use.
 - Policies **fail closed**: an unbound connection matches zero rows.
 - Bootstrap lookups that *establish* identity (login by email, refresh token,
-  API key, session revocation check) run inside `TenantContext.runAsSystem`.
+  session revocation check) run inside `TenantContext.runAsSystem`.
   Cross-tenant operator access goes through `TenancyService.runAsGod`, which
   writes a `CRITICAL` audit entry first.
 
