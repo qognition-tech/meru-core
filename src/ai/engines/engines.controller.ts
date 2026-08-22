@@ -76,10 +76,21 @@ export class EnginesController {
     description:
       'Vertical-neutral: GovernanceX screens counterparties, ImmiStack ' +
       'screens visa applicants, and both call this. Matching runs in-process ' +
-      'against ingested lists (OFAC SDN, UN Consolidated) plus any ' +
-      'customWatchlist supplied on the request.',
+      'against ingested lists (OFAC SDN, UN, EU CFSP, UK OFSI) plus any ' +
+      'customWatchlist supplied on the request. When no list is ingested ' +
+      '(watchlist_entries empty) this answers 503 with listsLoaded:false and ' +
+      'unavailableReason — it never returns a "clear" computed over nothing.',
   })
-  @ApiResponse({ status: 201, description: 'Screening result with hits' })
+  @ApiResponse({
+    status: 201,
+    description: 'Screening result with hits; listsLoaded is always true here',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'No sanctions lists loaded, or they could not be read. Body carries ' +
+      'listsLoaded:false + unavailableReason. Run POST /jobs/watchlist-ingest.',
+  })
   async screen(
     @Request() req: AuthenticatedRequest,
     @Body() dto: ScreenRequestDto,

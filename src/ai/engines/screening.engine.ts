@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { WatchlistIngestService } from './watchlist-ingest.service';
 // Classical string metrics from `talisman` rather than hand-rolled copies.
 // CommonJS on purpose (see scripts/check-cjs-deps.js); `require` because the
@@ -86,6 +90,15 @@ export interface ScreeningResult {
   screeningId: string;
   entityId?: string;
   status: 'clear' | 'hit' | 'review_required' | 'escalated' | 'error';
+  /**
+   * Whether ingested sanctions lists were actually screened against. Always
+   * `true` on a result the engine returns — when it would be `false` the
+   * engine throws 503 instead (`ScreeningListsUnavailableException`), so a
+   * caller never receives a `clear` that was computed over nothing.
+   */
+  listsLoaded: true;
+  /** Rows in the ingested lists this screen ran against (custom excluded). */
+  listEntries: number;
   riskScore: number; // 0-100
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   hits: ScreeningHit[];
@@ -127,67 +140,30 @@ export interface WatchlistEntry {
   remarks?: string;
 }
 
-// ── Watchlist registry ────────────────────────────────────────────────────
+// ── Watchlist source ──────────────────────────────────────────────────────
+//
+// There is deliberately no built-in sample list here any more. A dozen
+// hardcoded names (Al-Shabaab, Hezbollah, Kim Jong Un…) used to stand in when
+// `watchlist_entries` was empty, and the effect in production was that every
+// real counterparty screened `clear` against six organisations and one
+// person — indistinguishable from a genuine no-hit. A screen against no list
+// is not a screen, and the engine now refuses rather than pretends.
 
-// Built-in lists are minimal structural examples for deterministic testing.
-// In production these are replaced by live-feed adapters in the INT module.
-const BUILTIN_WATCHLISTS: WatchlistEntry[] = [
-  // OFAC SDN samples
-  {
-    id: 'ofac-001',
-    name: 'Al-Shabaab',
-    aliases: ['Al Shabaab', 'Harakat al-Shabaab'],
-    type: 'organization',
-    listSource: 'ofac',
-    country: 'SO',
-    programs: ['SDGT'],
-  },
-  {
-    id: 'ofac-002',
-    name: 'Hezbollah',
-    aliases: ['Hizballah', 'Hizbullah', 'Party of God'],
-    type: 'organization',
-    listSource: 'ofac',
-    country: 'LB',
-    programs: ['SDGT', 'LEBANON'],
-  },
-  {
-    id: 'ofac-003',
-    name: 'Kim Jong Un',
-    aliases: ['Kim Jong-un', 'Kim Jongun'],
-    type: 'individual',
-    listSource: 'ofac',
-    country: 'KP',
-    dateOfBirth: '1984-01-08',
-    programs: ['DPRK3'],
-  },
-  // UN samples
-  {
-    id: 'un-001',
-    name: 'Islamic State',
-    aliases: ['ISIS', 'ISIL', 'Daesh', "Da'esh"],
-    type: 'organization',
-    listSource: 'un',
-    programs: ['1267'],
-  },
-  {
-    id: 'un-002',
-    name: 'Al-Qaida',
-    aliases: ['Al Qaeda', 'Al-Qaeda', 'AQ'],
-    type: 'organization',
-    listSource: 'un',
-    programs: ['1267'],
-  },
-  // UAE local samples
-  {
-    id: 'uae-001',
-    name: 'Muslim Brotherhood',
-    aliases: ['Al-Ikhwan al-Muslimun', 'Ikhwan'],
-    type: 'organization',
-    listSource: 'uae_local',
-    programs: ['UAE_TERROR'],
-  },
-];
+/**
+ * 503 with an explicit body. `listsLoaded: false` is the field a UI keys on;
+ * `unavailableReason` is the sentence to show. Neither looks like a no-hit.
+ */
+export class ScreeningListsUnavailableException extends ServiceUnavailableException {
+  constructor(unavailableReason: string) {
+    super({
+      statusCode: 503,
+      error: 'Service Unavailable',
+      message: unavailableReason,
+      listsLoaded: false,
+      unavailableReason,
+    });
+  }
+}
 
 // ── ScreeningEngine ───────────────────────────────────────────────────────
 
@@ -207,46 +183,54 @@ export class ScreeningEngine {
   /**
    * The lists to screen against.
    *
-   * Ingested rows (OFAC SDN, UN Consolidated) are authoritative when present.
-   * BUILTIN_WATCHLISTS remains only as the fallback for a database that has
-   * never been ingested into — without it a fresh install would silently
-   * clear every name, which is the most dangerous possible failure mode for
-   * a sanctions screen.
+   * Ingested rows (OFAC SDN, UN, EU CFSP, UK OFSI) and nothing else. An empty
+   * table or a failed read throws `ScreeningListsUnavailableException` (503)
+   * — a fresh install that silently cleared every name was the most dangerous
+   * failure mode this engine has had, and it is the one §5.2 of CLAUDE.md is
+   * about.
    */
   private async loadWatchlist(): Promise<WatchlistEntry[]> {
     if (this.cache && this.cache.expires > Date.now()) return this.cache.entries;
 
-    let entries: WatchlistEntry[] = BUILTIN_WATCHLISTS;
+    let rows: Awaited<ReturnType<WatchlistIngestService['loadAll']>>;
     try {
-      const rows = await this.watchlistIngest.loadAll();
-      if (rows.length > 0) {
-        entries = rows.map((r) => ({
-          id: `${r.listSource}-${r.externalId}`,
-          name: r.name,
-          aliases: r.aliases ?? [],
-          type: (r.entityType === 'individual'
-            ? 'individual'
-            : 'organization') as WatchlistEntry['type'],
-          listSource: r.listSource as WatchlistEntry['listSource'],
-          country: r.country ?? undefined,
-          programs: r.programs ?? [],
-          remarks: r.remarks ?? undefined,
-        }));
-      } else {
-        this.logger.warn(
-          'watchlist_entries is empty — screening against built-in samples only. ' +
-            'Run the watchlist-ingest job to load OFAC/UN.',
-        );
-      }
+      rows = await this.watchlistIngest.loadAll();
     } catch (err) {
-      // Screening must not fail closed into "no hits": that reports a
-      // sanctioned party as clear. Fall back loudly instead.
-      this.logger.error(
-        `Watchlist load failed, falling back to built-in samples: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+      // Unknown is never clear. A database fault must surface as "could not
+      // screen", not as "no hits" — and not as a screen against a sample list.
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Watchlist load failed: ${message}`);
+      throw new ScreeningListsUnavailableException(
+        `The sanctions lists could not be read (${message}). Nothing was screened.`,
       );
     }
+
+    if (rows.length === 0) {
+      // Not cached: the moment the ingest lands, the next request must see it.
+      this.logger.error(
+        'watchlist_entries is EMPTY — refusing to screen. Run the ' +
+          'watchlist-ingest job (POST /jobs/watchlist-ingest with the ' +
+          'CRON_SECRET bearer) to load OFAC / UN / EU / UK.',
+      );
+      throw new ScreeningListsUnavailableException(
+        'No sanctions lists are loaded (watchlist_entries is empty), so no ' +
+          'name can match and a "clear" result would be meaningless. Run ' +
+          'POST /jobs/watchlist-ingest with the CRON_SECRET bearer, then retry.',
+      );
+    }
+
+    const entries: WatchlistEntry[] = rows.map((r) => ({
+      id: `${r.listSource}-${r.externalId}`,
+      name: r.name,
+      aliases: r.aliases ?? [],
+      type: (r.entityType === 'individual'
+        ? 'individual'
+        : 'organization') as WatchlistEntry['type'],
+      listSource: r.listSource as WatchlistEntry['listSource'],
+      country: r.country ?? undefined,
+      programs: r.programs ?? [],
+      remarks: r.remarks ?? undefined,
+    }));
 
     this.cache = {
       entries,
@@ -269,8 +253,13 @@ export class ScreeningEngine {
     const hits: ScreeningHit[] = [];
 
     const namesToCheck = this.buildNameList(request);
+    // Throws 503 when nothing is ingested. A caller-supplied customWatchlist
+    // is in *addition* to the sanctions lists, never a substitute: a request
+    // that names three counterparties of its own still expects OFAC to be
+    // consulted, and "clear against your three names" is not the same claim.
+    const ingested = await this.loadWatchlist();
     const watchlist = [
-      ...(await this.loadWatchlist()),
+      ...ingested,
       ...(request.customWatchlist ?? []),
     ].filter(
       (entry) =>
@@ -296,6 +285,8 @@ export class ScreeningEngine {
       screeningId,
       entityId: request.entityId,
       status,
+      listsLoaded: true,
+      listEntries: ingested.length,
       riskScore,
       riskLevel,
       hits: this.deduplicateHits(hits),

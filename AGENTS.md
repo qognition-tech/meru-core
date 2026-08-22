@@ -343,7 +343,37 @@ anywhere on the list and currently the largest single blocker.
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
 | `RESEND_API_KEY`, `MAIL_FROM` (verified domain) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
 | `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
-| `CRON_SECRET` + an external scheduler URL | queue, ingestion | minute-level jobs run twice a day |
+| `CRON_SECRET` + an external scheduler URL | queue, ingestion, **sanctions screening** | **every scheduled job runs zero times** — `CronSecretGuard` fails closed, so both Vercel crons answer 401. `watchlist_entries` stays empty and `POST /engines/screening` answers **503** `listsLoaded:false` for every name |
+
+### 5.1 Loading the sanctions lists — the exact commands
+
+Screening has no URL to configure. `WatchlistIngestService` fetches the public
+OFAC SDN CSV, UN Consolidated XML, EU CFSP XML and UK OFSI CSV from hardcoded
+official URLs; the only things it needs are `CRON_SECRET` (so the job route
+will answer) and one run. `SCREENING_LISTS_URL`, which an earlier capability
+report demanded, is read by nothing — do not set it.
+
+```bash
+# 1. Set the secret (Vercel → Production) — any long random string.
+vercel env add CRON_SECRET production
+
+# 2. Run the ingest once by hand. 30–90 s; returns per-list counts.
+curl -X POST https://meru-core.vercel.app/api/v1/jobs/watchlist-ingest \
+  -H "Authorization: Bearer $CRON_SECRET"
+
+# 3. Confirm. `entries` must be > 0 and `lists` should name ofac, un, eu, uk_hmt.
+curl https://meru-core.vercel.app/api/v1/engines/screening/watchlist-status \
+  -H "Authorization: Bearer <any JWT>"
+
+# 4. Keep it fresh: point a scheduler (cron-job.org, 1-min granularity) at
+#    /api/v1/jobs/tick?scope=fast every minute and ?scope=daily once a day,
+#    both with the same bearer. Until then the lists go stale after 14 days.
+```
+
+Until step 2 has run, `GET /health/capabilities` reports `screening_lists:
+unconfigured` naming this section, and `POST /engines/screening` refuses with
+503 `{ listsLoaded: false, unavailableReason }`. It never returns `clear` off
+an empty table — the built-in sample list that used to stand in is gone.
 
 **Paid, no negotiation** (~$20–200/mo each): Ably/Pusher · Upstash QStash ·
 Twilio *or* Meta WhatsApp Cloud API (**Meta Business verification is the long

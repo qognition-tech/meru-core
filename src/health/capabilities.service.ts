@@ -1,5 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { TenantContext } from '../core/tenancy/tenant-context';
 
 /**
  * What this deployment can actually do, decided by which credentials are set.
@@ -7,9 +10,10 @@ import { ConfigService } from '@nestjs/config';
  * Five credentials are unset in production today and every one of them breaks
  * something *quietly*. A provisioned tenant admin never receives their invite
  * and `POST /tenants/signup` still answers 200. Document upload times out as a
- * 500 rather than saying storage is off. Minute-level jobs — including the
- * daily rescreening CBUAE Rulebook §3.4.1 mandates — run twice a day because no
- * external scheduler is calling the tick.
+ * 500 rather than saying storage is off. Every scheduled job — including the
+ * daily rescreening CBUAE Rulebook §3.4.1 mandates and the sanctions-list
+ * ingest — runs ZERO times, because `CronSecretGuard` fails closed without
+ * `CRON_SECRET` and both Vercel crons answer 401.
  *
  * This reports; it does NOT enforce. A missing credential must never take the
  * API down: an immigration tenant doing casework has no interest in whether
@@ -24,7 +28,12 @@ import { ConfigService } from '@nestjs/config';
  * never be reported as `live`.
  */
 
-export type CapabilityStatus = 'live' | 'degraded' | 'unconfigured';
+/**
+ * `unknown` is for a capability whose state lives in the database and could
+ * not be probed. It is never folded into `live`: an unprobed dependency
+ * reported as working is the lie this report exists to stop.
+ */
+export type CapabilityStatus = 'live' | 'degraded' | 'unconfigured' | 'unknown';
 
 export interface CapabilityReport {
   capability: string;
@@ -94,10 +103,12 @@ const SPECS: CapabilitySpec[] = [
     capability: 'scheduler',
     requires: ['CRON_SECRET'],
     describe: () =>
-      'No external scheduler can authenticate to /jobs/tick, so minute-level ' +
-      'jobs fall back to the platform default of twice daily. Daily ' +
-      'rescreening is mandated, so this is a compliance gap, not a latency ' +
-      'one. Set CRON_SECRET and point a scheduler at the tick.',
+      'CronSecretGuard fails closed, so /jobs/tick answers 401 to everyone — ' +
+      'including the two Vercel crons — and every scheduled job runs ZERO ' +
+      'times: SLA watchdog, alert sweep, sequence runner, rescreening and the ' +
+      'sanctions-list ingest. Daily rescreening is mandated, so this is a ' +
+      'compliance gap, not a latency one. Set CRON_SECRET and point a ' +
+      'scheduler at the tick.',
   },
   {
     capability: 'billing',
@@ -109,27 +120,24 @@ const SPECS: CapabilitySpec[] = [
         : 'Checkout works but subscription state will drift: nothing verifies ' +
           'incoming webhooks. Set STRIPE_WEBHOOK_SECRET.',
   },
-  {
-    capability: 'screening_lists',
-    requires: ['SCREENING_LISTS_URL'],
-    describe: () =>
-      'Only the built-in sample entries are present, so a sanctioned name ' +
-      'CANNOT match and every screen returns clean regardless of who is ' +
-      'entered. This is the most dangerous unconfigured capability on the ' +
-      'platform: the result looks identical to a genuine no-hit. Callers must ' +
-      'read GET /engines/screening/watchlist-status and refuse to screen when ' +
-      '`entries` is 0.',
-  },
 ];
 
 @Injectable()
 export class CapabilitiesService implements OnModuleInit {
   private readonly logger = new Logger(CapabilitiesService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    // Optional so the unit tests can construct the service without a database;
+    // without it the screening_lists probe reports `unknown`, never `live`.
+    @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
+  ) {}
 
-  onModuleInit(): void {
-    const unconfigured = this.report().filter((c) => c.status === 'unconfigured');
+  async onModuleInit(): Promise<void> {
+    const report = await this.report();
+    const unconfigured = report.filter(
+      (c) => c.status === 'unconfigured' || c.status === 'unknown',
+    );
     if (unconfigured.length === 0) {
       this.logger.log('All capabilities configured.');
       return;
@@ -139,7 +147,7 @@ export class CapabilitiesService implements OnModuleInit {
     // separate warnings interleaved with module-init noise get skimmed past.
     const lines = unconfigured.map((c) => `  • ${c.capability} — ${c.reason}`);
     this.logger.warn(
-      `${unconfigured.length} capabilities are UNCONFIGURED and will fail ` +
+      `${unconfigured.length} capabilities are UNCONFIGURED or UNKNOWN and will fail ` +
         `quietly at the point of use:\n${lines.join('\n')}\n` +
         `GET /health/capabilities has the full report.`
     );
@@ -179,9 +187,107 @@ export class CapabilitiesService implements OnModuleInit {
     };
   }
 
+  /**
+   * Rows in `watchlist_entries`, or `null` when it could not be counted.
+   *
+   * Counted rather than inferred from an env var: the ingest reads hardcoded
+   * public feeds (OFAC SDN, UN, EU, UK OFSI) and needs no URL, so the only
+   * thing that says whether a real name can match is whether the table has
+   * rows. A previous version of this report demanded `SCREENING_LISTS_URL`,
+   * which nothing in `src/` reads — it could be set or unset with no effect on
+   * screening whatsoever.
+   */
+  private async watchlistCount(): Promise<number | null> {
+    if (!this.dataSource) return null;
+    try {
+      const rows = await TenantContext.runAsSystem(
+        'capabilities: count watchlist_entries',
+        () =>
+          this.dataSource!.query(
+            'SELECT COUNT(*)::int AS n FROM "watchlist_entries"',
+          ),
+      );
+      const n = Number(rows?.[0]?.n);
+      return Number.isFinite(n) ? n : null;
+    } catch (err) {
+      this.logger.warn(
+        `Could not count watchlist_entries: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Sanctions screening is only real when two things hold: the ingest job can
+   * be triggered (`CRON_SECRET`, because `CronSecretGuard` fails closed and
+   * `/jobs/*` answers 401 without it) AND it has actually run at least once
+   * (`watchlist_entries` has rows). Neither is a URL.
+   */
+  private async evaluateScreeningLists(): Promise<CapabilityReport> {
+    const capability = 'screening_lists';
+    const hasSecret = this.has('CRON_SECRET');
+    const count = await this.watchlistCount();
+
+    const ingestFix =
+      'Set CRON_SECRET, then run the ingest once by hand: ' +
+      'POST /api/v1/jobs/watchlist-ingest with ' +
+      '`Authorization: Bearer <CRON_SECRET>` (AGENTS.md §5), and schedule ' +
+      '/jobs/tick?scope=daily so it keeps refreshing.';
+
+    if (count === 0) {
+      return {
+        capability,
+        status: 'unconfigured',
+        reason:
+          'watchlist_entries is EMPTY: no sanctions list has ever been ' +
+          'ingested, so a sanctioned name CANNOT match. POST /engines/screening ' +
+          'answers 503 with listsLoaded:false rather than a clean result. ' +
+          (hasSecret
+            ? 'CRON_SECRET is set but the ingest has not run. '
+            : 'CRON_SECRET is unset, so the ingest job cannot even be triggered. ') +
+          ingestFix,
+      };
+    }
+
+    if (count === null) {
+      return {
+        capability,
+        status: 'unknown',
+        reason:
+          'watchlist_entries could not be counted (no database, or the query ' +
+          'failed), so whether screening can match a real name is unknown. ' +
+          'Read GET /engines/screening/watchlist-status before trusting a screen.',
+      };
+    }
+
+    if (!hasSecret) {
+      return {
+        capability,
+        status: 'degraded',
+        reason:
+          `${count} sanctions entries are loaded, but CRON_SECRET is unset so ` +
+          'nothing can re-run the ingest: the lists will go stale and ' +
+          'GET /engines/screening/watchlist-status will start naming stale ' +
+          'feeds. ' +
+          ingestFix,
+      };
+    }
+
+    return {
+      capability,
+      status: 'live',
+      reason: `${count} sanctions entries loaded; ingest is schedulable.`,
+    };
+  }
+
   /** The full report. Guarded to platform_admin — it names env vars. */
-  report(): CapabilityReport[] {
-    const core = SPECS.map((s) => this.evaluate(s));
+  async report(): Promise<CapabilityReport[]> {
+    const core = [
+      ...SPECS.map((s) => this.evaluate(s)),
+      await this.evaluateScreeningLists(),
+    ];
 
     const regulators = REGULATORS.map(({ code, requires }) =>
       this.evaluate({
@@ -213,13 +319,14 @@ export class CapabilitiesService implements OnModuleInit {
    * an unauthenticated caller learning exactly which credentials are absent is
    * a reconnaissance gift.
    */
-  summary(): Record<CapabilityStatus, number> {
+  async summary(): Promise<Record<CapabilityStatus, number>> {
     const counts: Record<CapabilityStatus, number> = {
       live: 0,
       degraded: 0,
       unconfigured: 0,
+      unknown: 0,
     };
-    for (const c of this.report()) counts[c.status] += 1;
+    for (const c of await this.report()) counts[c.status] += 1;
     return counts;
   }
 }

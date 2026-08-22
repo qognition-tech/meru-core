@@ -1,5 +1,28 @@
-import { ScreeningEngine } from './screening.engine';
+import {
+  ScreeningEngine,
+  ScreeningListsUnavailableException,
+} from './screening.engine';
 import type { WatchlistIngestService } from './watchlist-ingest.service';
+
+/**
+ * An ingest service whose table holds one row that cannot match anything the
+ * suites below screen. The engine refuses to run against an empty table, so a
+ * stub returning `[]` no longer yields results — it yields a 503, which is the
+ * subject of the last describe block.
+ */
+const INERT_ROW = {
+  listSource: 'ofac',
+  externalId: 'inert-1',
+  name: 'QXZV-7781 PLC',
+  normalizedName: 'qxzv-7781 plc',
+  aliases: [],
+  entityType: 'organization',
+  country: null,
+  programs: [],
+  remarks: null,
+};
+const ingestWithOneInertRow = () =>
+  ({ loadAll: async () => [INERT_ROW] }) as unknown as WatchlistIngestService;
 
 /**
  * Regression guard for the phonetic corroboration rule.
@@ -15,13 +38,7 @@ import type { WatchlistIngestService } from './watchlist-ingest.service';
  * nothing else about the system would reveal it.
  */
 describe('ScreeningEngine — phonetic matches must be corroborated', () => {
-  // The engine only reaches the ingest service when no customWatchlist is
-  // supplied; every case here supplies one, so an empty stub is sufficient.
-  const ingestStub = {
-    loadAll: async () => [],
-  } as unknown as WatchlistIngestService;
-
-  const engine = new ScreeningEngine(ingestStub);
+  const engine = new ScreeningEngine(ingestWithOneInertRow());
 
   const screen = (name: string, listNames: string[]) =>
     engine.screen({
@@ -108,8 +125,7 @@ describe('ScreeningEngine — phonetic matches must be corroborated', () => {
  * officer who stops believing the output.
  */
 describe('ScreeningEngine — a warning is not a designation', () => {
-  const ingestStub = { loadAll: async () => [] } as unknown as WatchlistIngestService;
-  const engine = new ScreeningEngine(ingestStub);
+  const engine = new ScreeningEngine(ingestWithOneInertRow());
 
   const screenAgainst = (
     name: string,
@@ -267,5 +283,89 @@ describe('ScreeningEngine — a warning is not a designation', () => {
       { name: 'Mohammed Hassan', type: 'individual', aliases: ['Mohamad Hasan', 'Muhammed Hassan'] },
     ]);
     expect(result.riskScore).toBeLessThan(100);
+  });
+});
+
+/**
+ * Regression guard for P0-2: screening returned "clean" for everyone.
+ *
+ * `watchlist_entries` was empty in production — the ingest had never run,
+ * because `CronSecretGuard` fails closed without `CRON_SECRET` — and the engine
+ * fell back to a dozen hardcoded samples. Every real counterparty screened
+ * `clear`, and the result body was byte-for-byte the shape of a genuine no-hit.
+ * Unknown is never clear (CLAUDE.md §5.2): with no list there is no screen.
+ */
+describe('ScreeningEngine — refuses to screen against nothing', () => {
+  const request = {
+    tenantId: '00000000-0000-4000-8000-000000000001',
+    entityName: 'Kim Jong Un',
+    entityType: 'individual' as const,
+    screeningTypes: ['sanctions' as const],
+  };
+
+  it('throws 503 with listsLoaded:false when watchlist_entries is empty', async () => {
+    const engine = new ScreeningEngine(
+      { loadAll: async () => [] } as unknown as WatchlistIngestService,
+    );
+    const err = await engine.screen(request).catch((e) => e);
+    expect(err).toBeInstanceOf(ScreeningListsUnavailableException);
+    expect(err.getStatus()).toBe(503);
+    const body = err.getResponse() as Record<string, unknown>;
+    expect(body.listsLoaded).toBe(false);
+    expect(typeof body.unavailableReason).toBe('string');
+    expect(body.unavailableReason).toContain('watchlist-ingest');
+    // The one thing it must never be.
+    expect(body.status).not.toBe('clear');
+  });
+
+  it('still refuses when the caller supplies a customWatchlist', async () => {
+    // A custom list is in addition to the sanctions lists, not instead of
+    // them. "Clear against your three names" is not a sanctions screen.
+    const engine = new ScreeningEngine(
+      { loadAll: async () => [] } as unknown as WatchlistIngestService,
+    );
+    await expect(
+      engine.screen({
+        ...request,
+        customWatchlist: [
+          { id: 'c1', name: 'Someone Else', type: 'individual', listSource: 'custom' },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ScreeningListsUnavailableException);
+  });
+
+  it('throws 503 rather than "clear" when the lists cannot be read', async () => {
+    const engine = new ScreeningEngine(
+      {
+        loadAll: async () => {
+          throw new Error('connection refused');
+        },
+      } as unknown as WatchlistIngestService,
+    );
+    const err = await engine.screen(request).catch((e) => e);
+    expect(err).toBeInstanceOf(ScreeningListsUnavailableException);
+    expect((err.getResponse() as any).listsLoaded).toBe(false);
+  });
+
+  it('does not cache an empty table, so the first ingest takes effect immediately', async () => {
+    let rows: unknown[] = [];
+    const engine = new ScreeningEngine(
+      { loadAll: async () => rows } as unknown as WatchlistIngestService,
+    );
+    await expect(engine.screen(request)).rejects.toBeInstanceOf(
+      ScreeningListsUnavailableException,
+    );
+    rows = [INERT_ROW];
+    const result = await engine.screen(request);
+    expect(result.listsLoaded).toBe(true);
+    expect(result.listEntries).toBe(1);
+  });
+
+  it('a returned result always states what it screened against', async () => {
+    const engine = new ScreeningEngine(ingestWithOneInertRow());
+    const result = await engine.screen(request);
+    expect(result.listsLoaded).toBe(true);
+    expect(result.listEntries).toBe(1);
+    expect(result.status).toBe('clear');
   });
 });

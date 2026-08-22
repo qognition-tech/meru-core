@@ -36,7 +36,7 @@ export class HealthController {
       database,
       // Counts only. This route is public, so naming which credentials are
       // absent would hand an unauthenticated caller a reconnaissance list.
-      capabilities: this.capabilities.summary(),
+      capabilities: await this.capabilities.summary(),
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     };
@@ -54,10 +54,10 @@ export class HealthController {
   @ApiOperation({ summary: 'Per-capability configuration report' })
   @ApiResponse({ status: 200, description: 'Capability report' })
   @ApiResponse({ status: 403, description: 'Not a platform admin' })
-  capabilityReport() {
+  async capabilityReport() {
     return {
-      capabilities: this.capabilities.report(),
-      summary: this.capabilities.summary(),
+      capabilities: await this.capabilities.report(),
+      summary: await this.capabilities.summary(),
     };
   }
 }
