@@ -35,7 +35,11 @@ const DEFAULT_ORIGINS = [
   // meru-dashboard
   'https://meru-dashboard.vercel.app',
   'https://meru-dashboard-qognitionagencys-projects.vercel.app',
-  // immistack (project alias is immistack-plum; immistack.vercel.app is NOT ours)
+  // immistack product. The `immistack` Vercel project (alias immistack-plum,
+  // owner of immistack.com) has the MARKETING site deployed into it since
+  // 2026-08-22; the product lives in the `immistack-app` project.
+  'https://immistack-app.vercel.app',
+  'https://immistack-app-qognitionagencys-projects.vercel.app',
   'https://immistack-plum.vercel.app',
   'https://immistack-qognitionagencys-projects.vercel.app',
   'https://immistack-git-main-qognitionagencys-projects.vercel.app',
