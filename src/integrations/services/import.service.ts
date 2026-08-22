@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as ExcelJS from 'exceljs';
 import {
   EntityType,
   UniversalEntity,
@@ -57,6 +58,12 @@ export interface ImportPlan {
   committed?: { created: number; updated: number; failed: number };
 }
 
+/** What `run()` accepts: CSV text, or a typed file with its bytes. */
+export type ImportFile =
+  | string
+  | { format: 'csv'; content: string }
+  | { format: 'xlsx'; content: Buffer };
+
 /**
  * Bring records in from a spreadsheet, driven by the pack's `importMappings[]`.
  *
@@ -99,7 +106,7 @@ export class ImportService {
     tenantId: string,
     vertical: string | null,
     mappingKey: string,
-    csv: string,
+    file: ImportFile,
     options: { commit?: boolean } = {},
   ): Promise<ImportPlan> {
     const mappings = await this.listMappings(vertical);
@@ -115,7 +122,9 @@ export class ImportService {
       );
     }
 
-    const table = ImportService.parseCsv(csv);
+    // One pipeline. The parser is the only thing a file format changes; the
+    // map → dry-run diff → commit below never learns which it was.
+    const table = await ImportService.parse(file);
     if (table.length === 0) {
       throw new BadRequestException('The file has no header row');
     }
@@ -376,6 +385,61 @@ export class ImportService {
    * break inside quotes silently shifts every subsequent row by one, and the
    * result is an import that looks like it worked.
    */
+  /**
+   * A file to a table of strings. CSV text, or an XLSX workbook as a Buffer
+   * (the first worksheet). A bare string is CSV, which keeps the original
+   * call shape working.
+   */
+  static async parse(file: ImportFile): Promise<string[][]> {
+    if (typeof file === 'string') return ImportService.parseCsv(file);
+    if (file.format === 'csv') return ImportService.parseCsv(file.content);
+    return ImportService.parseXlsx(file.content);
+  }
+
+  /**
+   * First worksheet of an XLSX workbook, every cell as the string a human
+   * sees. Dates become ISO dates rather than Excel serials, formulas their
+   * cached result, rich text its plain text. Empty leading columns are kept
+   * so the header and the data rows line up.
+   */
+  static async parseXlsx(content: Buffer): Promise<string[][]> {
+    const workbook = new ExcelJS.Workbook();
+    try {
+      await workbook.xlsx.load(content as unknown as ArrayBuffer);
+    } catch (err) {
+      throw new BadRequestException(
+        `Not a readable .xlsx workbook: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return [];
+
+    const rows: string[][] = [];
+    // `includeEmpty` so a blank row inside the data keeps its 1-based number
+    // — the plan reports row numbers a human can find in Excel.
+    sheet.eachRow({ includeEmpty: true }, (row) => {
+      const cells: string[] = [];
+      const values = row.values as ExcelJS.CellValue[]; // 1-based; [0] is unused
+      for (let c = 1; c < values.length; c++) {
+        cells.push(ImportService.cellText(values[c]));
+      }
+      rows.push(cells);
+    });
+    return rows;
+  }
+
+  private static cellText(v: ExcelJS.CellValue): string {
+    if (v === null || v === undefined) return '';
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (typeof v === 'object') {
+      if ('richText' in v) return v.richText.map((t) => t.text).join('');
+      if ('result' in v) return ImportService.cellText(v.result as ExcelJS.CellValue);
+      if ('text' in v) return String(v.text);
+      if ('error' in v) return '';
+    }
+    return String(v);
+  }
+
   static parseCsv(input: string): string[][] {
     const rows: string[][] = [];
     let row: string[] = [];

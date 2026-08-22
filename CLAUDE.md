@@ -139,7 +139,7 @@ and `scoringModels[]` call; it does not walk `pack.rules`. Do not author into
 | `scoringModels[]` | `ScoringEngine` — weighted sum + bands | AI |
 | `relationships[]` | `EntityRelationService` → `entity_relations` | CRM |
 | `navigation[]` + `dashboards[]` | `PackUiService` + `PackDashboardService` | TCM + BI |
-| `importMappings[]` | `ImportService` — parse → map → dry-run diff → commit | INT |
+| `importMappings[]` | `ImportService` — parse (CSV or XLSX) → map → dry-run diff → commit | INT |
 | `documentTemplates[]` | `DocumentGenerationService` — block layout → PDF | DOC |
 
 ### 4.2 Rules for changing the pack schema
@@ -615,7 +615,8 @@ Two gates need environment rather than code:
       reversible and **verified against an immigration tenant before it runs**.
 - [ ] Seed the price book · monitored-entity meter (snapshot, never increment) ·
       GRC pack module gating + `screening.monitoredTypes[]` · workflow JsonLogic
-      conditions · XLSX import behind the existing interface (check `check:cjs`).
+      conditions. (XLSX import is done: `exceljs`, same pipeline, `check:cjs`
+      clean — `POST /integrations/import/:key` takes `xlsx` as base64.)
 - [x] `sar` is an `EntityType` (migration `AddSarEntityType`, workable). The
       GovX pack still needs an `entityTypes[]` entry for it — pack authoring,
       separate commit — before the SAR page renders labels and fields.

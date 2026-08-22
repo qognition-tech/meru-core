@@ -57,6 +57,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cron-parser": "^5.5.0",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^7.4.1",
     "geolib": "^3.3.14",

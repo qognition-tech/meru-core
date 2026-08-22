@@ -121,3 +121,102 @@ describe('ImportService', () => {
     expect(rows).toHaveLength(2);
   });
 });
+
+/**
+ * XLSX goes through the same parse → map → dry-run → commit pipeline as CSV;
+ * only the parser differs. These tests build a real workbook with exceljs
+ * and assert the plan is the one the CSV tests above would produce.
+ */
+describe('ImportService — xlsx', () => {
+  const ExcelJS = require('exceljs');
+
+  const mapping = {
+    key: 'leads_xlsx',
+    label: 'Leads (Excel)',
+    source: 'xlsx' as const,
+    targetEntityType: 'lead',
+    fields: [
+      { from: 'First Name', to: 'firstName', required: true },
+      { from: 'Email', to: 'email', required: true, transform: 'lowercase' as const },
+      { from: 'Visa Expiry', to: 'visaExpiry', transform: 'date_iso' as const },
+    ],
+    dedupeOn: ['email'],
+  };
+
+  const entities = {
+    createQueryBuilder: jest.fn(() => {
+      const qb: any = { where: () => qb, andWhere: () => qb, getOne: () => Promise.resolve(null) };
+      return qb;
+    }),
+    create: jest.fn((x: unknown) => x),
+    save: jest.fn((x: unknown) => Promise.resolve(x)),
+    update: jest.fn(),
+  };
+  const packs = { list: jest.fn().mockResolvedValue([mapping]) };
+  const service = new ImportService(entities as any, packs as any);
+
+  const workbook = async (rows: unknown[][]): Promise<Buffer> => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Leads');
+    for (const r of rows) ws.addRow(r);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  };
+
+  it('parses the first sheet into the same plan a CSV would give', async () => {
+    const content = await workbook([
+      ['First Name', 'Email', 'Visa Expiry', 'Notes'],
+      ['Ada', 'ADA@Example.com', new Date(Date.UTC(2026, 5, 3)), 'hello'],
+      ['', 'missing@example.com', null, ''],
+    ]);
+    const plan = await service.run('t1', 'immigration', 'leads_xlsx', {
+      format: 'xlsx',
+      content,
+    });
+    expect(plan.dryRun).toBe(true);
+    expect(plan.totalRows).toBe(2);
+    expect(plan.rows[0]).toMatchObject({
+      action: 'create',
+      values: { firstName: 'Ada', email: 'ada@example.com', visaExpiry: '2026-06-03' },
+    });
+    expect(plan.rows[1].row).toBe(3);
+    expect(plan.rows[1].errors[0]).toMatch(/'First Name' is required/);
+    expect(plan.unmappedColumns).toEqual(['Notes']);
+    expect(entities.save).not.toHaveBeenCalled();
+  });
+
+  it('reads a formula cell as its cached result and rich text as plain text', async () => {
+    const content = await workbook([
+      ['First Name', 'Email', 'Visa Expiry'],
+      [
+        { richText: [{ text: 'Gra' }, { text: 'ce' }] },
+        { formula: 'LOWER("X@Y.COM")', result: 'x@y.com' },
+        '2026-01-01',
+      ],
+    ]);
+    const plan = await service.run('t1', 'immigration', 'leads_xlsx', {
+      format: 'xlsx',
+      content,
+    });
+    expect(plan.rows[0].values).toMatchObject({ firstName: 'Grace', email: 'x@y.com' });
+  });
+
+  it('rejects bytes that are not a workbook, with a 400', async () => {
+    await expect(
+      service.run('t1', 'immigration', 'leads_xlsx', {
+        format: 'xlsx',
+        content: Buffer.from('First Name,Email\nAda,a@b.com'),
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('still accepts CSV text for an xlsx mapping — the field map is about columns, not bytes', async () => {
+    const plan = await service.run(
+      't1',
+      'immigration',
+      'leads_xlsx',
+      'First Name,Email,Visa Expiry\nAda,a@b.com,2026-01-01',
+    );
+    expect(plan.totalRows).toBe(1);
+    expect(plan.rows[0].action).toBe('create');
+  });
+});

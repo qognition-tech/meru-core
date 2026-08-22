@@ -149,7 +149,8 @@ export class IntegrationsController {
   @ApiOperation({
     summary: 'Plan an import — and only write if asked',
     description:
-      'Parses the CSV, applies the mapping, and returns the diff: creates, ' +
+      'Parses the file — `csv` as text, or `xlsx` as a base64 workbook (first ' +
+      'sheet) — applies the mapping, and returns the diff: creates, ' +
       'updates, per-row errors, unmapped columns. **Nothing is written unless ' +
       '`commit=true`**, and the committed run acts on exactly the plan a ' +
       'reviewer approved. An import is the easiest way for a firm to destroy ' +
@@ -166,14 +167,20 @@ export class IntegrationsController {
   async runImport(
     @Request() req: AuthenticatedRequest,
     @Param('mappingKey') mappingKey: string,
-    @Body() body: { csv: string },
+    @Body() body: { csv?: string; xlsx?: string },
     @Query('commit') commit?: string,
   ) {
+    // Same pipeline either way; only the parser differs. Base64 for the
+    // workbook because the route is JSON and a workbook is bytes.
+    const file =
+      typeof body?.xlsx === 'string' && body.xlsx.length > 0
+        ? ({ format: 'xlsx', content: Buffer.from(body.xlsx, 'base64') } as const)
+        : ({ format: 'csv', content: body?.csv ?? '' } as const);
     return this.importService.run(
       req.user.tenantId,
       req.tenantVertical ?? null,
       mappingKey,
-      body?.csv ?? '',
+      file,
       { commit: commit === 'true' },
     );
   }
