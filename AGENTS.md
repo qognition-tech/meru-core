@@ -174,8 +174,14 @@ All verified by `pnpm build`, `pnpm check:cjs`, `pnpm test` (38 suites / 548).
 | No tenant-domain resolution | public `GET /tenants/resolve?host=` | `tenant-provisioning.{controller,service}.ts` |
 | Search never hit Elasticsearch | `SearchService` mirrors writes and queries ES when `ElasticsearchService.available`; Postgres ILIKE fallback, same shape. `ELASTICSEARCH_HOST` is **unset on Vercel**, so production is still on Postgres | `src/search/search.service.ts` |
 
-Spec count after this: the four new routes make **262 paths**. Re-check
-`/api-json` after deploy.
+Live at **262 paths** after the 2026-08-22 deploy. Two import cycles bit on
+the first attempt (FUNCTION_INVOCATION_FAILED on every route for ~40 min):
+`CrmModule → RulesModule → Tasks → Documents → Crm`, and
+`SearchModule → ElasticsearchModule → IamModule → … → Search`. Both fixed
+with leaf modules (`PackRuleModule`, `ElasticsearchCoreModule`). **Boot the
+compiled app locally before deploying** — `SKIP_CONFIG_PACK_LOADER=true
+JWT_SECRET=x node dist/src/main.js` and grep for
+`Nest application successfully started`; unit tests do not build the graph.
 
 ### 3.1 The nine pack arrays (Layer 4 → Layer 1)
 

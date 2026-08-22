@@ -13,7 +13,7 @@ import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { AuditModule } from '../audit/audit.module';
 import { AcceptanceService } from './acceptance.service';
-import { RulesModule } from '../rules/rules.module';
+import { PackRuleModule } from '../rules/pack-rule.module';
 
 // CRM module per CLAUDE.md §2 row 3: polymorphic UniversalEntity.
 // All types (person, organization, case, note, tag, asset) live in one table.
@@ -31,7 +31,9 @@ import { RulesModule } from '../rules/rules.module';
     DocumentsModule,
     AuditModule,
     // `GET /crm/entities/:id/rules` — the pack's `rules[]`, evaluated.
-    RulesModule,
+    // PackRuleModule, NOT RulesModule: the latter closes an import cycle
+    // through Tasks → Documents → Crm. See its header.
+    PackRuleModule,
   ],
   controllers: [CrmController],
   providers: [
