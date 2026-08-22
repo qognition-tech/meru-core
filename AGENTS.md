@@ -279,14 +279,13 @@ already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
 
 | **Storage drivers** | 2 | Google Drive, Azure Blob; the provider interface is already right |
 
-| **XLSX import** | 1 | `ImportService` takes CSV; XLSX needs `exceljs` |
 | **CRM importers** | 3 | HubSpot / Zoho / Salesforce — three OAuth apps, one per importer |
 | **Email analytics** | 3 | delivery/open/click events, A/B assignment |
 | **Fraud pattern store** | 1 | cross-tenant duplicate hashing exists; no history to match against |
 | **WebAuthn / passkeys** | 1 | server-side challenge store |
 | **Consultation booking** | 1 | calendar events exist; no bookable-slot model |
 
-Shipped since the last revision of this table: the import pipeline, SLA
+Shipped since the last revision of this table: the import pipeline, **XLSX import** (`ImportService.parseXlsx`, same parse → map → dry-run → commit path as CSV; `importMappings[].source` now branches on format), SLA
 escalation actions, TAT recording and analytics, generic comments, outbound
 webhooks, retention enforcement, **document generation** (`documentTemplates[]`
 → `pdf-lib`, a tenth Layer 4 array) and **trend analysis**
@@ -330,8 +329,13 @@ intake → cost_agreement → signup_payment → portal_access → document_requ
 → lodged → decision → closed, with art_review branching off a refusal
 ```
 
-**One thing blocks a clean migration, and it is a real gap:** no pack-declared
-transition condition has ever been evaluated. The pack schema types
+**Resolved 2026-08-22.** Step `condition` strings now compile to JsonLogic
+(`pack-condition.ts`) and evaluate through `RuleEvaluatorService`; the pack
+workflow materialises via `POST /workflows/pack/materialise` (§3.0). The
+paragraph below is kept as history of why it mattered.
+
+~~**One thing blocks a clean migration, and it is a real gap:** no pack-declared
+transition condition has ever been evaluated.~~ The pack schema types
 `transitions[].condition` as a *string*, while `WorkflowService.evaluateConditions`
 reads a structured `{operator, rules[]}` object that no pack ever supplies. So the
 two conditional branches — `health_insurance` for 500/485, `apf` for anything but
@@ -365,7 +369,7 @@ anywhere on the list and currently the largest single blocker.
 | `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
 | `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` (private), `STORAGE_PROVIDER=supabase` | DOC | `POST /documents/upload` → 503 `unavailableReason` (no driver credentialed). The service key bypasses Supabase RLS — CLAUDE.md §5.1b |
-| `CRON_SECRET` + an external scheduler URL | queue, ingestion, **sanctions screening** | **every scheduled job runs zero times** — `CronSecretGuard` fails closed, so both Vercel crons answer 401. `watchlist_entries` stays empty and `POST /engines/screening` answers **503** `listsLoaded:false` for every name |
+| ~~`CRON_SECRET`~~ **set** (verified `vercel env ls`, 2026-08-22) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `POST /engines/screening` answers **503** `listsLoaded:false` |
 
 ### 5.1 Loading the sanctions lists — the exact commands
 
@@ -376,8 +380,9 @@ will answer) and one run. `SCREENING_LISTS_URL`, which an earlier capability
 report demanded, is read by nothing — do not set it.
 
 ```bash
-# 1. Set the secret (Vercel → Production) — any long random string.
-vercel env add CRON_SECRET production
+# 1. CRON_SECRET is already set on Production (2026-08-22). Read it with
+#    `vercel env pull` is NOT enough (encrypted values pull blank) — use the
+#    value from the Vercel dashboard, or rotate it with `vercel env add`.
 
 # 2. Run the ingest once by hand. 30–90 s; returns per-list counts.
 curl -X POST https://meru-core.vercel.app/api/v1/jobs/watchlist-ingest \
