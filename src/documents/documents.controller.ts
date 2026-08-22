@@ -33,6 +33,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
+import { ChecklistResponseDto } from './dto/checklist-response.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CitationEnforcementInterceptor } from '../ai/interceptors/citation-enforcement.interceptor';
@@ -147,7 +148,12 @@ export class DocumentsController {
     required: false,
     description: 'Case/matter id to check uploads against',
   })
-  @ApiResponse({ status: 200, description: 'Checklist retrieved' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Checklist retrieved. `uploaded`, `applies` and `outstandingRequired` are nullable: null means unknown, never "no".',
+    type: ChecklistResponseDto,
+  })
   @ApiResponse({
     status: 404,
     description: 'No active config pack for this vertical',

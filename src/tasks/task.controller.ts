@@ -267,8 +267,12 @@ export class TaskController {
   // about literal paths having to precede `@Get(':id')`.
 
   @Post('calendar/sync/:provider')
-  @ApiOperation({ summary: 'Sync with external calendar' })
-  @ApiResponse({ status: 200, description: 'Sync initiated' })
+  @ApiOperation({
+    summary: 'Sync with external calendar — NOT IMPLEMENTED',
+    description:
+      'Always 501. Kept on the surface so the gap is visible in the spec rather than absent from it. Use GET /tasks/calendar/events for the projection of due-dated tasks.',
+  })
+  @ApiResponse({ status: 501, description: 'Not implemented' })
   async syncCalendar(
     @Request() req,
     @Param('provider') provider: 'google' | 'outlook',

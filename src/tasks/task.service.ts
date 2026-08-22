@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, LessThan, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
@@ -530,15 +531,17 @@ export class TaskService {
     tenantId: string,
     userId: string,
     provider: 'google' | 'outlook',
-  ): Promise<{ success: boolean; message: string }> {
-    // Placeholder for calendar sync
-    // In production, this would use Google Calendar API or Microsoft Graph API
+  ): Promise<never> {
+    // Not built. This used to answer HTTP 200 `{success: false}`, which every
+    // generic client reads as "it worked". A 501 is what the frontends'
+    // notImplemented() seam is looking for, and what Swagger now advertises.
     this.logger.log(`Calendar sync requested: ${provider} for user ${userId}`);
-
-    return {
-      success: false,
-      message: `Calendar sync with ${provider} is not yet implemented`,
-    };
+    throw new NotImplementedException({
+      code: 'MER-SRV-0501',
+      message: `Calendar sync with ${provider} is not implemented. Tasks with a dueDate are projected by GET /tasks/calendar/events; two-way sync needs a Google/Microsoft OAuth app that has not been provisioned.`,
+      provider,
+      tenantId,
+    });
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================

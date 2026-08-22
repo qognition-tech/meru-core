@@ -16,6 +16,7 @@ import {
   ApiQuery,
   ApiBody,
 } from '@nestjs/swagger';
+import { SearchResponseDto } from './dto/search-result.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { SearchService } from './search.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
@@ -37,7 +38,12 @@ export class SearchController {
     type: Number,
     description: 'Max results',
   })
-  @ApiResponse({ status: 200, description: 'Search results returned' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Search results. `results` is empty (not an error) for a blank query or a tenant with nothing indexed; `total` is the count returned, bounded by `limit`.',
+    type: SearchResponseDto,
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async search(
     @Request() req,
@@ -47,11 +53,15 @@ export class SearchController {
     if (!query || query.trim().length === 0) {
       return { results: [], total: 0 };
     }
-    return this.searchService.search(
+    // One shape on both branches. The service returns a bare array; the
+    // blank-query branch above returned `{results, total}` and consumers had
+    // to guess which they would get.
+    const results = await this.searchService.search(
       req.user.tenantId,
       query.trim(),
       limit ? parseInt(limit.toString()) : 20,
     );
+    return { results, total: results.length };
   }
 
   @Post('index/bulk')

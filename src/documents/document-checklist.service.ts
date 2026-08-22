@@ -65,8 +65,12 @@ export class DocumentChecklistService {
     packCode: string;
     packVersion: string;
     items: ChecklistItem[];
-    /** Convenience for the "you still need N documents" line. */
-    outstandingRequired: number;
+    /**
+     * Convenience for the "you still need N documents" line. `null` when no
+     * entity was named: nothing was checked, so the count is unknown — a `0`
+     * here once rendered as "nothing outstanding" beside a full list.
+     */
+    outstandingRequired: number | null;
   }> {
     if (!vertical) {
       throw new NotFoundException(
@@ -196,7 +200,7 @@ export class DocumentChecklistService {
       items,
       outstandingRequired: entityId
         ? items.filter((i) => i.required && !i.uploaded).length
-        : 0,
+        : null,
     };
   }
 }
