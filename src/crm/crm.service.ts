@@ -49,6 +49,7 @@ const WORKABLE_TYPES: ReadonlySet<EntityType> = new Set([
   EntityType.MILESTONE,
   EntityType.RFI,
   EntityType.SCREENING_MATCH,
+  EntityType.SAR,
 ]);
 
 function defaultStatusFor(type: EntityType): EntityStatus | null {

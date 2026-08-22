@@ -74,6 +74,15 @@ export enum EntityType {
    */
   SCREENING_MATCH = 'screening_match',
   /**
+   * A suspicious-activity report: a filing with a subject, a reporting
+   * deadline, an owner and a lifecycle (draft → under review → filed /
+   * withdrawn). Structurally a worked record like `breach`; the label, the
+   * filing fields and the regulator it goes to come from the vertical's config
+   * pack. GovX's SAR page had nowhere to store one and answered 400 per render
+   * until this member existed.
+   */
+  SAR = 'sar',
+  /**
    * A trade finance instrument — letter of credit, guarantee, collection.
    * Banking-shaped fields (applicant, beneficiary, amount, screening result)
    * live in `verticalAttributes`; core only models the record and its

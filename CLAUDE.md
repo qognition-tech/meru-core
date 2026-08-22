@@ -388,7 +388,7 @@ with a natural-language command bar. Navigation renders from
 | Layer | Choice | Note |
 |---|---|---|
 | API | **NestJS 11**, REST + OpenAPI | Swagger `/api` |
-| ORM | **TypeORM 0.3**, 35 migrations | staying — a Drizzle port buys nothing here |
+| ORM | **TypeORM 0.3**, 36 migrations | staying — a Drizzle port buys nothing here |
 | DB | **Neon Postgres**, 3 databases | `meru` (control plane), `govx`, `immistack` |
 | Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
 | Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
@@ -409,7 +409,7 @@ meru-core/
 │   ├── audit/ integrations/ rules/ queue/ jobs/ orchestration/
 │   ├── core/          # tenancy, filters, interceptors, policies
 │   ├── common/        # shared types, Actor/scopeOf (access.ts)
-│   ├── migrations/    # 35 TypeORM migrations
+│   ├── migrations/    # 36 TypeORM migrations
 │   └── main.ts, app.module.ts, swagger.ts
 ├── packages/config-packs/
 │   ├── _schema/       # pack.schema.ts (Zod) + config-pack.schema.json
@@ -616,8 +616,9 @@ Two gates need environment rather than code:
 - [ ] Seed the price book · monitored-entity meter (snapshot, never increment) ·
       GRC pack module gating + `screening.monitoredTypes[]` · workflow JsonLogic
       conditions · XLSX import behind the existing interface (check `check:cjs`).
-- [ ] Add `sar` to `CreateEntityDto`'s type enum — GovX has a SAR page with
-      nowhere to store one (`../meru-core-fe/AGENTS.md` §11 item 20).
+- [x] `sar` is an `EntityType` (migration `AddSarEntityType`, workable). The
+      GovX pack still needs an `entityTypes[]` entry for it — pack authoring,
+      separate commit — before the SAR page renders labels and fields.
 - [ ] Drop the dead `storage_provider` column (`DEFAULT 'supabase'`, read by
       nothing) in a **new** migration. Do not edit the applied one.
 - [ ] Remove the `governancex.com` CORS entries once DNS has moved to

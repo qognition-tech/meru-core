@@ -363,6 +363,7 @@ describe('packs on disk', () => {
         'milestone',
         'rfi',
         'screening_match',
+        'sar',
       ]);
 
       const keys = relationships.map((r) => r.key);

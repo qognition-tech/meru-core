@@ -33,6 +33,7 @@ import { AddNotificationThreads1755800000000 } from '../migrations/1755800000000
 import { AddPaymentDirection1755900000000 } from '../migrations/1755900000000-AddPaymentDirection';
 import { AddWhatsappChannel1756000000000 } from '../migrations/1756000000000-AddWhatsappChannel';
 import { AddDocumentVersionStorageProvider1756100000000 } from '../migrations/1756100000000-AddDocumentVersionStorageProvider';
+import { AddSarEntityType1756200000000 } from '../migrations/1756200000000-AddSarEntityType';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -81,4 +82,5 @@ export const ALL_MIGRATIONS = [
   AddPaymentDirection1755900000000,
   AddWhatsappChannel1756000000000,
   AddDocumentVersionStorageProvider1756100000000,
+  AddSarEntityType1756200000000,
 ];
