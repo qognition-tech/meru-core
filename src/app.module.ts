@@ -35,6 +35,7 @@ import { ElasticsearchModule } from './search/elasticsearch/elasticsearch.module
 import { IntegrationsModule } from './integrations/integrations.module';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs/jobs.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 import { ALL_ENTITIES } from './config/entities';
 
@@ -131,6 +132,7 @@ import { ALL_ENTITIES } from './config/entities';
     IntegrationsModule,
     HealthModule,
     JobsModule,
+    WebhooksModule,
     TenancyModule,
     MailModule,
   ],
