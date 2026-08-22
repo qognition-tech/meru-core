@@ -276,7 +276,7 @@ webhooks, retention enforcement, **document generation** (`documentTemplates[]`
 This is where the immigration BRD actually lives, and it needs a domain author.
 
 Done: immigration `entityTypes` (6), GRC `obligation`/`breach`, and the AU / CA
-/ UK / NZ and AE / SA / QA / BH overlays with twelve country workflows.
+/ UK / NZ and AE / SA / QA / BH overlays with thirteen country workflows (AU 5, CA 3, UK 3, NZ 2; the four GRC overlays define none).
 
 Still to author, and it is domain work rather than engineering:
 
@@ -341,7 +341,7 @@ anywhere on the list and currently the largest single blocker.
 | Variable | For | Consequence today |
 |---|---|---|
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
-| `RESEND_API_KEY`, `MAIL_FROM` (verified domain) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
+| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
 | `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
 | `CRON_SECRET` + an external scheduler URL | queue, ingestion, **sanctions screening** | **every scheduled job runs zero times** — `CronSecretGuard` fails closed, so both Vercel crons answer 401. `watchlist_entries` stays empty and `POST /engines/screening` answers **503** `listsLoaded:false` for every name |
 

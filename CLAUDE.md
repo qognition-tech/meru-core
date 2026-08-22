@@ -4,7 +4,7 @@
 > **Read this before any file edit.** Current state, gaps and what to build next
 > live in [AGENTS.md](AGENTS.md) — the only other document in this project.
 >
-> *Last updated: 2026-08-11 (post-validation).*
+> *Last updated: 2026-08-22.*
 
 ---
 
@@ -54,14 +54,15 @@ vertical through stable contracts.
 | 8 | **TASK** | Tasks | `src/tasks/` | assignments, recurrence, calendar |
 | 9 | **COM** | Communication | `src/notifications/` | email/SMS/WhatsApp, templates, sequences, threads |
 | 10 | **DOC** | Documents | `src/documents/`, `src/storage/` | OCR, versioning, S3, checklists |
-| 11 | **BILL** | Billing | `src/billing/`, `src/payments/` | Stripe (Meru→tenant), payments (tenant→client **and** firm→regulator) |
+| 11 | **BILL** | Billing | `src/billing/` (payments live inside it — there is no `src/payments/`) | Stripe (Meru→tenant), payments (tenant→client **and** firm→regulator) |
 | 12 | **BI** | Analytics | `src/analytics/` | reports, widgets, pack dashboards |
 | 13 | **AUD** | Audit | `src/audit/` | hash-chained, WORM-triggered logs |
 | 14 | **INT** | Integrations | `src/integrations/` | government adapters, connector registry |
 
 Supporting: `src/rules/` (JsonLogic evaluator + alert rules), `src/queue/`
 (Postgres-backed jobs), `src/jobs/` (HTTP-triggered scheduled work),
-`src/orchestration/` (AI agents), `src/core/` (tenancy, filters, interceptors).
+`src/orchestration/` (AI agents), `src/core/` (tenancy, filters, interceptors),
+`src/health/` (liveness + the capability report, `GET /health/capabilities`).
 
 **Contract rule:** every module exposes a versioned REST/OpenAPI surface.
 Swagger at `/api`, spec at `/api-json`.
@@ -120,16 +121,19 @@ that wants its country's overlay pins it explicitly. Five packs answer to
 `vertical = 'grc'`, so an unordered lookup would hand a UAE bank whichever row
 Postgres returned first.
 
-### 4.1 The ten pack arrays and their evaluators
+### 4.1 The nine pack arrays and their evaluators
 
 Every one is Layer 4 vocabulary read by exactly one generic Layer 1 evaluator
-that has no idea which vertical it serves. **All ten are built.**
+that has no idea which vertical it serves. **All nine are built.** A tenth,
+`rules[]`, is accepted by the schema and stored by the loader but **read by
+nobody** — `RuleEvaluatorService` is the JsonLogic engine that `alertRules[]`
+and `scoringModels[]` call; it does not walk `pack.rules`. Do not author into
+`rules[]` expecting an effect.
 
 | Pack array | Evaluator | Lives in |
 |---|---|---|
 | `prompts[]` | prompt resolver (pack before DB) | AI |
-| `rules[]` | `RuleEvaluatorService` (JsonLogic) | `src/rules/` |
-| `alertRules[]` | `AlertRuleService` sweep on `/jobs/tick` | `src/rules/` |
+| `alertRules[]` | `AlertRuleService` sweep on `/jobs/tick` (JsonLogic via `RuleEvaluatorService`) | `src/rules/` |
 | `messaging.templates[]` / `.sequences[]` | `SequenceRunnerService` | COM |
 | `fees[]` + `paymentPlans[]` | schedule expander → payment items | payments |
 | `scoringModels[]` | `ScoringEngine` — weighted sum + bands | AI |
@@ -359,12 +363,12 @@ with a natural-language command bar. Navigation renders from
 | Layer | Choice | Note |
 |---|---|---|
 | API | **NestJS 11**, REST + OpenAPI | Swagger `/api` |
-| ORM | **TypeORM 0.3**, 32 migrations | staying — a Drizzle port buys nothing here |
+| ORM | **TypeORM 0.3**, 34 migrations | staying — a Drizzle port buys nothing here |
 | DB | **Neon Postgres**, 3 databases | `meru` (control plane), `govx`, `immistack` |
 | Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
 | Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
 | Storage | AWS S3, per-tenant prefix | Google Drive / Azure drivers not built |
-| AI | `langchain` + `openai` | needs `OPENAI_API_KEY` |
+| AI | `openai` SDK directly — `langchain` is **not** a dependency | needs `OPENAI_API_KEY` |
 | Auth | JWT + Passport, TOTP MFA, SAML | sessions revocable within 60s |
 | Host | Vercel `sin1`, CLI-deployed | `vercel --prod`; no git integration |
 
@@ -376,16 +380,17 @@ with a natural-language command bar. Navigation renders from
 meru-core/
 ├── src/
 │   ├── iam/ tenant/ config/ crm/ search/ ai/ workflow/ forms/ tasks/
-│   ├── notifications/ documents/ storage/ billing/ payments/ analytics/
+│   ├── notifications/ documents/ storage/ billing/ analytics/ health/
 │   ├── audit/ integrations/ rules/ queue/ jobs/ orchestration/
 │   ├── core/          # tenancy, filters, interceptors, policies
-│   ├── common/        # shared types
-│   ├── migrations/    # 32 TypeORM migrations
-│   └── main.ts, app.module.ts
+│   ├── common/        # shared types, Actor/scopeOf (access.ts)
+│   ├── migrations/    # 34 TypeORM migrations
+│   └── main.ts, app.module.ts, swagger.ts
 ├── packages/config-packs/
 │   ├── _schema/       # pack.schema.ts (Zod) + config-pack.schema.json
-│   ├── ae/banking.json
-│   └── au/immigration.json
+│   ├── verticals/     # grc.json · immigration.json  (Layer 4 bases)
+│   └── countries/     # ae-grc · sa-grc · qa-grc · bh-grc ·
+│                      # au- · ca- · uk- · nz-immigration  (Layer 3 overlays)
 ├── scripts/           # db provisioning, RLS verification, smoke tests
 ├── CLAUDE.md          # this file — architecture, rules, operations
 └── AGENTS.md          # current state, gaps, what to build next
@@ -401,8 +406,7 @@ meru-core/
 API `/api/v1` · Swagger `/api` · spec `/api-json` · health `/api/v1/health`.
 
 Deploys are **CLI-driven** (`vercel --prod`); pushing to GitHub does *not*
-deploy. `origin` is `qognition-tech/meru-core` (not writable by the current gh
-account); `fork` → `qognitionagency/meru-core` is.
+deploy. There is one remote, `origin` → `qognitionagency/meru-core`.
 
 ### 8.2 Before every deploy
 
@@ -481,11 +485,13 @@ error, and **refuses to start under `NODE_ENV=production`**.
 behind `CronSecretGuard`, which fails closed when `CRON_SECRET` is unset. They
 accept GET as well as POST because Vercel Cron only issues GET.
 
+Fifteen jobs, in `JOB_CADENCE_MINUTES` (`jobs.controller.ts`):
+
 | Route | Runs |
 |---|---|
-| `/jobs/tick?scope=fast` | queue-drain, scheduled-jobs, recurring-tasks, scheduled-notifications, sla-watchdog, scheduled-reports |
-| `/jobs/tick?scope=daily` | daily-billing, regulatory-radar, audit-archive, digest-emails, watchlist-ingest, rescreening |
-| `/jobs/<name>` | one job by name |
+| `/jobs/tick?scope=fast` | queue-drain, scheduled-jobs, recurring-tasks, scheduled-notifications, notification-dispatch, sla-watchdog, alert-rules, messaging-sequences, scheduled-reports |
+| `/jobs/tick?scope=daily` | daily-billing, regulatory-radar, audit-archive, watchlist-ingest, rescreening, digest-emails |
+| `/jobs/<name>` | one job by name — e.g. `POST /jobs/watchlist-ingest` (AGENTS.md §5.1) |
 
 `/jobs/tick` is cadence-aware and idempotent. Dispatch stops after 45s and
 reports the rest as `deferred`, so a slow job cannot exceed the function
@@ -494,7 +500,10 @@ timeout.
 **Vercel Hobby allows two daily crons**, which cannot drain a queue. Point a
 free external scheduler (cron-job.org, 1-minute granularity) at
 `/api/v1/jobs/tick?scope=fast` with `Authorization: Bearer <CRON_SECRET>`.
-**Until that exists, minute-level work runs twice a day.**
+**With `CRON_SECRET` unset — which is the state today — every job runs zero
+times**, not twice a day: `CronSecretGuard` fails closed and the two Vercel
+crons 401 like everyone else. Once the secret exists and nothing else calls
+the tick, minute-level work runs twice a day.
 
 ### 8.5 Serverless constraints
 
@@ -606,10 +615,9 @@ not object storage, and `src/storage/providers/` holds only `s3.provider.ts`.
       `StorageModule`, so the provider abstraction buys nothing today. Any swap
       is blocked behind that rewire.
 
-### Doc drift found by audit, still unfixed
+### Doc drift found by audit
 
-`src/payments/` does not exist (BILL is one directory); `src/health/` is
-undocumented in §2 and §7; 34 migrations not 32; 13 country workflows not 12;
-§7's repo tree still shows the pre-restructure pack paths; the `/jobs/tick`
-table omits `notification-dispatch`, `alert-rules` and `messaging-sequences`
-(15 jobs, not 12); tenancy code cites "§6.4" for a rule that lives at §5.1.
+Fixed 2026-08-22: `src/payments/`, `src/health/`, migration count, the §7
+pack tree, the 15-job tick table, the remotes, `langchain`, the ten→nine pack
+arrays, thirteen country workflows (counted: AU 5, CA 3, UK 3, NZ 2). Still
+open: tenancy code cites "§6.4" for a rule that lives at §5.1.

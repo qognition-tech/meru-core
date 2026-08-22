@@ -732,7 +732,9 @@ export const ConfigPackSchema = z.object({
   description: z.string().optional(),
   version: SemVer,
   /**
-   * Must match `VerticalType` in `src/iam/enums/vertical.enum.ts`, because
+   * Must match `VerticalType` in `src/iam/entities/tenant.entity.ts` — the
+   * enum `tenants.vertical` is stored as (`immigration`,`grc`,`labour`), NOT
+   * the policy-lookup superset in `src/iam/enums/vertical.enum.ts` — because
    * `VerticalPackService` looks packs up by the tenant's stored vertical. They
    * disagreed once — the banking pack declared `banking` while the tenant
    * carried `grc` — and the result was silent and total: the GovernanceX tenant

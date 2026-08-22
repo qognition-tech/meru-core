@@ -107,7 +107,8 @@ export const configuration = () => ({
       process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
     ),
     migrationUrl: stripSslMode(process.env.DATABASE_URL),
-    // Per-vertical databases (three-DB split, MASTER_GAP_ANALYSIS §2 P1).
+    // Per-vertical databases (the three-DB split: `meru` control plane,
+    // `govx`, `immistack` — CLAUDE.md §6 and §8.3).
     // Unset ⇒ that vertical shares the default (control-plane) database, so
     // the split can roll out one environment at a time without downtime.
     govxUrl: stripSslMode(
