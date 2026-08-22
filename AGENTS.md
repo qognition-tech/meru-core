@@ -183,6 +183,19 @@ compiled app locally before deploying** — `SKIP_CONFIG_PACK_LOADER=true
 JWT_SECRET=x node dist/src/main.js` and grep for
 `Nest application successfully started`; unit tests do not build the graph.
 
+### 3.0b 2026-08-22, second pass — contracts, messaging, inbound webhooks
+
+| Was | Now | Where |
+|---|---|---|
+| `paymentPlans[].stages[].atStep` pointed at `482-tss` step ids inside a pack whose lifecycle is `wf_visa_matter`, so `arrearsBlocking` never matched — the "freeze on non-payment" gate was silently inert | Loader **rejects** a resolved pack with a fee or stage `atStep` naming no `workflows[].steps[].id` (`danglingStepReferences`, spec-guarded). AU overlay **2.4.0** re-points `staged_482` and the four stage-gated fees at `signup_payment` / `lodgement_fee` / `decision` / `document_request` | `config-pack-loader.service.ts`, `countries/au-immigration.json` |
+| `GET /search` returned `{results,total}` for a blank query and a bare array otherwise | Always `{results, total}`; `SearchResponseDto` in the spec. `total` is the count returned, bounded by `limit` | `src/search/` |
+| `GET /documents/checklist` declared no response schema; `outstandingRequired` was `0` with no `entityId` | `ChecklistResponseDto`; `outstandingRequired: null` when unknown. `uploaded` / `applies` nullability documented | `src/documents/dto/checklist-response.dto.ts` |
+| `POST /tasks/calendar/sync/:provider` → 200 `{success:false}` | **501** `MER-SRV-0501` | `task.service.ts` |
+| Sequences had no HTTP surface | `GET /messaging/sequences` (pack definitions + live enrolment counts), `GET /messaging/sequences/:key/enrolments?status=`, `POST …/enrolments/:entityId` (enrol now; first step goes out on the next fast tick), `POST …/stop`, `GET /messaging/templates`, `POST /messaging/templates/:key/preview` (renders without sending; returns `unrendered[]`). Firm roles only | `src/notifications/messaging.controller.ts` |
+| No inbound webhook receiver — Stripe's was the only inbound route | `POST /webhooks/endpoints` (firm/platform admin; `secret` returned **once**) · `GET /webhooks/endpoints` · `PATCH`/`DELETE` · `GET /webhooks/events`. Public `POST /webhooks/inbound/:endpointId` verifies `hmac-sha256-hex` / `hmac-sha256-base64` / `bearer-token` over the raw body, stores the delivery under the endpoint's tenant, emits **`webhook.inbound.received`** (`InboundWebhookReceivedPayload`) for a consumer to act on, answers 401 on a bad signature (stored as `rejected`). Scheme `none` → `signatureValid: null` — **unverified, never verified**. Two new tables, RLS ENABLE+FORCE; migration `1756300000000` | `src/webhooks/` |
+
+Nothing here is wired to a consumer yet: a signature-provider adapter or a Cal.com sync is an `@OnEvent('webhook.inbound.received')` listener that reads `body` and acts. That is the seam; the receiver does not interpret.
+
 ### 3.1 The nine pack arrays (Layer 4 → Layer 1)
 
 | Array | Evaluator | Fixed |
