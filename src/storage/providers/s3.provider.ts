@@ -19,13 +19,17 @@ import {
   StorageMetrics,
   FileSearchFilters,
   StorageProviderConfig,
+  ObjectStorageDriver,
 } from '../interfaces/storage.interface';
 
 @Injectable()
-export class S3StorageProvider {
+export class S3StorageProvider implements ObjectStorageDriver {
   private readonly logger = new Logger(S3StorageProvider.name);
   private s3: S3;
-  private bucket: string;
+  // `kind` is how StorageDriverRegistry indexes this driver, and `bucket` is
+  // public because the registry and the audit trail both need to name it.
+  readonly kind = StorageProvider.S3;
+  readonly bucket: string;
 
   constructor(private configService: ConfigService) {
     this.s3 = new S3({

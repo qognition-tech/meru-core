@@ -3,7 +3,77 @@ export enum StorageProvider {
   AZURE = 'azure',
   GCS = 'gcs',
   LOCAL = 'local',
+  SUPABASE = 'supabase',
 }
+
+/**
+ * The driver contract every object store implements.
+ *
+ * `StorageService` (and, through it, `DocumentsService`) talks to this and
+ * nothing else. A driver knows one bucket and one credential set; it does NOT
+ * know about tenants, users or authorisation — the per-tenant key prefix is
+ * asserted above it, in `StorageService`, because for Supabase the service key
+ * bypasses Supabase's own RLS and the prefix check is the only barrier there is.
+ *
+ * Methods marked optional are S3 concepts with no Supabase equivalent. A driver
+ * that lacks one leaves it undefined and the service reports the operation as
+ * unsupported for that provider rather than pretending it happened.
+ */
+export interface ObjectStorageDriver {
+  readonly kind: StorageProvider;
+  readonly bucket: string;
+
+  upload(
+    buffer: Buffer,
+    key: string,
+    options?: {
+      contentType?: string;
+      metadata?: Record<string, any>;
+      storageClass?: StorageClass;
+      encrypt?: boolean;
+    },
+  ): Promise<{ etag: string; versionId?: string }>;
+  download(key: string): Promise<Buffer>;
+  delete(key: string): Promise<void>;
+  copy(sourceKey: string, destinationKey: string): Promise<void>;
+  move(sourceKey: string, destinationKey: string): Promise<void>;
+  /** A short-lived, server-signed read URL. Never a public URL. */
+  getPresignedUrl(key: string, options: PresignedUrlOptions): Promise<string>;
+  getObjectMetadata(key: string): Promise<{
+    size: number;
+    lastModified: Date;
+    etag: string;
+    storageClass: string;
+    metadata: Record<string, any>;
+  }>;
+  listObjects(
+    prefix: string,
+    maxKeys?: number,
+  ): Promise<{ key: string; size: number; lastModified: Date; etag: string }[]>;
+
+  // ── Optional: S3-only concepts ─────────────────────────────────────────
+  getUploadPresignedUrl?(key: string, expiresIn?: number): Promise<string>;
+  changeStorageClass?(key: string, storageClass: StorageClass): Promise<void>;
+  initiateMultipartUpload?(
+    key: string,
+    options?: { contentType?: string; metadata?: Record<string, any> },
+  ): Promise<string>;
+  getPresignedUrlForPart?(
+    uploadId: string,
+    key: string,
+    partNumber: number,
+    expiresIn?: number,
+  ): Promise<string>;
+  completeMultipartUpload?(
+    uploadId: string,
+    key: string,
+    parts: { partNumber: number; etag: string }[],
+  ): Promise<void>;
+  abortMultipartUpload?(uploadId: string, key: string): Promise<void>;
+}
+
+/** Injection token for the drivers `StorageModule` managed to configure. */
+export const STORAGE_DRIVERS = Symbol('STORAGE_DRIVERS');
 
 export enum StorageClass {
   STANDARD = 'standard',

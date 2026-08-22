@@ -5,6 +5,8 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Actor, scopeOf } from '../common/access';
+import { StorageDriverRegistry } from './storage-driver.registry';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Brackets } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -23,8 +25,8 @@ import {
   FileSearchFilters,
   StorageMetrics,
   PresignedUrlOptions,
+  ObjectStorageDriver,
 } from './interfaces/storage.interface';
-import { S3StorageProvider } from './providers/s3.provider';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { randomUUID } from 'node:crypto';
@@ -32,8 +34,6 @@ import { randomUUID } from 'node:crypto';
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private s3Provider: S3StorageProvider;
-  private readonly defaultProvider: StorageProvider;
 
   constructor(
     @InjectRepository(StorageFile)
@@ -45,13 +45,11 @@ export class StorageService {
     private configService: ConfigService,
     private dataSource: DataSource,
     private eventEmitter: EventEmitter2,
-  ) {
-    this.s3Provider = new S3StorageProvider(configService);
-    this.defaultProvider = this.configService.get<StorageProvider>(
-      'storage.defaultProvider',
-      StorageProvider.S3,
-    );
-  }
+    // Injected, never `new`-ed here: which store holds a tenant's bytes is a
+    // deployment decision the module makes once, not something every service
+    // re-derives from env.
+    private readonly drivers: StorageDriverRegistry,
+  ) {}
 
   // ==================== UPLOAD OPERATIONS ====================
 
@@ -77,7 +75,8 @@ export class StorageService {
       const checksum = this.calculateChecksum(options.buffer);
 
       // Upload to storage provider
-      const provider = this.getProviderInstance(options.tenantId);
+      const provider = await this.drivers.forTenant(options.tenantId);
+      this.assertTenantKey(options.tenantId, key);
       const uploadResult = await provider.upload(options.buffer, key, {
         contentType: options.mimeType,
         metadata: options.metadata,
@@ -89,8 +88,8 @@ export class StorageService {
       const file = queryRunner.manager.create(StorageFile, {
         id: fileId,
         tenantId: options.tenantId,
-        provider: this.defaultProvider,
-        bucket: this.configService.get('AWS_S3_BUCKET', 'meru-storage'),
+        provider: provider.kind,
+        bucket: provider.bucket,
         key,
         originalName: options.fileName,
         mimeType: options.mimeType,
@@ -153,7 +152,7 @@ export class StorageService {
     buffer: Buffer,
     changeDescription: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<FileVersion> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -161,6 +160,9 @@ export class StorageService {
     if (!file) {
       throw new NotFoundException('File not found');
     }
+
+    await this.checkAccess(file, actor, 'write');
+    const userId = actor.id;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -184,8 +186,9 @@ export class StorageService {
       );
       const checksum = this.calculateChecksum(buffer);
 
-      // Upload to storage
-      const provider = this.getProviderInstance(tenantId);
+      // A new version lands in the store the file already lives in.
+      const provider = this.drivers.forFile(file.provider);
+      this.assertTenantKey(tenantId, key);
       await provider.upload(buffer, key, {
         contentType: file.mimeType,
         metadata: file.metadata,
@@ -241,7 +244,7 @@ export class StorageService {
     fileId: string,
     versionId: string | undefined,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<{
     buffer: Buffer;
     fileName: string;
@@ -254,7 +257,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'read');
+    await this.checkAccess(file, actor, 'read');
 
     let version: FileVersion | null = null;
     if (versionId) {
@@ -274,7 +277,8 @@ export class StorageService {
       throw new NotFoundException('File version not found');
     }
 
-    const provider = this.getProviderInstance(tenantId);
+    const provider = this.drivers.forFile(file.provider);
+    this.assertTenantKey(tenantId, version.key);
     const buffer = await provider.download(version.key);
 
     // Update access statistics
@@ -292,7 +296,7 @@ export class StorageService {
 
   async getPresignedUrl(
     fileId: string,
-    options: PresignedUrlOptions & { tenantId: string; userId?: string },
+    options: PresignedUrlOptions & { tenantId: string; actor?: Actor },
   ): Promise<string> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId: options.tenantId },
@@ -301,8 +305,10 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    if (options.userId) {
-      await this.checkAccess(file, options.userId, 'read');
+    // `actor` is optional only for internal callers that have already
+    // authorised (the documents service). Every HTTP path passes one.
+    if (options.actor) {
+      await this.checkAccess(file, options.actor, 'read');
     }
 
     let version: FileVersion | null = null;
@@ -320,8 +326,12 @@ export class StorageService {
       throw new NotFoundException('File version not found');
     }
 
-    const provider = this.getProviderInstance(options.tenantId);
-    return provider.getPresignedUrl(version.key, options);
+    const provider = this.drivers.forFile(file.provider);
+    this.assertTenantKey(options.tenantId, version.key);
+    return provider.getPresignedUrl(version.key, {
+      ...options,
+      expiresInSeconds: this.clampTtl(options.expiresInSeconds),
+    });
   }
 
   // ==================== MULTIPART UPLOAD ====================
@@ -342,17 +352,18 @@ export class StorageService {
     const fileId = randomUUID();
     const key = this.generateKey(tenantId, fileId, 1, fileName);
 
-    const provider = this.getProviderInstance(tenantId);
-    const uploadId = await provider.initiateMultipartUpload(key, {
-      contentType: mimeType,
-      metadata,
-    });
+    // Multipart with browser-signed parts is an S3 concept; a provider without
+    // it answers 501 here rather than handing back URLs that do not work.
+    const provider = await this.drivers.forTenant(tenantId);
+    const initiate = this.drivers.require(provider, 'initiateMultipartUpload');
+    const signPart = this.drivers.require(provider, 'getPresignedUrlForPart');
+    const uploadId = await initiate(key, { contentType: mimeType, metadata });
 
     const totalParts = Math.ceil(totalSize / partSize);
     const uploadUrls: { partNumber: number; url: string }[] = [];
 
     for (let i = 1; i <= totalParts; i++) {
-      const url = await provider.getPresignedUrlForPart(uploadId, key, i, 3600);
+      const url = await signPart(uploadId, key, i, 3600);
       uploadUrls.push({ partNumber: i, url });
     }
 
@@ -378,8 +389,8 @@ export class StorageService {
     const file = this.fileRepo.create({
       id: fileId,
       tenantId,
-      provider: this.defaultProvider,
-      bucket: this.configService.get('AWS_S3_BUCKET', 'meru-storage'),
+      provider: provider.kind,
+      bucket: provider.bucket,
       key,
       originalName: fileName,
       mimeType,
@@ -404,7 +415,7 @@ export class StorageService {
     uploadId: string,
     partETags: string[],
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const multipartUpload = await this.multipartRepo.findOne({
       where: { uploadId },
@@ -420,14 +431,17 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    const provider = this.getProviderInstance(tenantId);
+    await this.checkAccess(file, actor, 'write');
+    const userId = actor.id;
+    const provider = this.drivers.forFile(file.provider);
+    const complete = this.drivers.require(provider, 'completeMultipartUpload');
 
     const parts = partETags.map((etag, index) => ({
       partNumber: index + 1,
       etag,
     }));
 
-    await provider.completeMultipartUpload(uploadId, file.key, parts);
+    await complete(uploadId, file.key, parts);
 
     // Update file status
     const versionId = randomUUID();
@@ -462,7 +476,7 @@ export class StorageService {
     fileId: string,
     destinationFolder: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -471,7 +485,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'write');
+    await this.checkAccess(file, actor, 'write');
 
     file.folder = destinationFolder;
     file.updatedAt = new Date();
@@ -484,7 +498,7 @@ export class StorageService {
     destinationFolder: string,
     newName: string | undefined,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const sourceFile = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -493,7 +507,8 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(sourceFile, userId, 'read');
+    await this.checkAccess(sourceFile, actor, 'read');
+    const userId = actor.id;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -505,8 +520,10 @@ export class StorageService {
       const fileName = newName || sourceFile.originalName;
       const key = this.generateKey(tenantId, newFileId, 1, fileName);
 
-      // Copy in storage
-      const provider = this.getProviderInstance(tenantId);
+      // Copy in storage — within the store the source lives in.
+      const provider = this.drivers.forFile(sourceFile.provider);
+      this.assertTenantKey(tenantId, sourceFile.key);
+      this.assertTenantKey(tenantId, key);
       await provider.copy(sourceFile.key, key);
 
       // Create new file record
@@ -560,7 +577,7 @@ export class StorageService {
   async deleteFile(
     fileId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
     permanent: boolean = false,
   ): Promise<void> {
     const file = await this.fileRepo.findOne({
@@ -570,17 +587,19 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'delete');
+    await this.checkAccess(file, actor, 'delete');
 
     if (permanent) {
       // Delete from storage
-      const provider = this.getProviderInstance(tenantId);
+      const provider = this.drivers.forFile(file.provider);
+      this.assertTenantKey(tenantId, file.key);
       await provider.delete(file.key);
 
       // Delete versions
       const versions = await this.versionRepo.find({ where: { fileId } });
       for (const version of versions) {
         if (version.key !== file.key) {
+          this.assertTenantKey(tenantId, version.key);
           await provider.delete(version.key);
         }
       }
@@ -599,7 +618,7 @@ export class StorageService {
   async restoreFile(
     fileId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -610,7 +629,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'write');
+    await this.checkAccess(file, actor, 'write');
 
     file.status = FileStatus.ACTIVE;
     file.deletedAt = null;
@@ -710,7 +729,7 @@ export class StorageService {
   async getFile(
     fileId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -721,7 +740,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'read');
+    await this.checkAccess(file, actor, 'read');
 
     return file;
   }
@@ -729,7 +748,7 @@ export class StorageService {
   async getVersions(
     fileId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<FileVersion[]> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -738,7 +757,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'read');
+    await this.checkAccess(file, actor, 'read');
 
     return this.versionRepo.find({
       where: { fileId },
@@ -758,7 +777,7 @@ export class StorageService {
       status?: string;
     },
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -767,7 +786,7 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'write');
+    await this.checkAccess(file, actor, 'write');
 
     if (updates.metadata !== undefined) file.metadata = updates.metadata;
     if (updates.tags !== undefined) file.tags = updates.tags;
@@ -776,8 +795,10 @@ export class StorageService {
       file.status = updates.status as FileStatus;
 
     if (updates.storageClass && updates.storageClass !== file.storageClass) {
-      const provider = this.getProviderInstance(tenantId);
-      await provider.changeStorageClass(file.key, updates.storageClass);
+      const provider = this.drivers.forFile(file.provider);
+      const change = this.drivers.require(provider, 'changeStorageClass');
+      this.assertTenantKey(tenantId, file.key);
+      await change(file.key, updates.storageClass);
       file.storageClass = updates.storageClass;
     }
 
@@ -789,7 +810,7 @@ export class StorageService {
     fileId: string,
     storageClass: StorageClass,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<StorageFile> {
     const file = await this.fileRepo.findOne({
       where: { id: fileId, tenantId },
@@ -798,10 +819,14 @@ export class StorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.checkAccess(file, userId, 'write');
+    await this.checkAccess(file, actor, 'write');
 
-    const provider = this.getProviderInstance(tenantId);
-    await provider.changeStorageClass(file.key, storageClass);
+    // Storage classes are an S3 concept. Supabase has one tier, and a 501
+    // here is the truthful answer; "changed" with nothing changed is not.
+    const provider = this.drivers.forFile(file.provider);
+    const change = this.drivers.require(provider, 'changeStorageClass');
+    this.assertTenantKey(tenantId, file.key);
+    await change(file.key, storageClass);
 
     file.storageClass = storageClass;
     file.updatedAt = new Date();
@@ -886,28 +911,72 @@ export class StorageService {
     return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
-  private getProviderInstance(tenantId: string): S3StorageProvider {
-    // For now, always use S3. Could be extended to support per-tenant providers
-    return this.s3Provider;
+  /**
+   * Every key this service hands a driver lives under the caller's tenant.
+   *
+   * This is the load-bearing check for Supabase, whose service-role key
+   * bypasses Supabase's own row-level security entirely: nothing on that side
+   * knows what a tenant is. RLS on `storage_files` stops one tenant *finding*
+   * another's row, but a key is a string, and a row whose key pointed outside
+   * its tenant's prefix — by a bug, a bad migration, or a hand-edited row —
+   * would be served without this. Asserted on every read, write, copy and
+   * delete, not just on key generation.
+   */
+  private assertTenantKey(tenantId: string, key: string): void {
+    const prefix = `tenants/${tenantId}/`;
+    if (!key || !key.startsWith(prefix) || key.includes('..')) {
+      this.logger.error(
+        `Refusing storage access: key "${key}" is outside tenant ${tenantId}`,
+      );
+      throw new ForbiddenException('Storage key is outside the caller tenant');
+    }
   }
 
+  /** Signed URLs are short-lived: never more than 15 minutes, default 5. */
+  private clampTtl(seconds?: number): number {
+    const max = 15 * 60;
+    const def = 5 * 60;
+    if (!seconds || seconds <= 0) return def;
+    return Math.min(seconds, max);
+  }
+
+  /**
+   * Who may touch a storage file, decided by the same `Actor`/`scopeOf` model
+   * as documents (`DocumentAccessService`), so the two paths give ONE answer.
+   *
+   * This used to deny anyone who was not the uploader — the mirror image of
+   * the documents stub that allowed everyone — so a caseworker could not open
+   * a file a client had uploaded, while `@CurrentUser('sub')` in the
+   * controller resolved to `undefined` (the payload field is `id`), which made
+   * the "owner" comparison `undefined === undefined` for files whose
+   * `createdById` was never set. Two wrong answers on one route.
+   *
+   * | Caller                     | read                      | write / delete |
+   * |----------------------------|---------------------------|----------------|
+   * | inside `runAsGod`          | yes                       | yes            |
+   * | `firm_admin` / `staff`     | yes                       | yes            |
+   * | owner (`createdById`)      | yes                       | yes            |
+   * | anyone else in the tenant  | only if `access: public`  | no             |
+   *
+   * A file the caller cannot read is a **404, not a 403**: ids travel in
+   * links, and "real but not yours" is itself a disclosure.
+   */
   private async checkAccess(
     file: StorageFile,
-    userId: string,
+    actor: Actor,
     action: 'read' | 'write' | 'delete',
   ): Promise<void> {
-    // Owner has full access
-    if (file.createdById === userId) {
-      return;
-    }
+    const scope = scopeOf(actor);
+    if (scope === 'god' || scope === 'tenant') return;
 
-    // Check file access level
-    if (file.access === FileAccess.PUBLIC && action === 'read') {
-      return;
-    }
+    if (file.createdById && file.createdById === actor.id) return;
 
-    // TODO: Implement more sophisticated RBAC
-    // For now, deny access if not owner
+    const publicRead = file.access === FileAccess.PUBLIC;
+    if (publicRead && action === 'read') return;
+
+    if (!publicRead) {
+      throw new NotFoundException('File not found');
+    }
     throw new ForbiddenException(
       `Access denied: insufficient permissions to ${action} file`,
     );

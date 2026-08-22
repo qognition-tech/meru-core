@@ -28,6 +28,7 @@ import {
 } from '@nestjs/swagger';
 import { StorageService } from './storage.service';
 import { CurrentUser } from '../iam/decorators/current-user.decorator';
+import type { UserPayload } from '../common/types';
 import { TenantId } from '../tenant/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../iam/guards/jwt-auth.guard';
 import { UseGuards } from '@nestjs/common';
@@ -76,7 +77,7 @@ export class StorageController {
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.upload({
       tenantId,
@@ -91,7 +92,7 @@ export class StorageController {
       expiresInDays: dto.expiresInDays,
       encrypt: dto.encrypt,
       folder: dto.folder,
-      userId,
+      userId: actor.id,
     });
   }
 
@@ -104,7 +105,7 @@ export class StorageController {
   async initiateMultipartUpload(
     @Body() dto: InitiateMultipartUploadDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<{
     uploadId: string;
     fileId: string;
@@ -115,7 +116,7 @@ export class StorageController {
       dto.fileName,
       dto.mimeType,
       dto.totalSize,
-      userId,
+      actor.id,
       dto.partSize,
       dto.metadata,
     );
@@ -134,13 +135,13 @@ export class StorageController {
   async completeMultipartUpload(
     @Body() dto: CompleteMultipartUploadDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.completeMultipartUpload(
       dto.uploadId,
       dto.partETags,
       tenantId,
-      userId,
+      actor,
     );
   }
 
@@ -168,7 +169,7 @@ export class StorageController {
   })
   async listFiles(
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
     @Query() query: SearchFilesDto,
   ): Promise<{ files: StorageFile[]; total: number }> {
     return this.storageService.searchFiles({
@@ -196,9 +197,9 @@ export class StorageController {
   async getFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.getFile(fileId, tenantId, userId);
+    return this.storageService.getFile(fileId, tenantId, actor);
   }
 
   @Patch('files/:id')
@@ -215,7 +216,7 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: UpdateFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.updateFile(
       fileId,
@@ -227,7 +228,7 @@ export class StorageController {
         status: dto.status,
       },
       tenantId,
-      userId,
+      actor,
     );
   }
 
@@ -248,9 +249,9 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Query('permanent') permanent: boolean,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<void> {
-    await this.storageService.deleteFile(fileId, tenantId, userId, permanent);
+    await this.storageService.deleteFile(fileId, tenantId, actor, permanent);
   }
 
   @Post('files/:id/restore')
@@ -266,9 +267,9 @@ export class StorageController {
   async restoreFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.restoreFile(fileId, tenantId, userId);
+    return this.storageService.restoreFile(fileId, tenantId, actor);
   }
 
   // ==================== DOWNLOAD ====================
@@ -283,12 +284,12 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Query() dto: PresignedUrlDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<{ url: string; expiresIn: number }> {
     const url = await this.storageService.getPresignedUrl(fileId, {
       fileId,
       tenantId,
-      userId,
+      actor,
       expiresInSeconds: dto.expiresInSeconds,
       responseDisposition: dto.responseDisposition,
     });
@@ -311,9 +312,9 @@ export class StorageController {
   async getVersions(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<FileVersion[]> {
-    return this.storageService.getVersions(fileId, tenantId, userId);
+    return this.storageService.getVersions(fileId, tenantId, actor);
   }
 
   @Post('files/:id/versions')
@@ -333,14 +334,14 @@ export class StorageController {
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateVersionDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<FileVersion> {
     return this.storageService.createVersion(
       fileId,
       file.buffer,
       dto.changeDescription,
       tenantId,
-      userId,
+      actor,
     );
   }
 
@@ -360,13 +361,13 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: MoveFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.moveFile(
       fileId,
       dto.destinationFolder,
       tenantId,
-      userId,
+      actor,
     );
   }
 
@@ -384,14 +385,14 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: CopyFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.copyFile(
       fileId,
       dto.destinationFolder,
       dto.newName,
       tenantId,
-      userId,
+      actor,
     );
   }
 
@@ -410,13 +411,13 @@ export class StorageController {
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body('storageClass') storageClass: StorageClass,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.changeStorageClass(
       fileId,
       storageClass,
       tenantId,
-      userId,
+      actor,
     );
   }
 

@@ -15,15 +15,36 @@ import {
   MultipartUpload,
 } from './entities/storage-file.entity';
 import { S3StorageProvider } from './providers/s3.provider';
+import { StorageDriverRegistry } from './storage-driver.registry';
+import { STORAGE_DRIVERS } from './interfaces/storage.interface';
+import { Tenant } from '../iam/entities/tenant.entity';
 import { IamModule } from '../iam/iam.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StorageFile, FileVersion, MultipartUpload]),
+    // Tenant is read-only here: the registry resolves a tenant's configured
+    // provider. Consumers never write tenants through this module.
+    TypeOrmModule.forFeature([StorageFile, FileVersion, MultipartUpload, Tenant]),
     IamModule,
   ],
-  providers: [StorageService, S3StorageProvider],
+  providers: [
+    StorageService,
+    S3StorageProvider,
+    // Every object-storage driver registers here under its `kind`. The registry
+    // picks per file (`file.provider`) and per tenant (`tenants.settings`), with
+    // STORAGE_PROVIDER as the platform default. Add a driver = add it to this
+    // array; nothing else in the module changes.
+    {
+      provide: STORAGE_DRIVERS,
+      useFactory: (s3: S3StorageProvider) => [s3],
+      inject: [S3StorageProvider],
+    },
+    // Injected by StorageService. Must stay listed: a provider that is imported
+    // and injected but never registered fails at DI time, which on Vercel
+    // prints a full route table and THEN dies on every route.
+    StorageDriverRegistry,
+  ],
   controllers: [StorageController],
-  exports: [StorageService],
+  exports: [StorageService, StorageDriverRegistry],
 })
 export class StorageModule {}
