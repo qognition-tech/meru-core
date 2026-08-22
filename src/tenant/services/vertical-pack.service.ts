@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigPack } from '../entities/config-pack.entity';
+import { TenantConfigPin } from '../../iam/entities/tenant-config-pin.entity';
+import { TenantContext } from '../../core/tenancy/tenant-context';
 
 /**
  * The one place that answers "give me section X of the config pack serving
@@ -20,12 +22,18 @@ import { ConfigPack } from '../entities/config-pack.entity';
  * mechanism per shape of problem, parameterised by the pack, rather than one
  * implementation per feature that needs it.
  *
- * Deliberately narrow: no tenant pins, no overrides. Pin resolution is
- * `ConfigPackService.getTenantEffectiveConfig`, which needs a pinned tenant and
- * throws when there is not one. The callers here — a prompt lookup, a template
- * lookup, a document checklist — must work for a tenant that has never been
- * pinned, so they resolve by vertical and treat a missing section as absent
- * rather than as an error.
+ * Pins are honoured here, because this is the read path. A tenant pinned to
+ * `ae-grc` via `POST /config-packs/:code/pin` gets the UAE overlay on every
+ * section lookup — prompts, templates, checklists, fees, navigation — not only
+ * from `ConfigPackService.getTenantEffectiveConfig`, which for months was the
+ * only code that consulted `tenant_config_pins` and which nothing on a read
+ * path called. The pin is resolved from the ambient `TenantContext` so the
+ * fifteen callers did not each have to learn about tenants; outside a request
+ * (jobs, bootstrap) there is no tenant and the vertical-wide base applies.
+ *
+ * Still deliberately narrow: `overrides` on the pin are not merged here. An
+ * unpinned tenant must keep working, so a missing pin is the base pack, never
+ * an error.
  */
 @Injectable()
 export class VerticalPackService {
@@ -34,7 +42,45 @@ export class VerticalPackService {
   constructor(
     @InjectRepository(ConfigPack)
     private readonly configPackRepo: Repository<ConfigPack>,
+    @InjectRepository(TenantConfigPin)
+    private readonly pinRepo: Repository<TenantConfigPin>,
   ) {}
+
+  /**
+   * The pack the current tenant has pinned for this vertical, if any.
+   *
+   * A pin is only honoured when the pinned pack is active and serves the same
+   * vertical as the caller asked for — a stale pin to a retired pack, or a pin
+   * left over from a vertical change, must not hijack a lookup. Any failure
+   * here degrades to the unpinned answer and is logged, because "the pin table
+   * is unreadable" is not a reason to serve nothing.
+   */
+  private async pinnedFor(
+    tenantId: string,
+    vertical: string,
+  ): Promise<ConfigPack | null> {
+    try {
+      const pins = await this.pinRepo.find({
+        where: { tenantId },
+        relations: ['configPack'],
+        order: { pinnedAt: 'DESC' },
+      });
+      for (const pin of pins) {
+        const pack = pin.configPack;
+        if (pack && pack.isActive && pack.vertical === vertical) {
+          return pack;
+        }
+      }
+      return null;
+    } catch (err) {
+      this.logger.warn(
+        `Pin lookup failed for tenant ${tenantId}; falling back to the base pack: ${
+          (err as Error).message
+        }`,
+      );
+      return null;
+    }
+  }
 
   /**
    * The active pack for a vertical, highest version first. `null` when the
@@ -47,6 +93,14 @@ export class VerticalPackService {
    */
   async forVertical(vertical: string | null): Promise<ConfigPack | null> {
     if (!vertical) return null;
+
+    // A pinned tenant gets its pinned pack — usually a country overlay — on
+    // every read path, which is what pinning is for.
+    const tenantId = TenantContext.getTenantId();
+    if (tenantId) {
+      const pinned = await this.pinnedFor(tenantId, vertical);
+      if (pinned) return pinned;
+    }
 
     // The **base** pack wins over any country overlay, then the highest
     // version. Since packs split into `grc` + `ae-grc`/`sa-grc`/`qa-grc`/

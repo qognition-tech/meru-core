@@ -25,6 +25,9 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { ModuleEntitlementGuard } from '../iam/entitlements/module-entitlement.guard';
+import { RequiresModule } from '../iam/entitlements/requires-module.decorator';
+import { ModuleCode } from '../iam/entitlements/module-code';
 import { IntegrationsService } from './integrations.service';
 import type {
   AdapterResponse,
@@ -192,6 +195,8 @@ export class IntegrationsController {
   // stale AIS position is a wrong one.
 
   @Get('vessel')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @ApiOperation({
     summary: 'This tenant’s vessel watchlist, with live position and risk',
     description:
@@ -204,6 +209,8 @@ export class IntegrationsController {
   }
 
   @Get('vessel/alerts')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @ApiOperation({
     summary: 'Risk alerts across the watchlist, most severe first',
     description:
@@ -215,6 +222,8 @@ export class IntegrationsController {
   }
 
   @Post('vessel/watchlist')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Add a vessel to the watchlist',
@@ -232,6 +241,8 @@ export class IntegrationsController {
   }
 
   @Delete('vessel/watchlist/:id')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @ApiOperation({ summary: 'Stop watching a vessel' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Vessel removed' })
@@ -250,12 +261,16 @@ export class IntegrationsController {
   // horizontal part: counterparty screening via the Screening engine.
 
   @Get('trade')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.TRADE_FINANCE)
   @ApiOperation({ summary: 'List trade finance instruments' })
   async listTrade(@Request() req: AuthenticatedRequest) {
     return this.tradeService.list(req.user.tenantId);
   }
 
   @Get('trade/:id')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.TRADE_FINANCE)
   @ApiOperation({ summary: 'Get one trade finance instrument' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 404, description: 'Not found on this tenant' })
@@ -267,6 +282,8 @@ export class IntegrationsController {
   }
 
   @Post('trade')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.TRADE_FINANCE)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Book a trade instrument, screening its counterparties',
@@ -285,6 +302,8 @@ export class IntegrationsController {
   }
 
   @Patch('trade/:id')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.TRADE_FINANCE)
   @ApiOperation({
     summary: 'Update a trade instrument',
     description:
@@ -303,6 +322,8 @@ export class IntegrationsController {
   // PUT alias — separate handler, because stacking verb decorators on one
   // method registers only the last one.
   @Put('trade/:id')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.TRADE_FINANCE)
   @ApiOperation({ summary: 'Update a trade instrument (alias of PATCH)' })
   @ApiParam({ name: 'id', format: 'uuid' })
   async replaceTrade(

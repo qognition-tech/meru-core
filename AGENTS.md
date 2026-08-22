@@ -161,6 +161,22 @@ any failure, so it gates a deploy.
 
 ## 3. Shipped, and what each one actually fixed
 
+### 3.0 2026-08-22 — the six gap closures
+
+All verified by `pnpm build`, `pnpm check:cjs`, `pnpm test` (38 suites / 548).
+
+| Gap | What shipped | Where |
+|---|---|---|
+| Pack `workflows[]` inert | `PackWorkflowService.materialise` → real `workflows` rows; `GET /workflows/pack`, `POST /workflows/pack/materialise` (firm/platform admin, idempotent). Step `condition` strings compile to JsonLogic (`compileCondition`, no eval); `evaluateConditions` evaluates `conditions.jsonLogic` via `RuleEvaluatorService`; an uncompilable condition is `conditions.unevaluable` and **never opens**. | `src/workflow/services/pack-workflow.service.ts`, `pack-condition.ts` |
+| Country pins ignored on reads | `VerticalPackService.forVertical` honours the ambient tenant's active, same-vertical pin; base pack otherwise | `src/tenant/services/vertical-pack.service.ts` |
+| `rules[]` read by nobody | `PackRuleService.evaluate` → `GET /crm/entities/:id/rules`. Read-only; `skipped` = unknown, not passed | `src/rules/pack-rule.service.ts` |
+| Entitlements cosmetic | `ModuleCode` (additive), `@RequiresModule`, `ModuleEntitlementGuard` → 402 `MER-TENANT-0006`. Trade + vessel routes only; pre-vocabulary grants pass ungated | `src/iam/entitlements/` |
+| No tenant-domain resolution | public `GET /tenants/resolve?host=` | `tenant-provisioning.{controller,service}.ts` |
+| Search never hit Elasticsearch | `SearchService` mirrors writes and queries ES when `ElasticsearchService.available`; Postgres ILIKE fallback, same shape. `ELASTICSEARCH_HOST` is **unset on Vercel**, so production is still on Postgres | `src/search/search.service.ts` |
+
+Spec count after this: the four new routes make **262 paths**. Re-check
+`/api-json` after deploy.
+
 ### 3.1 The nine pack arrays (Layer 4 → Layer 1)
 
 | Array | Evaluator | Fixed |
@@ -254,7 +270,6 @@ already correctly single-use via a conditional `revokedAt IS NULL` UPDATE.
 
 | Item | Rows unblocked | Note |
 |---|---|---|
-| **Wire Elasticsearch** | 4 | `src/search/elasticsearch/` is finished and imported by nobody; the facade is Postgres `ILIKE` |
 
 | **Storage drivers** | 2 | Google Drive, Azure Blob; the provider interface is already right |
 

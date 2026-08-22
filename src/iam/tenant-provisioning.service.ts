@@ -18,6 +18,7 @@ import { TenantSetting } from '../tenant/entities/tenant-setting.entity';
 import { randomUUID } from 'node:crypto';
 import { TenantContext } from '../core/tenancy/tenant-context';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { ModuleCode } from './entitlements/module-code';
 import { PlatformRole } from './enums/platform-role.enum';
 import { MailService } from '../core/mail/mail.service';
 import {
@@ -45,6 +46,19 @@ export interface TenantWorkspaceResponse {
  * math changes; the plan list is the DEFAULT at provisioning time, not a
  * live computation.
  */
+/** Subdomains that can never be a tenant. */
+const RESERVED_SUBDOMAINS = new Set([
+  'www',
+  'app',
+  'api',
+  'admin',
+  'mail',
+  'static',
+  'cdn',
+  'docs',
+  'help',
+]);
+
 const CORE_MODULES = [
   'crm',
   'cases',
@@ -53,6 +67,29 @@ const CORE_MODULES = [
   'payments',
   'communications',
 ];
+/**
+ * Vertical-specific additions, applied at provisioning only. Existing grants
+ * are never rewritten (§7.2). A GRC tenant provisioned from here on carries
+ * the GRC codes, which is what makes `ModuleEntitlementGuard` enforce for it.
+ */
+const GRC_PLAN_MODULES: Partial<
+  Record<VerticalType, Partial<Record<TenantPlan, string[]>>>
+> = {
+  [VerticalType.GRC]: {
+    [TenantPlan.FREE]: [ModuleCode.SCREENING],
+    [TenantPlan.STARTER]: [ModuleCode.SCREENING],
+    [TenantPlan.PROFESSIONAL]: [
+      ModuleCode.SCREENING,
+      ModuleCode.TRADE_FINANCE,
+      ModuleCode.VESSEL_TRACKING,
+    ],
+    [TenantPlan.ENTERPRISE]: [
+      ModuleCode.SCREENING,
+      ModuleCode.TRADE_FINANCE,
+      ModuleCode.VESSEL_TRACKING,
+    ],
+  },
+};
 const PLAN_MODULES: Record<TenantPlan, string[]> = {
   [TenantPlan.FREE]: [...CORE_MODULES],
   [TenantPlan.STARTER]: [...CORE_MODULES, 'forms'],
@@ -357,7 +394,11 @@ export class TenantProvisioningService {
   }> {
     const plan = dto.plan ?? TenantPlan.FREE;
     const modules = Array.from(
-      new Set([...(PLAN_MODULES[plan] ?? CORE_MODULES), ...(dto.modules ?? [])]),
+      new Set([
+        ...(PLAN_MODULES[plan] ?? CORE_MODULES),
+        ...(GRC_PLAN_MODULES[dto.vertical]?.[plan] ?? []),
+        ...(dto.modules ?? []),
+      ]),
     );
 
     const tenant = await TenantContext.runAsSystem(
@@ -638,6 +679,78 @@ export class TenantProvisioningService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Which tenant does a hostname belong to? Unauthenticated by necessity — the
+   * caller is a login page that has not signed anyone in yet and wants to show
+   * the right logo and colours. Returns only what a public login page may
+   * show: no settings, no plan, no limits, no status.
+   *
+   * Two shapes resolve:
+   *   - `<slug>.<BASE_DOMAIN>` (BASE_DOMAIN from the environment, e.g.
+   *     `govx.com`), by slug;
+   *   - anything else, by exact match on `settings.branding.customDomain`.
+   *
+   * Before this there was no tenant-domain resolution at all — `domain`
+   * appeared zero times in the spec — so every portal showed the platform's
+   * branding until after login.
+   */
+  async resolveByHost(host: string): Promise<{
+    slug: string;
+    name: string;
+    vertical: VerticalType;
+    logoUrl: string | null;
+    branding: { colors?: { primary?: string; secondary?: string } } | null;
+    matchedBy: 'subdomain' | 'custom_domain';
+  } | null> {
+    const hostname = host.trim().toLowerCase().split(':')[0];
+    if (!hostname || hostname.length > 253) return null;
+
+    const baseDomain = (this.configService.get<string>('BASE_DOMAIN') ?? '')
+      .trim()
+      .toLowerCase();
+
+    let tenant: Tenant | null = null;
+    let matchedBy: 'subdomain' | 'custom_domain' = 'custom_domain';
+
+    if (baseDomain && hostname.endsWith('.' + baseDomain)) {
+      const slug = hostname.slice(0, -(baseDomain.length + 1));
+      // Only one label: `a.b.govx.com` is not a tenant.
+      if (slug && !slug.includes('.') && !RESERVED_SUBDOMAINS.has(slug)) {
+        tenant = await TenantContext.runAsSystem(
+          'resolve tenant by subdomain',
+          () => this.tenantRepo.findOne({ where: { slug } }),
+        );
+        matchedBy = 'subdomain';
+      }
+    }
+
+    if (!tenant) {
+      tenant = await TenantContext.runAsSystem(
+        'resolve tenant by custom domain',
+        () =>
+          this.tenantRepo
+            .createQueryBuilder('t')
+            .where(
+              `lower(t.settings->'branding'->>'customDomain') = :hostname`,
+              { hostname },
+            )
+            .getOne(),
+      );
+      matchedBy = 'custom_domain';
+    }
+
+    if (!tenant) return null;
+    const branding = tenant.settings?.branding ?? null;
+    return {
+      slug: tenant.slug,
+      name: tenant.name,
+      vertical: tenant.vertical,
+      logoUrl: tenant.logoUrl ?? branding?.logo ?? null,
+      branding: branding?.colors ? { colors: branding.colors } : null,
+      matchedBy,
+    };
   }
 
   async checkSlugAvailability(slug: string): Promise<{ available: boolean }> {

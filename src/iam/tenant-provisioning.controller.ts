@@ -1,5 +1,8 @@
 import {
   ForbiddenException,
+  BadRequestException,
+  NotFoundException,
+  Query,
   Controller,
   Post,
   Body,
@@ -20,6 +23,7 @@ import {
   ApiBody,
   ApiParam,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PolicyGuard } from './guards/policy.guard';
 import { TenantProvisioningService } from './tenant-provisioning.service';
@@ -198,6 +202,29 @@ export class TenantProvisioningController {
     const result = await this.tenantProvisioningService.createTenant(dto);
 
     return result;
+  }
+
+  @Get('resolve')
+  @Public()
+  @ApiOperation({
+    summary: 'Which tenant a hostname belongs to — public branding only',
+    description:
+      'For a login page to brand itself before anyone is signed in. ' +
+      'Resolves `<slug>.<BASE_DOMAIN>` by slug, otherwise by exact match on ' +
+      'the tenant\'s `settings.branding.customDomain`. Returns slug, name, ' +
+      'vertical, logo and colours — nothing else. 404 when no tenant owns ' +
+      'the host; the UI should then show platform branding, not an error.',
+  })
+  @ApiQuery({ name: 'host', example: 'acme.govx.com' })
+  @ApiResponse({ status: 200, description: 'Tenant resolved' })
+  @ApiResponse({ status: 404, description: 'No tenant owns this host' })
+  async resolve(@Query('host') host?: string) {
+    if (!host || typeof host !== 'string') {
+      throw new BadRequestException('host is required');
+    }
+    const tenant = await this.tenantProvisioningService.resolveByHost(host);
+    if (!tenant) throw new NotFoundException('No tenant owns this host');
+    return tenant;
   }
 
   @Post('check-slug')

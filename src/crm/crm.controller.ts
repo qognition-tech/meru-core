@@ -39,6 +39,7 @@ import { UserPayload, type AuthenticatedRequest } from '../common/types';
 import { EntityRelationService } from './entity-relation.service';
 import { CommentService } from './comment.service';
 import { AcceptanceService } from './acceptance.service';
+import { PackRuleService } from '../rules/pack-rule.service';
 import { RecordAcceptanceDto } from './dto/record-acceptance.dto';
 import { AddCommentDto } from './dto/add-comment.dto';
 import { LinkEntitiesDto } from './dto/link-entities.dto';
@@ -53,6 +54,7 @@ export class CrmController {
     private relations: EntityRelationService,
     private readonly comments: CommentService,
     private readonly acceptance: AcceptanceService,
+    private readonly packRules: PackRuleService,
   ) {}
 
   /**
@@ -475,6 +477,34 @@ export class CrmController {
       user.tenantId,
       (req as AuthenticatedRequest).tenantVertical ?? null,
       id,
+    );
+  }
+
+  @Get('entities/:id/rules')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: "The pack's declarative rules, evaluated against this record",
+    description:
+      'Evaluates `rules[]` from the tenant\'s config pack over the record. ' +
+      'Read-only: nothing here blocks a write. `violations` lists the rules ' +
+      'that matched; `skipped` lists rules the evaluator refused because the ' +
+      'record lacks a compared field — those are unknown, not passed, and a ' +
+      'UI must not render them as clean. `blocked` is true when an ' +
+      '`error`-severity rule matched.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Rule evaluation report' })
+  @ApiResponse({ status: 404, description: 'No such entity on this tenant' })
+  async rulesFor(
+    @Request() req: ExpressRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const user = req.user as UserPayload;
+    const entity = await this.crmService.getEntity(id, user.tenantId);
+    return this.packRules.evaluate(
+      (req as AuthenticatedRequest).tenantVertical ?? null,
+      entity as unknown as Record<string, unknown>,
     );
   }
 

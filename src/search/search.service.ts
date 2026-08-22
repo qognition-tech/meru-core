@@ -1,16 +1,37 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { SearchIndex, SearchableType } from './entities/search-index.entity';
+import { ElasticsearchService } from './elasticsearch/elasticsearch.service';
+import type { SearchDocument } from './elasticsearch/interfaces/search.interface';
 
-// SRCH module facade — currently Postgres ILIKE; planned Phase B work
-// is to delegate to ElasticsearchService (./elasticsearch/) for hybrid
-// BM25 + pgvector. All 14 modules import SearchService, not the driver.
+/** The ES index every CRM entity lands in, per tenant. */
+const ENTITY_INDEX = 'entities';
+
+/**
+ * SRCH module facade. All 14 modules import SearchService, not the driver.
+ *
+ * Postgres `search_index` is the source of truth and is always written.
+ * When Elasticsearch answered its boot-time ping, every write is mirrored
+ * there and `search()` queries it first — BM25 with fuzziness, instead of a
+ * substring match. When the cluster is down, or a query fails, the Postgres
+ * ILIKE path answers instead and the fallback is logged. Callers never see
+ * which engine answered, and the result shape is identical, so nothing in
+ * the three portals changes.
+ *
+ * For months this class was an ILIKE facade with a comment promising to
+ * delegate "in Phase B", while `ElasticsearchService` sat beside it as a
+ * route-only silo that nothing indexed into. Both halves existed; neither
+ * called the other.
+ */
 @Injectable()
 export class SearchService {
+  private readonly logger = new Logger(SearchService.name);
+
   constructor(
     @InjectRepository(SearchIndex)
     private searchRepo: Repository<SearchIndex>,
+    private readonly es: ElasticsearchService,
   ) {}
 
   async indexEntityData(entity: any) {
@@ -38,11 +59,36 @@ export class SearchService {
       },
     };
 
-    if (existing) {
-      return this.searchRepo.save({ ...existing, ...searchData });
-    }
+    const row = existing
+      ? await this.searchRepo.save({ ...existing, ...searchData })
+      : await this.searchRepo.save(searchData);
 
-    return this.searchRepo.save(searchData);
+    await this.mirrorToElasticsearch(row);
+    return row;
+  }
+
+  /**
+   * Best effort, never blocking: Postgres already holds the row, so a failed
+   * mirror costs ranking quality, not data.
+   */
+  private async mirrorToElasticsearch(row: SearchIndex): Promise<void> {
+    if (!this.es.available) return;
+    try {
+      await this.es.indexDocument(row.tenantId, ENTITY_INDEX, {
+        id: row.searchableId,
+        type: row.searchableType,
+        title: row.title,
+        content: row.content,
+        metadata: row.metadata ?? {},
+        tags: [],
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Elasticsearch mirror failed for ${row.searchableId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /** Liveness probe for `GET /orchestration/health`; see CrmService.probe. */
@@ -56,6 +102,54 @@ export class SearchService {
   }
 
   async search(tenantId: string, query: string, limit: number = 20) {
+    if (this.es.available) {
+      try {
+        return await this.searchElasticsearch(tenantId, query, limit);
+      } catch (err) {
+        this.logger.warn(
+          `Elasticsearch query failed, answering from Postgres: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    return this.searchPostgres(tenantId, query, limit);
+  }
+
+  private async searchElasticsearch(
+    tenantId: string,
+    query: string,
+    limit: number,
+  ) {
+    const result = await this.es.search(tenantId, {
+      query,
+      filters: [
+        { field: 'index', operator: 'eq', value: [ENTITY_INDEX] },
+        { field: 'tenantId', operator: 'eq', value: tenantId },
+      ],
+      pagination: { size: limit },
+      highlights: true,
+    });
+
+    return result.documents.map((doc, i) => {
+      const highlight = result.highlights?.[i]?.content?.[0];
+      return {
+        id: doc.id,
+        type: doc.type as SearchableType,
+        searchableId: doc.id,
+        title: doc.title,
+        snippet: highlight ?? this.getSnippet(doc.content ?? '', query),
+        metadata: doc.metadata,
+        score: (doc as SearchDocument & { score?: number }).score ?? 0,
+      };
+    });
+  }
+
+  private async searchPostgres(
+    tenantId: string,
+    query: string,
+    limit: number,
+  ) {
     const results = await this.searchRepo.find({
       where: [
         // ILike, not Like. TypeORM's Like maps to SQL LIKE, which is
@@ -92,10 +186,24 @@ export class SearchService {
   }
 
   async deleteFromIndex(searchableId: string, type: SearchableType) {
+    const row = await this.searchRepo.findOne({
+      where: { searchableId, searchableType: type },
+    });
     await this.searchRepo.delete({
       searchableId,
       searchableType: type,
     });
+    if (row && this.es.available) {
+      try {
+        await this.es.deleteDocument(row.tenantId, ENTITY_INDEX, searchableId);
+      } catch (err) {
+        this.logger.warn(
+          `Elasticsearch delete failed for ${searchableId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
   }
 
   private generateContent(entity: any): string {

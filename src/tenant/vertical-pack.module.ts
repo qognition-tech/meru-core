@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigPack } from './entities/config-pack.entity';
+import { TenantConfigPin } from '../iam/entities/tenant-config-pin.entity';
 import { VerticalPackService } from './services/vertical-pack.service';
 
 /**
@@ -12,11 +13,11 @@ import { VerticalPackService } from './services/vertical-pack.service';
  * the whole of TCM just to read one JSON key would deepen a dependency graph
  * that is already the reason `ai.service.ts` has five `forwardRef`s.
  *
- * So this module has exactly one provider and one entity, and nothing can
- * import a cycle through it.
+ * So this module has exactly one provider and two entities (the pack, and the
+ * tenant pin that selects one), and nothing can import a cycle through it.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([ConfigPack])],
+  imports: [TypeOrmModule.forFeature([ConfigPack, TenantConfigPin])],
   providers: [VerticalPackService],
   exports: [VerticalPackService],
 })

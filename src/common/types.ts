@@ -70,6 +70,8 @@ export enum MeruErrorCode {
   TENANT_SUSPENDED = 'MER-TENANT-0003',
   TENANT_QUOTA_EXCEEDED = 'MER-TENANT-0004',
   TENANT_INVALID_VERTICAL = 'MER-TENANT-0005',
+  /** HTTP 402 — the plan does not include a required module. */
+  TENANT_MODULE_NOT_ENTITLED = 'MER-TENANT-0006',
 
   // Validation (MER-VAL-xxxx)
   VALIDATION_ERROR = 'MER-VAL-0001',

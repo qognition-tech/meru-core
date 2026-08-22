@@ -2,6 +2,8 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { VerticalPackService } from './vertical-pack.service';
 import { ConfigPack } from '../entities/config-pack.entity';
+import { TenantConfigPin } from '../../iam/entities/tenant-config-pin.entity';
+import { TenantContext } from '../../core/tenancy/tenant-context';
 
 /**
  * The resolver is small, but two of its behaviours are load-bearing and were
@@ -11,6 +13,7 @@ import { ConfigPack } from '../entities/config-pack.entity';
 describe('VerticalPackService', () => {
   let service: VerticalPackService;
   const getOne = jest.fn();
+  const findPins = jest.fn();
   const orderBy = jest.fn();
   const addOrderBy = jest.fn();
 
@@ -34,6 +37,8 @@ describe('VerticalPackService', () => {
 
   beforeEach(async () => {
     getOne.mockReset();
+    findPins.mockReset();
+    findPins.mockResolvedValue([]);
     orderBy.mockReset();
     addOrderBy.mockReset();
     const moduleRef = await Test.createTestingModule({
@@ -42,6 +47,10 @@ describe('VerticalPackService', () => {
         {
           provide: getRepositoryToken(ConfigPack),
           useValue: { createQueryBuilder: jest.fn(() => makeQb()) },
+        },
+        {
+          provide: getRepositoryToken(TenantConfigPin),
+          useValue: { find: findPins },
         },
       ],
     }).compile();
@@ -118,5 +127,57 @@ describe('VerticalPackService', () => {
     // `messaging` is an object. A caller asking for it as a list gets [] rather
     // than an object that then fails on `.filter`.
     await expect(service.list('banking', 'messaging')).resolves.toEqual([]);
+  });
+
+  describe('tenant pins', () => {
+    const inTenant = <T>(tenantId: string, fn: () => Promise<T>) =>
+      TenantContext.run({ tenantId }, fn);
+
+    it('serves the pinned country overlay instead of the base pack', async () => {
+      findPins.mockResolvedValue([
+        {
+          configPack: {
+            code: 'ae-grc',
+            vertical: 'grc',
+            isActive: true,
+            schema: { regulators: [{ code: 'cbuae' }] },
+          },
+        },
+      ]);
+      getOne.mockResolvedValue({ code: 'grc', schema: {} });
+
+      const pack = await inTenant('t-1', () => service.forVertical('grc'));
+
+      // This is the whole point of pinning. Before this, a pin changed nothing
+      // on any read path and a UAE bank was served the vertical-wide base.
+      expect(pack?.code).toBe('ae-grc');
+      expect(getOne).not.toHaveBeenCalled();
+    });
+
+    it('ignores a pin to an inactive pack or to another vertical', async () => {
+      findPins.mockResolvedValue([
+        { configPack: { code: 'ae-grc', vertical: 'grc', isActive: false } },
+        { configPack: { code: 'au-immigration', vertical: 'immigration', isActive: true } },
+      ]);
+      getOne.mockResolvedValue({ code: 'grc', schema: {} });
+
+      const pack = await inTenant('t-1', () => service.forVertical('grc'));
+
+      expect(pack?.code).toBe('grc');
+    });
+
+    it('falls back to the base pack outside a tenant context', async () => {
+      getOne.mockResolvedValue({ code: 'grc', schema: {} });
+      const pack = await service.forVertical('grc');
+      expect(pack?.code).toBe('grc');
+      expect(findPins).not.toHaveBeenCalled();
+    });
+
+    it('degrades to the base pack when the pin lookup fails', async () => {
+      findPins.mockRejectedValue(new Error('boom'));
+      getOne.mockResolvedValue({ code: 'grc', schema: {} });
+      const pack = await inTenant('t-1', () => service.forVertical('grc'));
+      expect(pack?.code).toBe('grc');
+    });
   });
 });

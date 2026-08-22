@@ -15,6 +15,9 @@ import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { BillingModule } from '../billing/billing.module';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
+import { PackWorkflowService } from './services/pack-workflow.service';
 
 @Module({
   imports: [
@@ -32,9 +35,22 @@ import { BillingModule } from '../billing/billing.module';
     TasksModule,
     // The payment gate reads the pack's payment plans and the case's arrears.
     forwardRef(() => BillingModule),
+    // Pack transition conditions are JsonLogic; pack workflows come from L4.
+    RuleEvaluatorModule,
+    VerticalPackModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowEngineService, SlaWatchdogService, TatService],
-  exports: [WorkflowEngineService, SlaWatchdogService, TatService],
+  providers: [
+    WorkflowEngineService,
+    SlaWatchdogService,
+    TatService,
+    PackWorkflowService,
+  ],
+  exports: [
+    WorkflowEngineService,
+    SlaWatchdogService,
+    TatService,
+    PackWorkflowService,
+  ],
 })
 export class WorkflowModule {}

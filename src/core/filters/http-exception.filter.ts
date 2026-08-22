@@ -86,6 +86,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : MeruErrorCode.AUTH_INVALID_CREDENTIALS;
       case HttpStatus.FORBIDDEN:
         return MeruErrorCode.AUTH_FORBIDDEN;
+      case HttpStatus.PAYMENT_REQUIRED:
+        return MeruErrorCode.TENANT_MODULE_NOT_ENTITLED;
       case HttpStatus.NOT_FOUND:
         return MeruErrorCode.RESOURCE_NOT_FOUND;
       case HttpStatus.CONFLICT:

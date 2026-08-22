@@ -10,6 +10,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ModuleEntitlementGuard } from '../../iam/entitlements/module-entitlement.guard';
+import { RequiresModule } from '../../iam/entitlements/requires-module.decorator';
+import { ModuleCode } from '../../iam/entitlements/module-code';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -184,6 +187,8 @@ export class EnginesController {
   // ── Vessel / Asset Tracking ───────────────────────────────────────────────
 
   @Post('vessel/risk')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @ApiOperation({
     summary: 'Assess vessel risk (dark periods, sanctioned-port calls)',
     description:
@@ -197,6 +202,8 @@ export class EnginesController {
   }
 
   @Get('vessel/lookup')
+  @UseGuards(ModuleEntitlementGuard)
+  @RequiresModule(ModuleCode.VESSEL_TRACKING)
   @ApiOperation({ summary: 'Look up a vessel by MMSI, IMO or name' })
   @ApiQuery({ name: 'mmsi', required: false })
   @ApiQuery({ name: 'imo', required: false })

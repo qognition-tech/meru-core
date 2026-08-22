@@ -32,6 +32,13 @@ import { randomUUID } from 'node:crypto';
 export class ElasticsearchService implements OnModuleInit {
   private readonly logger = new Logger(ElasticsearchService.name);
   private client: Client;
+  /** True only after a successful ping. `SearchService` reads this. */
+  private connected = false;
+
+  /** Whether the cluster answered at boot. Never assume; never retry here. */
+  get available(): boolean {
+    return this.connected;
+  }
   private readonly indexPrefix: string;
 
   constructor(
@@ -79,8 +86,10 @@ export class ElasticsearchService implements OnModuleInit {
           setTimeout(() => reject(new Error('ping timed out after 5s')), 5000),
         ),
       ]);
+      this.connected = true;
       this.logger.log('Elasticsearch connected successfully');
     } catch (error) {
+      this.connected = false;
       this.logger.warn(
         `Elasticsearch unavailable, continuing without it: ${error.message}`,
       );

@@ -23,6 +23,9 @@ import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { StartWorkflowDto } from './dto/start-workflow.dto';
 import { TransitionDto } from './dto/transition.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { PackWorkflowService } from './services/pack-workflow.service';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 @ApiTags('workflows')
 @Controller('workflows')
@@ -32,6 +35,7 @@ export class WorkflowController {
   constructor(
     private workflowService: WorkflowEngineService,
     private readonly tat: TatService,
+    private readonly packWorkflows: PackWorkflowService,
   ) {}
 
   // ==================== TURNAROUND TIME ====================
@@ -75,6 +79,45 @@ export class WorkflowController {
   @ApiResponse({ status: 404, description: 'No such instance for this tenant' })
   async tatForInstance(@Request() req, @Param('id') id: string) {
     return this.tat.forInstance(req.user.tenantId, id);
+  }
+
+  // ==================== PACK WORKFLOWS (Layer 4) ====================
+
+  @Get('pack')
+  @ApiOperation({
+    summary: "The config pack's workflow definitions, as authored",
+    description:
+      'What `POST /workflows/pack/materialise` turns into runnable ' +
+      'workflows. Read-only; a pack workflow is not startable until it has ' +
+      'been materialised for this tenant.',
+  })
+  @ApiResponse({ status: 200, description: 'Pack workflow definitions' })
+  async listPackWorkflows(@Request() req) {
+    return this.packWorkflows.list(req.tenantVertical ?? null);
+  }
+
+  @Post('pack/materialise')
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
+  @ApiOperation({
+    summary: "Create runnable workflows from the pack's definitions",
+    description:
+      'Idempotent per pack workflow id: an already-materialised workflow is ' +
+      'reported under `existing`, not duplicated. Transition conditions are ' +
+      'compiled to JsonLogic; one that cannot compile is listed under ' +
+      '`unevaluableConditions` and that transition never opens.',
+  })
+  @ApiQuery({ name: 'workflowId', required: false, description: 'Only this pack workflow id' })
+  @ApiResponse({ status: 201, description: 'Materialisation report' })
+  async materialisePackWorkflows(
+    @Request() req,
+    @Query('workflowId') workflowId?: string,
+  ) {
+    return this.packWorkflows.materialise(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      req.user.id,
+      workflowId || undefined,
+    );
   }
 
   // ==================== WORKFLOW DEFINITIONS ====================

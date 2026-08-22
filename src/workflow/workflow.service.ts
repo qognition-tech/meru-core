@@ -39,6 +39,7 @@ import {
 } from '../notifications/entities/notification.entity';
 import { TaskService, CreateTaskDto } from '../tasks/task.service';
 import { FeeScheduleService } from '../billing/fee-schedule.service';
+import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 
 export interface TransitionRequest {
   instanceId: string;
@@ -94,6 +95,7 @@ export class WorkflowEngineService {
     private taskService: TaskService,
     @Inject(forwardRef(() => FeeScheduleService))
     private feeScheduleService: FeeScheduleService,
+    private readonly rules: RuleEvaluatorService,
   ) {}
 
   // ==================== WORKFLOW DEFINITION ====================
@@ -501,10 +503,28 @@ export class WorkflowEngineService {
   // ==================== PRIVATE HELPERS ====================
 
   private evaluateConditions(
-    conditions: { operator: string; rules: any[] },
+    conditions: {
+      operator: string;
+      rules: any[];
+      jsonLogic?: unknown;
+      unevaluable?: string;
+    },
     context: Record<string, any>,
   ): boolean {
-    if (!conditions.rules || conditions.rules.length === 0) {
+    // A pack transition whose condition did not compile is never available.
+    // Opening it by default would be a silent wrong answer; closing it is a
+    // visible authoring error with the reason stored beside it.
+    if (conditions?.unevaluable) return false;
+
+    // Pack-declared conditions are JsonLogic, compiled by `compileCondition`
+    // and evaluated by the same whitelisted evaluator alert rules use. This is
+    // the first time a pack-declared transition condition has been evaluated
+    // at all — the legacy `rules[]` shape below is one no pack can express.
+    if (conditions?.jsonLogic !== undefined && conditions.jsonLogic !== true) {
+      if (!this.rules.matches(conditions.jsonLogic, context)) return false;
+    }
+
+    if (!conditions?.rules || conditions.rules.length === 0) {
       return true;
     }
 
