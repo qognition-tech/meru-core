@@ -57,13 +57,8 @@ process.on('uncaughtException', (err) => {
 });
 
 function corsOrigins() {
-  return process.env.CORS_ALLOWED_ORIGINS
-    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:3002',
-      ];
+  // Shared with src/main.ts — see src/common/cors-origins.ts. Env is additive.
+  return require('../dist/src/common/cors-origins').corsOrigins();
 }
 
 // Required lazily *inside* bootstrap, but referenced here so esbuild still
@@ -73,6 +68,7 @@ require.resolve('../dist/src/app.module');
 require.resolve('../dist/src/core/filters/http-exception.filter');
 require.resolve('../dist/src/core/interceptors/response-envelope.interceptor');
 require.resolve('../dist/src/swagger');
+require.resolve('../dist/src/common/cors-origins');
 
 async function bootstrap() {
   const { AppModule } = require('../dist/src/app.module');

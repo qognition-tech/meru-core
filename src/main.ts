@@ -1,3 +1,4 @@
+import { corsOrigins as resolveCorsOrigins } from './common/cors-origins';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -14,27 +15,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const logger = new Logger('Bootstrap');
 
-  // Determine CORS origins from env
-  const corsOrigins = process.env.CORS_ALLOWED_ORIGINS
-    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:3000', // meru-core itself / meru-dashboard
-        'http://localhost:3001', // GovernanceX app
-        'http://localhost:3002', // ImmiStack app
-        'https://app.meru.com',
-        'https://app.immistack.com',
-        'https://immistack.com', // live custom domain
-        'https://www.immistack.com',
-        // GovernanceX is app.govx.com. The old governancex.com entries are kept
-        // because a deployed frontend may still be served from them during the
-        // rename — remove them once DNS has moved, not before, or the cutover
-        // takes the portal down for anyone holding the old origin.
-        'https://app.govx.com',
-        'https://api.govx.com',
-        'https://app.governancex.com',
-        'https://api.governancex.com',
-        'https://api.immistack.com',
-      ];
+  // Browser-origin allowlist — built-in list + CORS_ALLOWED_ORIGINS (additive).
+  const corsOrigins = resolveCorsOrigins();
 
   // 1. CORS — Allow ImmiStack + GovernanceX origins (+ staging/dev variants)
   app.enableCors({

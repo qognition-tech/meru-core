@@ -431,6 +431,13 @@ NZ INZ · CBUAE Open Finance certification · SAMA · QCB.
 
 ---
 
+> **CORS allowlist is additive (2026-08-23).** `src/common/cors-origins.ts` is the
+> single list used by `src/main.ts` and `api/index.js`. `CORS_ALLOWED_ORIGINS`
+> *extends* it and can no longer replace it. The Production value (set once,
+> 24 days earlier) listed only the dashboard origin, so `govx-app.vercel.app`
+> and `immistack-plum.vercel.app` failed preflight — "Network Error" on login.
+> Add a new Vercel alias or custom domain to the file, not only to the env.
+
 ## 6. Regulator connectors — all eight are SANDBOX
 
 | Adapter | Regulator | To go live |
