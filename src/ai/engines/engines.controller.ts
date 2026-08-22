@@ -7,6 +7,7 @@ import {
   Query,
   Request,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -18,6 +19,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { PolicyGuard } from '../../iam/guards/policy.guard';
+import { CitationEnforcementInterceptor } from '../interceptors/citation-enforcement.interceptor';
 import { ScreeningEngine } from './screening.engine';
 import { DocIntelEngine } from './doc-intel.engine';
 import { VesselTrackingEngine } from './vessel-tracking.engine';
@@ -53,9 +55,18 @@ import type { AuthenticatedRequest } from '../../common/types';
  * Meru's own Screening Engine against ingested sanctions lists. Both exist on
  * purpose and answer different questions.
  */
+// Citations or silence (CLAUDE.md §5.3) applies here as on /ai. Today none
+// of these routes returns an AiResponse — a screening result is a match
+// table, a vessel position is decoded AIS, a scoring band is a weighted sum,
+// a radar change carries the official URL it was diffed from, and doc-intel
+// extracts fields from the document itself — so the interceptor passes every
+// current body through untouched. It is applied so that an engine which
+// starts returning generated prose is enforced from its first request rather
+// than when someone notices.
 @Controller('engines')
 @ApiTags('engines')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
+@UseInterceptors(CitationEnforcementInterceptor)
 @ApiBearerAuth('JWT-auth')
 export class EnginesController {
   constructor(

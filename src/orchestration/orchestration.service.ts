@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { CrmService } from '../crm/crm.service';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
+import type { AiResponse } from '../ai/ai.service';
 import { PromptCategory } from '../ai/entities/ai-prompt.entity';
 import { VerticalType } from '../iam/enums/vertical.enum';
 
@@ -159,52 +160,104 @@ export class OrchestrationService {
     }
   }
 
+  /**
+   * AI-generated insights about one record.
+   *
+   * Citations or silence (CLAUDE.md §5.3). The LLM answer is JSON, so the
+   * `CitationEnforcementInterceptor` — which only knows how to replace a prose
+   * `result` — cannot police the parsed fields on its own. The rule is applied
+   * here instead: with no source, `riskLevel` is `null` and the actions list is
+   * empty, with `citationEnforced: false` and an `unavailableReason`. The raw
+   * `AiResponse` rides along as `ai` so the interceptor still stamps it.
+   *
+   * Never `riskLevel: 'low'` as a default. The previous version returned it on
+   * every failure path, so an entity whose analysis had thrown looked like one
+   * that had been examined and found unremarkable (§5.2).
+   */
   async extractInsights(
     tenantId: string,
     entityId: string,
+    tenantVertical?: string,
   ): Promise<{
-    riskLevel: 'low' | 'medium' | 'high' | 'critical';
-    completeness: number;
+    riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+    completeness: number | null;
     suggestedActions: string[];
+    citationEnforced: boolean;
+    unavailableReason?: string;
+    ai?: AiResponse;
   }> {
     this.logger.log(`Extracting insights for entity: ${entityId}`);
 
+    const unavailable = (unavailableReason: string, ai?: AiResponse) => ({
+      riskLevel: null,
+      completeness: null,
+      suggestedActions: [],
+      citationEnforced: false,
+      unavailableReason,
+      ...(ai ? { ai } : {}),
+    });
+
+    let insights: AiResponse;
     try {
       const entity = await this.crmService.findEntityById(entityId);
       if (!entity) {
         throw new Error('Entity not found');
       }
 
-      const insights = await this.aiService.analyzeEntity(
-        tenantId,
-        {
-          ...entity,
-          verticalAttributes: {
-            ...entity.verticalAttributes,
-            vertical:
-              (entity.verticalAttributes?.vertical as string | undefined) ||
-              'immigration',
-          },
-        },
-        VerticalType.IMMIGRATION,
-      );
+      const vertical = this.verticalOf(entity, tenantVertical);
+      if (!vertical) {
+        return unavailable(
+          'Neither the record nor the tenant states a vertical, so no ' +
+            'analysis prompt applies.',
+        );
+      }
 
-      const parsedInsights = JSON.parse(insights.result) as InsightsResult;
-
-      return {
-        riskLevel: parsedInsights.riskLevel || 'low',
-        completeness: parsedInsights.completeness || 0,
-        suggestedActions: parsedInsights.actions || [],
-      };
+      insights = await this.aiService.analyzeEntity(tenantId, entity, vertical);
     } catch (error: unknown) {
       this.logger.error(`Insight extraction failed: ${errorMessage(error)}`);
-
-      return {
-        riskLevel: 'low',
-        completeness: 0,
-        suggestedActions: [],
-      };
+      return unavailable(`Insight extraction failed: ${errorMessage(error)}`);
     }
+
+    if (!insights.sources || insights.sources.length === 0) {
+      return unavailable(
+        'The model cited no verified source, so its assessment is withheld.',
+        insights,
+      );
+    }
+
+    let parsed: InsightsResult;
+    try {
+      parsed = JSON.parse(insights.result) as InsightsResult;
+    } catch {
+      return unavailable('The model returned an unparseable assessment.', insights);
+    }
+
+    return {
+      riskLevel: parsed.riskLevel ?? null,
+      completeness: parsed.completeness ?? null,
+      suggestedActions: parsed.actions || [],
+      citationEnforced: true,
+      ai: insights,
+    };
+  }
+
+  /**
+   * The vertical a record belongs to: the record's own, else the tenant's,
+   * else nothing. This used to default to `immigration`, which put one
+   * product's vocabulary in core (§5.5) and analysed a GRC counterparty with
+   * an immigration prompt.
+   */
+  private verticalOf(
+    entity: { verticalAttributes?: Record<string, unknown> | null },
+    tenantVertical?: string,
+  ): VerticalType | null {
+    const known = Object.values(VerticalType) as string[];
+    for (const candidate of [entity.verticalAttributes?.vertical, tenantVertical]) {
+      if (typeof candidate === 'string' && known.includes(candidate)) {
+        return candidate as VerticalType;
+      }
+    }
+    return null;
   }
 
   async bulkIndexEntities(
@@ -329,6 +382,12 @@ export class OrchestrationService {
     return significant;
   }
 
+  /**
+   * Per-result AI annotations on a search. Each result carries the raw
+   * `AiResponse` as `aiInsights.ai` so the interceptor enforces it; the parsed
+   * object is only attached when the model cited a source, otherwise the
+   * result says so rather than carrying an unsourced annotation.
+   */
   private async enrichWithAIAnalysis(
     results: unknown[],
     query: string,
@@ -342,9 +401,26 @@ export class OrchestrationService {
             input: JSON.stringify({ result, originalQuery: query }),
           });
 
+          const cited = insights.sources && insights.sources.length > 0;
+          let parsed: unknown = null;
+          if (cited) {
+            try {
+              parsed = JSON.parse(insights.result) as unknown;
+            } catch {
+              parsed = null;
+            }
+          }
+
           return {
             ...(result as Record<string, unknown>),
-            aiInsights: JSON.parse(insights.result) as unknown,
+            aiInsights: {
+              parsed,
+              citationEnforced: cited,
+              ...(cited
+                ? {}
+                : { unavailableReason: 'No verified source; annotation withheld.' }),
+              ai: insights,
+            },
           };
         }),
       );

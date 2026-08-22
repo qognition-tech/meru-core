@@ -10,6 +10,7 @@ import {
   UseGuards,
   Request,
   UseInterceptors,
+  ServiceUnavailableException,
   UploadedFile,
   BadRequestException,
   ParseUUIDPipe,
@@ -34,13 +35,20 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { CitationEnforcementInterceptor } from '../ai/interceptors/citation-enforcement.interceptor';
 import type { AuthenticatedRequest } from '../common/types';
 import { paginated } from '../common/paginated';
 import type { Response } from 'express';
 
 @ApiTags('documents')
+// Citations or silence (CLAUDE.md §5.3). No route here returns generated
+// prose today — documents, versions, checklists and generated PDFs are
+// records, and the PDF body is produced from a pack template, not a model —
+// so the interceptor passes everything through. It is applied so that when
+// `:id/analyze` becomes real, its summary is enforced from the first request.
 @Controller('documents')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
+@UseInterceptors(CitationEnforcementInterceptor)
 @ApiBearerAuth('JWT-auth')
 export class DocumentsController {
   constructor(
@@ -382,22 +390,36 @@ export class DocumentsController {
     return { deleted: true };
   }
 
+  // Exempt from citation enforcement by shape, not by intent: this returns no
+  // prose. It answers 503 until document analysis exists — it used to answer
+  // `{ triggered: true }` over a stub that wrote `riskLevel: 'low'` without
+  // reading the file (see DocumentsService.triggerAIAnalysis).
   @Post(':id/analyze')
   @ApiOperation({ summary: 'Trigger AI analysis for a document' })
+  @ApiResponse({ status: 200, description: 'AI analysis triggered' })
   @ApiResponse({
-    status: 200,
-    description: 'AI analysis triggered successfully',
+    status: 503,
+    description:
+      'Document analysis is not implemented; body carries unavailableReason',
   })
   async analyze(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    await this.documentsService.triggerAIAnalysis(
+    const outcome = await this.documentsService.triggerAIAnalysis(
       id,
       req.user.tenantId,
       req.user,
     );
-
+    if (!outcome.analyzed) {
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: outcome.unavailableReason,
+        triggered: false,
+        unavailableReason: outcome.unavailableReason,
+      });
+    }
     return { triggered: true };
   }
 }

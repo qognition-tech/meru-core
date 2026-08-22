@@ -576,16 +576,28 @@ export class DocumentsService {
    * caller has just supplied the bytes — passed as `null` explicitly so that
    * omitting an actor can never be mistaken for "no check needed".
    */
+  /**
+   * "Analyse this document" — which the platform cannot yet do.
+   *
+   * The previous body called `performIntelligentSearch('')`, discarded the
+   * answer, and wrote `summary: 'Document analyzed successfully', riskLevel:
+   * 'low'` onto the record. Nothing had been read. A document that looked
+   * assessed and unremarkable is exactly the §5.2 failure: unknown reported
+   * as a positive. `DocIntelEngine` (POST /engines/doc-intel) does real
+   * extraction and fraud signalling; wiring it here — download, hand the
+   * bytes to the engine, store `extractedFields` and `fraudSignals` — is the
+   * real implementation, and it is not done yet.
+   *
+   * Until then this performs the access check, writes nothing, and reports
+   * `analyzed: false` with the reason. The route turns that into a 503.
+   */
   async triggerAIAnalysis(
     documentId: string,
     tenantId: string,
     actor: Actor | null,
-  ): Promise<void> {
-    this.logger.log(`Triggering AI analysis for document: ${documentId}`);
-
-    // Outside the try: the catch below swallows everything so a failed
-    // analysis does not fail an upload, and an authorisation failure swallowed
-    // into a 200 `{ triggered: true }` is a denial reported as a success.
+  ): Promise<{ analyzed: false; unavailableReason: string }> {
+    // Outside any try: an authorisation failure swallowed into a success is a
+    // denial reported as a success.
     const document = await this.documentRepo.findOne({
       where: { id: documentId, tenantId },
       relations: ['uploadedBy'],
@@ -599,41 +611,12 @@ export class DocumentsService {
       await this.checkAccess(document, actor, 'read');
     }
 
-    try {
-      const version = await this.versionRepo.findOne({
-        where: { id: document.currentVersionId },
-      });
-
-      if (!version) {
-        throw new NotFoundException('Document version not found');
-      }
-
-      const fileContent = await this.downloadFile(version.s3Key);
-
-      const analysis = await this.orchestrationService.performIntelligentSearch(
-        tenantId,
-        '',
-        {
-          includeAIAnalysis: true,
-          searchType: 'semantic',
-        },
-      );
-
-      document.aiAnalysis = {
-        analyzedAt: new Date(),
-        summary: 'Document analyzed successfully',
-        categories: ['pending'],
-        riskLevel: 'low',
-      };
-
-      await this.documentRepo.save(document);
-
-      this.logger.log(`AI analysis completed for document: ${documentId}`);
-    } catch (error: any) {
-      this.logger.error(
-        `AI analysis failed for document ${documentId}: ${error.message}`,
-      );
-    }
+    const unavailableReason =
+      'Document analysis is not implemented: DocIntelEngine is not wired to ' +
+      'stored documents, so nothing was read and nothing was written to ' +
+      'aiAnalysis. Use POST /engines/doc-intel with the file contents.';
+    this.logger.warn(`AI analysis requested for ${documentId}: ${unavailableReason}`);
+    return { analyzed: false, unavailableReason };
   }
 
   private async encryptFile(

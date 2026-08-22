@@ -8,6 +8,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { CitationEnforcementInterceptor } from '../ai/interceptors/citation-enforcement.interceptor';
 import { OrchestrationService } from './orchestration.service';
 import { AgentRegistryService } from './agent-registry.service';
 import { AuditService } from '../audit/audit.service';
@@ -25,8 +27,13 @@ import { paginated } from '../common/paginated';
 import { PolicyGuard } from '../iam/guards/policy.guard';
 import type { AuthenticatedRequest } from './authenticated-request.interface';
 
+// Citations or silence (CLAUDE.md §5.3). /search/intelligent?includeAI=true
+// and /entity/:id/insights both carry LLM output; the interceptor stamps or
+// suppresses every AiResponse in the body. The other routes here (agents,
+// events, health) return records and probes, not prose, and pass through.
 @Controller('orchestration')
 @ApiTags('orchestration')
+@UseInterceptors(CitationEnforcementInterceptor)
 export class OrchestrationController {
   constructor(
     private orchestrationService: OrchestrationService,
@@ -190,6 +197,10 @@ export class OrchestrationController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
-    return this.orchestrationService.extractInsights(req.user.tenantId, id);
+    return this.orchestrationService.extractInsights(
+      req.user.tenantId,
+      id,
+      req.tenantVertical,
+    );
   }
 }
