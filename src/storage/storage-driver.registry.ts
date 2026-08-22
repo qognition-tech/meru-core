@@ -73,7 +73,8 @@ export class StorageDriverRegistry {
         this.logger.warn(
           'No object storage driver is configured. Document upload and ' +
             'download will return 503 until SUPABASE_URL + ' +
-            'SUPABASE_SERVICE_ROLE_KEY (+ SUPABASE_STORAGE_BUCKET) are set.',
+            'SUPABASE_SERVICE_ROLE_KEY (+ SUPABASE_STORAGE_BUCKET) or ' +
+            'AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_S3_BUCKET are set.',
         );
       } else {
         this.logger.error(
@@ -122,8 +123,8 @@ export class StorageDriverRegistry {
     if (!this.defaultKind) {
       throw new ServiceUnavailableException(
         'Object storage is not configured. Set SUPABASE_URL and ' +
-          'SUPABASE_SERVICE_ROLE_KEY (and STORAGE_PROVIDER when more than one ' +
-          'driver is present).',
+          'SUPABASE_SERVICE_ROLE_KEY, or the AWS_* trio (and STORAGE_PROVIDER ' +
+          'when more than one driver is present).',
       );
     }
     return this.drivers.get(this.defaultKind)!;

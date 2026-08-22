@@ -47,6 +47,16 @@ export class DocumentVersion {
   @Column({ type: 'text' })
   s3Bucket: string;
 
+  /**
+   * Which object store holds this version (`s3` | `supabase`). Null on rows
+   * written before the column existed, which `StorageDriverRegistry.forFile`
+   * resolves to the platform default — the only store that existed then.
+   * The `s3Key`/`s3Bucket` names are historical; they are the object key and
+   * bucket on whichever provider this names.
+   */
+  @Column({ type: 'text', nullable: true })
+  storageProvider: string | null;
+
   @Column()
   fileSize: number;
 

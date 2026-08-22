@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { S3 } from 'aws-sdk';
+import { StorageService } from '../storage/storage.service';
 import { randomUUID } from 'node:crypto';
 import * as crypto from 'crypto';
 import * as path from 'path';
@@ -45,7 +45,6 @@ export interface UploadResult {
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
-  private s3: S3;
 
   constructor(
     @InjectRepository(Document)
@@ -60,13 +59,12 @@ export class DocumentsService {
     private dataSource: DataSource,
     private orchestrationService: OrchestrationService,
     private access: DocumentAccessService,
-  ) {
-    this.s3 = new S3({
-      accessKeyId: this.configService.get('AWS_ACCESS_KEY_ID'),
-      secretAccessKey: this.configService.get('AWS_SECRET_ACCESS_KEY'),
-      region: this.configService.get('AWS_REGION', 'us-east-1'),
-    });
-  }
+    // All bytes go through StorageService: it resolves the tenant's driver
+    // (S3 or Supabase) and asserts the tenants/<tenantId>/ prefix on every
+    // key. This service used to construct its own aws-sdk S3 client, which
+    // bypassed both and meant the provider abstraction bought nothing.
+    private storage: StorageService,
+  ) {}
 
   async upload(
     file: Express.Multer.File,
@@ -96,12 +94,10 @@ export class DocumentsService {
 
       const documentSlug = this.generateSlug(dto.name, tenantId);
 
-      const s3Key = this.generateS3Key(tenantId, documentSlug, 1, fileType);
-      const s3UploadResult = await this.uploadToS3(
-        encrypted,
-        s3Key,
-        file.mimetype,
-      );
+      const s3Key = this.generateObjectKey(tenantId, documentSlug, 1, fileType);
+      const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+        contentType: file.mimetype,
+      });
 
       const document = queryRunner.manager.create(Document, {
         id: randomUUID(),
@@ -132,8 +128,9 @@ export class DocumentsService {
         documentId: document.id,
         versionNumber: 1,
         status: VersionStatus.ACTIVE,
-        s3Key: s3UploadResult.Key,
-        s3Bucket: s3UploadResult.Bucket,
+        s3Key,
+        s3Bucket: stored.bucket,
+        storageProvider: stored.provider,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
         encryptionKey:
@@ -171,7 +168,7 @@ export class DocumentsService {
       return {
         document,
         version,
-        url: this.getPresignedUrl(s3UploadResult.Key),
+        url: await this.storage.signedReadUrl(tenantId, s3Key, stored.provider),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -257,25 +254,24 @@ export class DocumentsService {
       const encryptionLevel = document.requiredEncryption;
       const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
 
-      const s3Key = this.generateS3Key(
+      const s3Key = this.generateObjectKey(
         tenantId,
         document.slug,
         newVersionNumber,
         document.fileType,
       );
-      const s3UploadResult = await this.uploadToS3(
-        encrypted,
-        s3Key,
-        file.mimetype,
-      );
+      const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+        contentType: file.mimetype,
+      });
 
       const version = queryRunner.manager.create(DocumentVersion, {
         id: randomUUID(),
         documentId: document.id,
         versionNumber: newVersionNumber,
         status: VersionStatus.ACTIVE,
-        s3Key: s3UploadResult.Key,
-        s3Bucket: s3UploadResult.Bucket,
+        s3Key,
+        s3Bucket: stored.bucket,
+        storageProvider: stored.provider,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
         encryptionKey:
@@ -309,7 +305,7 @@ export class DocumentsService {
       return {
         document,
         version,
-        url: this.getPresignedUrl(s3UploadResult.Key),
+        url: await this.storage.signedReadUrl(tenantId, s3Key, stored.provider),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -524,7 +520,11 @@ export class DocumentsService {
       throw new NotFoundException('Document version not found');
     }
 
-    return this.getPresignedUrl(version.s3Key);
+    return this.storage.signedReadUrl(
+      tenantId,
+      version.s3Key,
+      version.storageProvider,
+    );
   }
 
   async update(
@@ -657,42 +657,12 @@ export class DocumentsService {
     return Buffer.concat([decipher.update(encrypted), decipher.final()]);
   }
 
-  private async uploadToS3(
-    buffer: Buffer,
-    key: string,
-    contentType?: string,
-  ): Promise<S3.ManagedUpload.SendData> {
-    return this.s3
-      .upload({
-        Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-        Key: key,
-        Body: buffer,
-        ContentType: contentType,
-        ServerSideEncryption: 'AES256',
-      })
-      .promise();
-  }
-
-  private async downloadFile(key: string): Promise<Buffer> {
-    const result = await this.s3
-      .getObject({
-        Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-        Key: key,
-      })
-      .promise();
-
-    return result.Body as Buffer;
-  }
-
-  private getPresignedUrl(key: string, expiresIn: number = 3600): string {
-    return this.s3.getSignedUrl('getObject', {
-      Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-      Key: key,
-      Expires: expiresIn,
-    });
-  }
-
-  private generateS3Key(
+  /**
+   * Object key for a version. The `tenants/<tenantId>/` prefix is not a
+   * naming convention: on Supabase it is the only thing separating tenants,
+   * and StorageService refuses any key that lacks it.
+   */
+  private generateObjectKey(
     tenantId: string,
     slug: string,
     version: number,

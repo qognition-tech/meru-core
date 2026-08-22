@@ -85,14 +85,6 @@ const SPECS: CapabilitySpec[] = [
           'sender or delivery will be unreliable.',
   },
   {
-    capability: 'storage',
-    requires: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_S3_BUCKET'],
-    partial: ['AWS_REGION'],
-    describe: (missing) =>
-      `Document upload and download are unavailable — POST /documents/upload ` +
-      `cannot reach a bucket. Missing: ${missing.join(', ')}.`,
-  },
-  {
     capability: 'ai',
     requires: ['OPENAI_API_KEY'],
     describe: () =>
@@ -282,10 +274,71 @@ export class CapabilitiesService implements OnModuleInit {
     };
   }
 
+  /**
+   * Object storage is live with EITHER driver credentialed. Two credentialed
+   * drivers without STORAGE_PROVIDER is degraded: the registry refuses to
+   * guess between them and uploads answer 503 until one is chosen.
+   */
+  private evaluateStorage(): CapabilityReport {
+    const capability = 'storage';
+    const s3 = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_S3_BUCKET'];
+    const supabase = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+    const hasS3 = s3.every((k) => this.has(k));
+    const hasSupabase = supabase.every((k) => this.has(k));
+    const chosen = (this.config.get<string>('STORAGE_PROVIDER') ?? '').trim();
+
+    if (!hasS3 && !hasSupabase) {
+      return {
+        capability,
+        status: 'unconfigured',
+        reason:
+          'Document upload and download answer 503: no object store is ' +
+          'credentialed. Set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY ' +
+          '(+ SUPABASE_STORAGE_BUCKET, private bucket) or ' +
+          `${s3.join(' + ')}.`,
+      };
+    }
+    if (hasS3 && hasSupabase && !['s3', 'supabase'].includes(chosen)) {
+      return {
+        capability,
+        status: 'degraded',
+        reason:
+          'Both S3 and Supabase are credentialed and STORAGE_PROVIDER does ' +
+          'not choose between them; new uploads are refused until it is set ' +
+          'to s3 or supabase.',
+      };
+    }
+    if (chosen && chosen !== 's3' && chosen !== 'supabase') {
+      return {
+        capability,
+        status: 'degraded',
+        reason: `STORAGE_PROVIDER=${chosen} names no driver. Use s3 or supabase.`,
+      };
+    }
+    if (
+      (chosen === 's3' && !hasS3) ||
+      (chosen === 'supabase' && !hasSupabase)
+    ) {
+      return {
+        capability,
+        status: 'unconfigured',
+        reason:
+          `STORAGE_PROVIDER=${chosen} but that driver has no credentials; ` +
+          'uploads are refused.',
+      };
+    }
+    return {
+      capability,
+      status: 'live',
+      reason: `Configured (${chosen || (hasSupabase ? 'supabase' : 's3')}).`,
+    };
+  }
+
   /** The full report. Guarded to platform_admin — it names env vars. */
   async report(): Promise<CapabilityReport[]> {
     const core = [
       ...SPECS.map((s) => this.evaluate(s)),
+      this.evaluateStorage(),
       await this.evaluateScreeningLists(),
     ];
 

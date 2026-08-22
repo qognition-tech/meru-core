@@ -30,14 +30,26 @@ export class S3StorageProvider implements ObjectStorageDriver {
   // public because the registry and the audit trail both need to name it.
   readonly kind = StorageProvider.S3;
   readonly bucket: string;
+  /**
+   * True only with a key pair AND an explicit bucket. `StorageModule` registers
+   * this driver only when configured; without that, `meru-storage` — a bucket
+   * nobody created — was the platform default and every upload hung.
+   */
+  readonly configured: boolean;
 
   constructor(private configService: ConfigService) {
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID')?.trim();
+    const secretAccessKey = this.configService
+      .get<string>('AWS_SECRET_ACCESS_KEY')
+      ?.trim();
+    const bucket = this.configService.get<string>('AWS_S3_BUCKET')?.trim();
+    this.configured = !!(accessKeyId && secretAccessKey && bucket);
     this.s3 = new S3({
-      accessKeyId: this.configService.get('AWS_ACCESS_KEY_ID'),
-      secretAccessKey: this.configService.get('AWS_SECRET_ACCESS_KEY'),
+      accessKeyId,
+      secretAccessKey,
       region: this.configService.get('AWS_REGION', 'us-east-1'),
     });
-    this.bucket = this.configService.get('AWS_S3_BUCKET', 'meru-storage');
+    this.bucket = bucket ?? '';
   }
 
   async upload(

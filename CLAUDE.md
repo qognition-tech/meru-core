@@ -211,6 +211,31 @@ user, and is it in the service rather than the controller".
 **Never trust "RLS is on" without `npm run rls:verify`.** It attempts real
 cross-tenant reads and writes and exits non-zero if any succeed.
 
+### 5.1b Object storage: the key prefix is the only wall
+
+The Supabase driver (`src/storage/providers/supabase.provider.ts`) holds the
+**service-role key**, and the service-role key **bypasses Supabase's own
+row-level security** on `storage.objects`. Supabase enforces nothing between
+tenants. The **only** isolation barrier is the app's own `tenants/<tenantId>/`
+key prefix, and the rules that follow from that are not optional:
+
+- **Every key a driver touches is asserted server-side** to start with the
+  caller's `tenants/<tenantId>/` — `StorageService.assertTenantKey`, on every
+  read, write, copy, delete and URL. `DocumentsService` reaches storage only
+  through `StorageService.putObject / getObject / signedReadUrl`; there is no
+  second path to a driver, and no module may import an object-store SDK
+  outside `src/storage/`.
+- **The bucket is private.** `getPublicUrl` is never called. Reads are served
+  by **short-TTL server-signed URLs** — default 5 minutes, hard cap 15 — and
+  the driver clamps whatever a caller asks for.
+- **The anon key is never used** and there is no browser-side storage path.
+- Multipart upload and storage classes are S3 concepts. The Supabase driver
+  does not implement them; `StorageService` reports the operation unsupported
+  for that provider rather than pretending it happened.
+- A driver registers only when it has credentials. Two credentialed drivers
+  need `STORAGE_PROVIDER` to choose; none means every upload is a 503 with the
+  variable named, never a hang against a bucket nobody created.
+
 ### 5.2 Unknown is never clear
 
 The single most important product rule, and the one most easily violated by a
@@ -363,11 +388,11 @@ with a natural-language command bar. Navigation renders from
 | Layer | Choice | Note |
 |---|---|---|
 | API | **NestJS 11**, REST + OpenAPI | Swagger `/api` |
-| ORM | **TypeORM 0.3**, 34 migrations | staying — a Drizzle port buys nothing here |
+| ORM | **TypeORM 0.3**, 35 migrations | staying — a Drizzle port buys nothing here |
 | DB | **Neon Postgres**, 3 databases | `meru` (control plane), `govx`, `immistack` |
 | Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
 | Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
-| Storage | AWS S3, per-tenant prefix | Google Drive / Azure drivers not built |
+| Storage | **Supabase Storage** or S3, per-tenant prefix (§5.1b) | `STORAGE_PROVIDER=supabase\|s3`; GCS / Azure not built |
 | AI | `openai` SDK directly — `langchain` is **not** a dependency | needs `OPENAI_API_KEY` |
 | Auth | JWT + Passport, TOTP MFA, SAML | sessions revocable within 60s |
 | Host | Vercel `sin1`, CLI-deployed | `vercel --prod`; no git integration |
@@ -384,7 +409,7 @@ meru-core/
 │   ├── audit/ integrations/ rules/ queue/ jobs/ orchestration/
 │   ├── core/          # tenancy, filters, interceptors, policies
 │   ├── common/        # shared types, Actor/scopeOf (access.ts)
-│   ├── migrations/    # 34 TypeORM migrations
+│   ├── migrations/    # 35 TypeORM migrations
 │   └── main.ts, app.module.ts, swagger.ts
 ├── packages/config-packs/
 │   ├── _schema/       # pack.schema.ts (Zod) + config-pack.schema.json
@@ -602,18 +627,19 @@ Two gates need environment rather than code:
 - [ ] Write `../meru-core-fe/BACKEND-CHANGES-<date>.md`, leading with whether it
       has shipped. A merged commit is not a shipped one.
 
-### Storage — a decision, not a cleanup
+### Storage — done, one decision left
 
-Supabase references are gone and the dead `AWS_RDS_SECRET_NAME` is removed.
-**`aws-sdk` S3 stays for now and cannot simply be deleted:** Neon is Postgres,
-not object storage, and `src/storage/providers/` holds only `s3.provider.ts`.
+`src/storage/providers/` holds `s3.provider.ts` and `supabase.provider.ts`;
+`documents.service.ts` goes through `StorageService` and imports no SDK. The
+security model is §5.1b. Inventory on 2026-08-22, by `count(*)` against all
+three databases: **0 `document_versions`, 0 `storage_files`** — uploads had
+been 500ing, so nothing is stored anywhere and there is nothing to migrate.
 
-- [ ] Choose the target — an S3-compatible store (Cloudflare R2, Backblaze B2)
-      keeps the same SDK and changes only the endpoint; anything else is a real
-      provider implementation.
-- [ ] `documents.service.ts:11` constructs `S3` **directly**, bypassing
-      `StorageModule`, so the provider abstraction buys nothing today. Any swap
-      is blocked behind that rewire.
+- [ ] Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`
+      (create the bucket **private**) and `STORAGE_PROVIDER=supabase`.
+- [ ] Then drop `aws-sdk` and `s3.provider.ts` in one commit, once the business
+      confirms S3 is not wanted. Kept until then because removing a driver is a
+      decision, not a cleanup.
 
 ### Doc drift found by audit
 

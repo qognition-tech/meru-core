@@ -3,12 +3,11 @@
 // Layer contract:
 //   - documents/ = BUSINESS layer: Document, DocumentVersion, DocumentMetadata
 //     entities; OCR, versioning, citations, fraud-detection hooks.
-//   - storage/   = DRIVER layer: S3/blob abstraction over multiple providers
-//     (S3StorageProvider, future GCS/Azure providers).
+//   - storage/   = DRIVER layer: object-store abstraction (S3, Supabase).
 //
-// TODO(Phase B): documents.service.ts currently uses `aws-sdk` directly
-// (see uploadToS3/downloadFile). Refactor to inject StorageService from
-// the Storage module — no direct S3 calls outside src/storage/.
+// documents.service.ts goes through StorageService for every byte — no
+// object-store SDK is imported outside src/storage/. That is what makes the
+// tenant-prefix assertion in StorageService the single barrier it has to be.
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
@@ -26,6 +25,7 @@ import { DocumentVersion } from './entities/document-version.entity';
 import { DocumentMetadata } from './entities/document-metadata.entity';
 import { User } from '../iam/entities/user.entity';
 import { OrchestrationModule } from '../orchestration/orchestration.module';
+import { StorageModule } from '../storage/storage.module';
 import { IamModule } from '../iam/iam.module';
 import { SearchModule } from '../search/search.module';
 import { AiModule } from '../ai/ai.module';
@@ -70,6 +70,7 @@ import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
     }),
     forwardRef(() => OrchestrationModule),
     forwardRef(() => AiModule),
+    StorageModule,
     IamModule,
     SearchModule,
     AuditModule,

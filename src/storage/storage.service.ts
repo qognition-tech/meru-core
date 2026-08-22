@@ -51,6 +51,57 @@ export class StorageService {
     private readonly drivers: StorageDriverRegistry,
   ) {}
 
+  // ==================== RAW OBJECT ACCESS ====================
+  //
+  // For modules that keep their own file rows (DocumentsService keeps
+  // documents/document_versions) and need the bytes moved without a second
+  // `storage_files` row. The tenant-prefix assertion and the driver
+  // resolution happen HERE, once, for every caller — that assertion is the
+  // only isolation Supabase has (see assertTenantKey), so there must be no
+  // second path to a driver that skips it.
+
+  /** Write bytes under the caller's tenant prefix on the tenant's driver. */
+  async putObject(
+    tenantId: string,
+    key: string,
+    buffer: Buffer,
+    options: { contentType?: string; metadata?: Record<string, any> } = {},
+  ): Promise<{ provider: StorageProvider; bucket: string; etag: string }> {
+    this.assertTenantKey(tenantId, key);
+    const driver = await this.drivers.forTenant(tenantId);
+    const { etag } = await driver.upload(buffer, key, {
+      contentType: options.contentType,
+      metadata: options.metadata,
+      encrypt: true,
+    });
+    return { provider: driver.kind, bucket: driver.bucket, etag };
+  }
+
+  /** Read bytes the row recorded, from the driver the row recorded. */
+  async getObject(
+    tenantId: string,
+    key: string,
+    provider: StorageProvider | string | null | undefined,
+  ): Promise<Buffer> {
+    this.assertTenantKey(tenantId, key);
+    return this.drivers.forFile(provider).download(key);
+  }
+
+  /** A short-lived, server-signed read URL. TTL is clamped (≤ 15 min). */
+  async signedReadUrl(
+    tenantId: string,
+    key: string,
+    provider: StorageProvider | string | null | undefined,
+    options: { expiresInSeconds?: number; disposition?: 'inline' | 'attachment' } = {},
+  ): Promise<string> {
+    this.assertTenantKey(tenantId, key);
+    return this.drivers.forFile(provider).getPresignedUrl(key, {
+      fileId: key,
+      expiresInSeconds: this.clampTtl(options.expiresInSeconds),
+      responseDisposition: options.disposition,
+    });
+  }
+
   // ==================== UPLOAD OPERATIONS ====================
 
   async upload(options: UploadOptions): Promise<StorageFile> {

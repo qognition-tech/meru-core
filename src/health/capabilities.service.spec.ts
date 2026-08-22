@@ -105,6 +105,39 @@ describe('CapabilitiesService', () => {
     ]);
   });
 
+  describe('storage', () => {
+    it('is live with Supabase alone', async () => {
+      const c = await find(
+        build({ SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'k' }),
+        'storage',
+      );
+      expect(c.status).toBe('live');
+    });
+
+    it('is degraded when both drivers are credentialed and none is chosen', async () => {
+      const c = await find(
+        build({
+          SUPABASE_URL: 'u',
+          SUPABASE_SERVICE_ROLE_KEY: 'k',
+          AWS_ACCESS_KEY_ID: 'a',
+          AWS_SECRET_ACCESS_KEY: 's',
+          AWS_S3_BUCKET: 'b',
+        }),
+        'storage',
+      );
+      expect(c.status).toBe('degraded');
+      expect(c.reason).toContain('STORAGE_PROVIDER');
+    });
+
+    it('is unconfigured when STORAGE_PROVIDER names an uncredentialed driver', async () => {
+      const c = await find(
+        build({ STORAGE_PROVIDER: 'supabase', AWS_ACCESS_KEY_ID: 'a', AWS_SECRET_ACCESS_KEY: 's', AWS_S3_BUCKET: 'b' }),
+        'storage',
+      );
+      expect(c.status).toBe('unconfigured');
+    });
+  });
+
   /**
    * screening_lists is decided by the database, not by an env var. The old
    * spec required `SCREENING_LISTS_URL`, which nothing reads: it could be set

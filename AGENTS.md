@@ -343,6 +343,7 @@ anywhere on the list and currently the largest single blocker.
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
 | `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
 | `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` (private), `STORAGE_PROVIDER=supabase` | DOC | `POST /documents/upload` → 503 `unavailableReason` (no driver credentialed). The service key bypasses Supabase RLS — CLAUDE.md §5.1b |
 | `CRON_SECRET` + an external scheduler URL | queue, ingestion, **sanctions screening** | **every scheduled job runs zero times** — `CronSecretGuard` fails closed, so both Vercel crons answer 401. `watchlist_entries` stays empty and `POST /engines/screening` answers **503** `listsLoaded:false` for every name |
 
 ### 5.1 Loading the sanctions lists — the exact commands

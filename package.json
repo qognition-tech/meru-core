@@ -45,6 +45,7 @@
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^11.2.5",
     "@nestjs/typeorm": "10.0.2",
+    "@supabase/supabase-js": "^2.112.3",
     "@types/aws-sdk": "^2.7.4",
     "@types/passport-local": "^1.0.38",
     "@types/qrcode": "^1.5.6",

@@ -29,6 +29,10 @@ import { AddAlertFirings1755400000000 } from '../migrations/1755400000000-AddAle
 import { AddSequenceEnrolments1755500000000 } from '../migrations/1755500000000-AddSequenceEnrolments';
 import { AddPaymentFeeProvenance1755600000000 } from '../migrations/1755600000000-AddPaymentFeeProvenance';
 import { AddEntityRelations1755700000000 } from '../migrations/1755700000000-AddEntityRelations';
+import { AddNotificationThreads1755800000000 } from '../migrations/1755800000000-AddNotificationThreads';
+import { AddPaymentDirection1755900000000 } from '../migrations/1755900000000-AddPaymentDirection';
+import { AddWhatsappChannel1756000000000 } from '../migrations/1756000000000-AddWhatsappChannel';
+import { AddDocumentVersionStorageProvider1756100000000 } from '../migrations/1756100000000-AddDocumentVersionStorageProvider';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -69,4 +73,12 @@ export const ALL_MIGRATIONS = [
   AddSequenceEnrolments1755500000000,
   AddPaymentFeeProvenance1755600000000,
   AddEntityRelations1755700000000,
+  // The three below were on disk but missing from this list, so the deployed
+  // `/jobs/migrate/:target` route — which uses this array, unlike the CLI's
+  // glob — would have skipped them. A migration that is not in this list does
+  // not exist as far as production is concerned; add every new one here.
+  AddNotificationThreads1755800000000,
+  AddPaymentDirection1755900000000,
+  AddWhatsappChannel1756000000000,
+  AddDocumentVersionStorageProvider1756100000000,
 ];
