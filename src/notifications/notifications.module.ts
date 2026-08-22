@@ -16,6 +16,7 @@ import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
 import { ThreadService } from './thread.service';
+import { MessagingController } from './messaging.controller';
 import { CommunicationsController } from './communications.controller';
 
 @Module({
@@ -42,7 +43,11 @@ import { CommunicationsController } from './communications.controller';
     SequenceRunnerService,
     ThreadService,
   ],
-  controllers: [NotificationsController, CommunicationsController],
+  controllers: [
+    NotificationsController,
+    CommunicationsController,
+    MessagingController,
+  ],
   exports: [
     NotificationsService,
     NotificationDispatchService,

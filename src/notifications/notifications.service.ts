@@ -203,23 +203,12 @@ export class NotificationsService {
       metadata?: Record<string, any>;
     },
   ): Promise<Notification | null> {
-    const resolved = await this.resolveTemplate(
+    const { resolved, subject, content } = await this.renderTemplate(
       tenantId,
       templateKey,
+      variables,
       vertical ?? null,
     );
-
-    // Replace variables in template. Both layers render identically — the
-    // substitution must not depend on where the template came from, or an
-    // override silently changes how placeholders behave.
-    let content = resolved.body;
-    let subject = resolved.subject;
-
-    Object.entries(variables).forEach(([key, value]) => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      content = content.replace(regex, String(value));
-      subject = subject.replace(regex, String(value));
-    });
 
     return this.sendNotification({
       tenantId,
@@ -241,6 +230,50 @@ export class NotificationsService {
         variables,
       },
     });
+  }
+
+  /**
+   * Resolve and render a template without sending it. `unrendered` lists the
+   * `{{placeholders}}` still present afterwards — what a preview must show an
+   * author, and what a sequence run reports when it reaches a client.
+   *
+   * Both layers (tenant override, config pack) render identically — the
+   * substitution must not depend on where the template came from, or an
+   * override silently changes how placeholders behave.
+   */
+  async renderTemplate(
+    tenantId: string,
+    templateKey: string,
+    variables: Record<string, unknown>,
+    vertical: string | null,
+  ): Promise<{
+    resolved: {
+      subject: string;
+      body: string;
+      channel: string;
+      templateId?: string;
+      source: 'tenant_override' | 'config_pack';
+    };
+    subject: string;
+    content: string;
+    unrendered: string[];
+  }> {
+    const resolved = await this.resolveTemplate(tenantId, templateKey, vertical);
+
+    let content = resolved.body;
+    let subject = resolved.subject;
+    Object.entries(variables).forEach(([key, value]) => {
+      const regex = new RegExp(`{{${key}}}`, 'g');
+      content = content.replace(regex, String(value));
+      subject = subject.replace(regex, String(value));
+    });
+
+    const unrendered = new Set<string>();
+    for (const part of [subject, content]) {
+      for (const match of part.matchAll(/{{(\w+)}}/g)) unrendered.add(match[1]);
+    }
+
+    return { resolved, subject, content, unrendered: [...unrendered] };
   }
 
   /**

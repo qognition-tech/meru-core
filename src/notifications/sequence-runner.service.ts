@@ -1,6 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { SequenceEnrolment } from './entities/sequence-enrolment.entity';
 import { NotificationsService } from './notifications.service';
 import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
@@ -340,18 +345,7 @@ export class SequenceRunnerService {
     summary: SequenceRunSummary,
   ): Promise<boolean> {
     const attrs = entity.verticalAttributes ?? {};
-    const variables = {
-      ...attrs,
-      firstName: entity.firstName ?? '',
-      lastName: entity.lastName ?? '',
-      // Every client-facing template in both packs greets on behalf of the
-      // firm, and the firm is the tenant — so this is always available and
-      // there is no reason to make a pack author carry it in every record.
-      firmName: tenant.name ?? '',
-      entityId: entity.id,
-      entityType: entity.type,
-      dueDate: entity.dueDate?.toISOString() ?? '',
-    };
+    const variables = SequenceRunnerService.variablesFor(tenant, entity);
 
     try {
       const notification = await this.notifications.sendFromTemplate(
@@ -406,6 +400,152 @@ export class SequenceRunnerService {
       );
       return false;
     }
+  }
+
+  /**
+   * The variables a sequence step can render — the record's vertical
+   * attributes plus the handful every template in both packs relies on.
+   * Shared with the preview route so a preview renders exactly what a send
+   * would.
+   */
+  static variablesFor(
+    tenant: Pick<Tenant, 'name'>,
+    entity: UniversalEntity,
+  ): Record<string, unknown> {
+    const attrs = entity.verticalAttributes ?? {};
+    return {
+      ...attrs,
+      firstName: entity.firstName ?? '',
+      lastName: entity.lastName ?? '',
+      // Every client-facing template in both packs greets on behalf of the
+      // firm, and the firm is the tenant — so this is always available and
+      // there is no reason to make a pack author carry it in every record.
+      firmName: tenant.name ?? '',
+      entityId: entity.id,
+      entityType: entity.type,
+      dueDate: entity.dueDate?.toISOString() ?? '',
+    };
+  }
+
+  /** The pack's `messaging.sequences[]` for a vertical — what a UI lists. */
+  async definitions(vertical: string | null): Promise<SequenceDefinition[]> {
+    const section = await this.packs.section<{ sequences?: SequenceDefinition[] }>(
+      vertical,
+      'messaging',
+    );
+    return section?.sequences ?? [];
+  }
+
+  /** Enrolments for one sequence, optionally filtered by state. */
+  async enrolments(
+    tenantId: string,
+    sequenceKey: string,
+    status: 'active' | 'stopped' | 'all' = 'all',
+    limit = 200,
+  ): Promise<SequenceEnrolment[]> {
+    const where: Record<string, unknown> = { tenantId, sequenceKey };
+    if (status === 'active') where.stoppedAt = IsNull();
+    if (status === 'stopped') where.stoppedAt = Not(IsNull());
+    return this.enrolmentRepo.find({
+      where,
+      order: { enrolledAt: 'DESC' },
+      take: limit,
+    });
+  }
+
+  /** Active / stopped counts per sequence key, one query. */
+  async counts(
+    tenantId: string,
+  ): Promise<Record<string, { active: number; stopped: number }>> {
+    const rows = await this.enrolmentRepo
+      .createQueryBuilder('e')
+      .select('e.sequenceKey', 'sequenceKey')
+      .addSelect('COUNT(*) FILTER (WHERE e."stoppedAt" IS NULL)', 'active')
+      .addSelect('COUNT(*) FILTER (WHERE e."stoppedAt" IS NOT NULL)', 'stopped')
+      .where('e."tenantId" = :tenantId', { tenantId })
+      .groupBy('e.sequenceKey')
+      .getRawMany<{ sequenceKey: string; active: string; stopped: string }>();
+    const out: Record<string, { active: number; stopped: number }> = {};
+    for (const r of rows) {
+      out[r.sequenceKey] = { active: Number(r.active), stopped: Number(r.stopped) };
+    }
+    return out;
+  }
+
+  /**
+   * Enrol one record by hand. The runner enrols on trigger match; this is for
+   * "send this client the onboarding nurture now" without waiting for the
+   * sweep, and for records the trigger would never match. Idempotent on an
+   * active enrolment; a stopped one is re-opened with its step counter reset.
+   */
+  async enrol(
+    tenantId: string,
+    vertical: string | null,
+    sequenceKey: string,
+    entityId: string,
+    now: Date = new Date(),
+  ): Promise<{ enrolment: SequenceEnrolment; created: boolean }> {
+    const definition = (await this.definitions(vertical)).find(
+      (d) => d.key === sequenceKey,
+    );
+    if (!definition) {
+      throw new NotFoundException(
+        `No sequence '${sequenceKey}' in the pack for vertical '${vertical ?? 'none'}'`,
+      );
+    }
+    const entity = await this.entityRepo.findOne({
+      where: { id: entityId, tenantId },
+    });
+    if (!entity) throw new NotFoundException(`Entity ${entityId} not found`);
+    if (entity.type !== definition.trigger.entityType) {
+      throw new BadRequestException(
+        `Sequence '${sequenceKey}' is for '${definition.trigger.entityType}' records; ${entityId} is a '${entity.type}'`,
+      );
+    }
+
+    const existing = await this.enrolmentRepo.findOne({
+      where: { tenantId, sequenceKey, entityId },
+    });
+    if (existing && !existing.stoppedAt) {
+      return { enrolment: existing, created: false };
+    }
+    const enrolment = this.enrolmentRepo.create({
+      ...(existing ?? {}),
+      tenantId,
+      sequenceKey,
+      entityId,
+      entityType: entity.type,
+      enrolledAt: now,
+      stepsSent: 0,
+      lastSentAt: null,
+      stoppedAt: null,
+      stopReason: null,
+    });
+    return {
+      enrolment: await this.enrolmentRepo.save(enrolment),
+      created: !existing,
+    };
+  }
+
+  /** Stop an enrolment by hand. No-op on one already stopped (its reason is kept). */
+  async stop(
+    tenantId: string,
+    sequenceKey: string,
+    entityId: string,
+    now: Date = new Date(),
+  ): Promise<SequenceEnrolment> {
+    const enrolment = await this.enrolmentRepo.findOne({
+      where: { tenantId, sequenceKey, entityId },
+    });
+    if (!enrolment) {
+      throw new NotFoundException(
+        `Entity ${entityId} is not enrolled in '${sequenceKey}'`,
+      );
+    }
+    if (enrolment.stoppedAt) return enrolment;
+    enrolment.stoppedAt = now;
+    enrolment.stopReason = 'manual';
+    return this.enrolmentRepo.save(enrolment);
   }
 
   /** `{{placeholders}}` still present after rendering, deduplicated. */
