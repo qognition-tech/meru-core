@@ -168,8 +168,20 @@ export class OrchestrationController {
     return this.orchestrationService.healthCheck();
   }
 
+  // Both carry LLM output over CRM records and had no `@Roles` at all —
+  // `PolicyGuard`'s role check is a no-op when the reflector finds nothing to
+  // check, so a bare `client` token reached both. Gated to match their
+  // already-staff-gated siblings (`agents/:id/run`, `events`) — a client's
+  // "own case" answer is `GET /crm/entities/:id`, not a cross-record search or
+  // an AI risk assessment on any entity id it can guess. The guard alone is
+  // not the whole fix: `actor` is also threaded into the service calls below
+  // so the underlying primitives (`SearchService.scopeResults`,
+  // `CrmService.getEntity`) stay correct in their own right — defence in
+  // depth, not "the guard will catch it".
+
   @Get('search/intelligent')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Perform intelligent AI-enhanced search' })
   @ApiResponse({ status: 200, description: 'Search results with AI analysis' })
@@ -189,14 +201,17 @@ export class OrchestrationController {
           (searchType as 'semantic' | 'keyword' | 'hybrid') || undefined,
         limit: limit ? parseInt(limit, 10) : 20,
       },
+      req.user,
     );
   }
 
   @Get('entity/:id/insights')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get AI-generated insights for an entity' })
   @ApiResponse({ status: 200, description: 'Entity insights' })
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
   async getEntityInsights(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -204,6 +219,7 @@ export class OrchestrationController {
     return this.orchestrationService.extractInsights(
       req.user.tenantId,
       id,
+      req.user,
       req.tenantVertical,
     );
   }

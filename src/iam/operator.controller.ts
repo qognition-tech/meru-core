@@ -81,9 +81,13 @@ export class OperatorController {
       );
     }
 
+    // Audited under the tenant actually being read (`id`), not the
+    // operator's own tenant. Filing this under the operator's tenant meant
+    // the target firm's own `firm_admin` could never see, in their own audit
+    // log, that an operator had read their entitlements/branding/connectors.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      id,
       `${reason} for tenant ${id} (God View)`,
       work,
     );
@@ -165,9 +169,16 @@ export class OperatorController {
     // Not routed through `forTenant`: impersonating your own tenant is not a
     // lesser case of this operation, it is a meaningless one, and the
     // @Roles guard above already refuses non-operators.
+    //
+    // The starkest instance of the audit-tenant bug this file used to carry:
+    // `req.user.tenantId` here filed "operator impersonated one of your
+    // users" under the OPERATOR's tenant, so the firm whose user was
+    // impersonated could never find it in their own audit log — the one
+    // record that most needs to be visible to them. `id` (the target,
+    // already a parameter) is the correct tenant.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      id,
       `Impersonate a user in tenant ${id} — ${dto.reason} (God View)`,
       () =>
         this.iamService.issueImpersonationToken(id, {

@@ -162,16 +162,16 @@ export class FormController {
   @ApiOperation({ summary: 'Get form by ID' })
   @ApiResponse({ status: 200, description: 'Form retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getForm(@Param('id', ParseUUIDPipe) id: string) {
-    const form = await this.formService.getForm(id);
+  async getForm(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const form = await this.formService.getForm(id, req.user.tenantId);
     return form;
   }
 
   @Get(':id/render')
   @ApiOperation({ summary: 'Get form rendered for UI' })
   @ApiResponse({ status: 200, description: 'Form rendered' })
-  async renderForm(@Param('id', ParseUUIDPipe) id: string) {
-    const form = await this.formService.renderForm(id);
+  async renderForm(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const form = await this.formService.renderForm(id, req.user.tenantId);
     return form;
   }
 

@@ -180,7 +180,14 @@ export class WorkflowController {
   }
 
   @Get('instances')
-  @ApiOperation({ summary: 'List workflow instances' })
+  @ApiOperation({
+    summary: 'List workflow instances',
+    description:
+      "A client sees only their own matters — the ones they started, or " +
+      "ones linked to a CRM record assigned to them; staff see every " +
+      "instance in the tenant. Same rule as GET /workflows/instances/:id, " +
+      "applied to the list.",
+  })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'entityId', required: false })
   @ApiResponse({ status: 200, description: 'Instances retrieved' })
@@ -191,6 +198,7 @@ export class WorkflowController {
   ) {
     const instances = await this.workflowService.listInstances(
       req.user.tenantId,
+      req.user,
       status as any,
       entityId,
     );

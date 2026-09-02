@@ -7,7 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Actor, scopeOf } from '../common/access';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
@@ -210,6 +210,13 @@ export class WorkflowEngineService {
     return workflow;
   }
 
+  // Deliberately tenant-scoped only, same as `getWorkflow` above — a `Workflow`
+  // is a process *definition* (name, states, transitions), not a case record.
+  // It carries no `startedBy`/`assignedTo`-shaped ownership field for an `own`
+  // scope to narrow against, so there is nothing here for
+  // `assertInstanceOwnership`'s pattern to apply to. The per-caller narrowing
+  // belongs on `listInstances` below, where a "matter" — with a `context` and
+  // an owner — actually lives.
   async listWorkflows(
     tenantId: string,
     entityType?: string,
@@ -355,17 +362,55 @@ export class WorkflowEngineService {
     return instance;
   }
 
+  /**
+   * `GET /workflows` was fixed for tenant scope but `GET /workflows/instances`
+   * — this method — was the list route left behind: `assertInstanceOwnership`
+   * closed the singular `getInstance`/`getAvailableTransitions` routes, but a
+   * `client` token calling the list route still got `where: { tenantId }`
+   * only, i.e. every matter in the tenant, `context` included.
+   *
+   * Same two-source ownership as `assertInstanceOwnership`, expressed as a
+   * query rather than a per-row check: `startedBy = actor.id` OR `entityId`
+   * one of the caller's own CRM records. A caller filtering explicitly by
+   * `entityId` still only sees it if it is theirs: the requested id is
+   * intersected into the ownership branch below rather than spread on top of
+   * it, because `{ ...base, entityId: In(owned) }` would otherwise let the
+   * `In(owned)` key silently overwrite `base.entityId` and drop the filter.
+   */
   async listInstances(
     tenantId: string,
+    actor: Actor,
     status?: InstanceStatus,
     entityId?: string,
   ): Promise<WorkflowInstance[]> {
-    const where: any = { tenantId };
-    if (status) where.status = status;
-    if (entityId) where.entityId = entityId;
+    const base: any = { tenantId };
+    if (status) base.status = status;
+    if (entityId) base.entityId = entityId;
+
+    if (scopeOf(actor) === 'own') {
+      const owned = await this.ownedEntityIds(tenantId, actor.id);
+      // If the caller asked for a specific `entityId`, the ownership branch
+      // may only match when that id is actually theirs — never the full
+      // `owned` set, which would ignore the filter the moment it is combined
+      // with `In(...)` below.
+      const ownedForFilter = entityId
+        ? owned.filter((ownedId) => ownedId === entityId)
+        : owned;
+
+      const where: any[] = [{ ...base, startedBy: actor.id }];
+      if (ownedForFilter.length) {
+        where.push({ ...base, entityId: In(ownedForFilter) });
+      }
+
+      return this.instanceRepo.find({
+        where,
+        relations: ['workflow', 'currentState'],
+        order: { createdAt: 'DESC' },
+      });
+    }
 
     return this.instanceRepo.find({
-      where,
+      where: base,
       relations: ['workflow', 'currentState'],
       order: { createdAt: 'DESC' },
     });

@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsEnum,
   IsObject,
   IsOptional,
   IsString,
@@ -7,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { FormLayout } from '../entities/form-schema.entity';
 
 /**
  * Body for `POST /forms`.
@@ -20,6 +22,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  * vertical's config pack, so pinning a shape here would put vertical schema in
  * core. Requiring it to be an array is the strongest claim core can honestly
  * make.
+ *
+ * `layout` used to require `@IsObject()`, but `form_schemas.layout` is a
+ * Postgres enum (`FormSchema.layout: FormLayout`), not a JSON blob — so
+ * `POST /forms` was unreachable from any caller: the one shape the entity
+ * accepts (`"single_column"`) failed validation, an empty object satisfied
+ * the DTO but blew up the insert with `invalid input value for enum
+ * form_schemas_layout_enum: "[object Object]"`, and there was no third
+ * option. The DTO now asks for exactly what the column stores.
  */
 export class CreateFormDto {
   @ApiProperty({ example: 'Subclass 482 nomination' })
@@ -41,12 +51,12 @@ export class CreateFormDto {
   entityType: string;
 
   @ApiProperty({
-    type: 'object',
-    additionalProperties: true,
-    description: 'Layout definition (sections, columns, ordering).',
+    enum: FormLayout,
+    example: FormLayout.SINGLE_COLUMN,
+    description: 'How the form arranges its fields.',
   })
-  @IsObject()
-  layout: Record<string, any>;
+  @IsEnum(FormLayout)
+  layout: FormLayout;
 
   @ApiProperty({ type: 'array', items: { type: 'object' } })
   @IsArray()

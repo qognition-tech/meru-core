@@ -5,6 +5,7 @@ import { AiService } from '../ai/ai.service';
 import type { AiResponse } from '../ai/ai.service';
 import { PromptCategory } from '../ai/entities/ai-prompt.entity';
 import { VerticalType } from '../iam/enums/vertical.enum';
+import { Actor } from '../common/access';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -60,6 +61,24 @@ export class OrchestrationService {
     ]);
   }
 
+  /**
+   * `actor`, when passed, is forwarded to `SearchService.search` so the
+   * keyword path scopes to the caller's own records exactly as `GET /search`
+   * does — this route used to omit it entirely, so `scopeResults` no-op'd and
+   * a client token (before the controller was staff-gated) received every
+   * record in the tenant. The controller now also gates this route to staff;
+   * `actor` stays required here as defence-in-depth, on the same reasoning as
+   * every other belt-and-braces scope check in this codebase.
+   *
+   * The semantic branch (`AiService.semanticSearch`) has no ownership model to
+   * scope by — embeddings carry no `assignedTo`-shaped field — so it is
+   * unscoped for any caller who reaches it. The controller now gates this
+   * whole route to staff, which is what keeps a `client` token off this
+   * branch today; whether `ENABLE_SEMANTIC_SEARCH` is set is a deployment
+   * question this comment does not assert either way. Flagged rather than
+   * silently left, because a future loosening of the role gate would put a
+   * `client` back in front of an unscoped branch.
+   */
   async performIntelligentSearch(
     tenantId: string,
     query: string,
@@ -68,6 +87,7 @@ export class OrchestrationService {
       searchType?: 'semantic' | 'keyword' | 'hybrid';
       limit?: number;
     } = {},
+    actor?: Actor,
   ): Promise<IntelligentSearchResponse | unknown[]> {
     this.logger.log(`Performing intelligent search: ${query}`, { options });
 
@@ -99,6 +119,7 @@ export class OrchestrationService {
       tenantId,
       query,
       searchLimit,
+      actor,
     );
 
     return {
@@ -173,10 +194,21 @@ export class OrchestrationService {
    * Never `riskLevel: 'low'` as a default. The previous version returned it on
    * every failure path, so an entity whose analysis had thrown looked like one
    * that had been examined and found unremarkable (§5.2).
+   *
+   * `actor` is required and passed straight to `CrmService.getEntity`, which
+   * is both tenant- and actor-scoped (`CrmAccessService`, 404-not-403). This
+   * route used to call the unscoped `findEntityById(entityId)` — no tenant
+   * filter, no ownership check — so any authenticated caller who could guess
+   * or observe a UUID got an AI risk assessment of another tenant's record,
+   * client or not. `getEntity`'s `NotFoundException` on an inaccessible
+   * record is caught by the same try/catch as "entity not found" always was,
+   * so an unreadable id and a nonexistent one answer identically: `riskLevel:
+   * null` with an `unavailableReason`, never a leak of which is true.
    */
   async extractInsights(
     tenantId: string,
     entityId: string,
+    actor: Actor,
     tenantVertical?: string,
   ): Promise<{
     riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
@@ -199,10 +231,7 @@ export class OrchestrationService {
 
     let insights: AiResponse;
     try {
-      const entity = await this.crmService.findEntityById(entityId);
-      if (!entity) {
-        throw new Error('Entity not found');
-      }
+      const entity = await this.crmService.getEntity(entityId, tenantId, actor);
 
       const vertical = this.verticalOf(entity, tenantVertical);
       if (!vertical) {

@@ -111,7 +111,7 @@ export class FormBuilderService {
       await queryRunner.commitTransaction();
       this.logger.log(`Form created: ${savedSchema.id}`);
 
-      return this.getForm(savedSchema.id);
+      return this.getForm(savedSchema.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -120,9 +120,19 @@ export class FormBuilderService {
     }
   }
 
-  async getForm(id: string): Promise<FormSchema> {
+  /**
+   * Tenant-scoped fetch. `tenantId` is required, not optional — same fix,
+   * same reasoning, as `getSubmission` below: this was `findOne({ where: { id
+   * } })` with no tenant filter at all, so any form schema in any tenant
+   * resolved by id alone. RLS is verified enforced in production for this
+   * table (`form_schemas` carries `rls=true, force=true`), so this is
+   * defence-in-depth rather than the live cross-tenant leak an earlier report
+   * claimed — but the belt-and-braces posture applies here exactly as it does
+   * everywhere else this codebase touches regulated data.
+   */
+  async getForm(id: string, tenantId: string): Promise<FormSchema> {
     const form = await this.formSchemaRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['fields'],
     });
 
@@ -217,7 +227,7 @@ export class FormBuilderService {
       await queryRunner.release();
     }
 
-    return this.getForm(id);
+    return this.getForm(id, tenantId);
   }
 
   async publishForm(id: string, tenantId: string): Promise<FormSchema> {
@@ -232,7 +242,7 @@ export class FormBuilderService {
     form.status = FormStatus.ACTIVE;
     await this.formSchemaRepo.save(form);
 
-    return this.getForm(id);
+    return this.getForm(id, tenantId);
   }
 
   async createNewVersion(
@@ -240,11 +250,10 @@ export class FormBuilderService {
     tenantId: string,
     userId: string,
   ): Promise<FormSchema> {
-    const existingForm = await this.getForm(id);
-
-    if (existingForm.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `getForm` is now tenant-scoped by its required `tenantId` argument —
+    // same note as `getSubmission` — so the redundant `tenantId` equality
+    // check that used to follow this is dead code and has been removed.
+    const existingForm = await this.getForm(id, tenantId);
 
     // Archive old version
     existingForm.status = FormStatus.ARCHIVED;
@@ -292,7 +301,7 @@ export class FormBuilderService {
         `Form version ${savedSchema.version} created: ${savedSchema.id}`,
       );
 
-      return this.getForm(savedSchema.id);
+      return this.getForm(savedSchema.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -310,7 +319,7 @@ export class FormBuilderService {
     data: Record<string, any>,
     entityId?: string,
   ): Promise<FormSubmission> {
-    const form = await this.getForm(formSchemaId);
+    const form = await this.getForm(formSchemaId, tenantId);
 
     // Validate data
     const validationErrors = this.validateData(data, form.fields);
@@ -549,12 +558,17 @@ export class FormBuilderService {
     return this.searchService.search(tenantId, query, limit);
   }
 
+  // Not wired to any route today (`grep -rn extractFormDataWithAI src`
+  // finds only this definition) — `tenantId` added anyway so this keeps
+  // compiling against `getForm`'s now-required tenant scope rather than
+  // becoming the next unscoped call site the moment a controller reaches it.
   async extractFormDataWithAI(
     documentContent: string,
     formSchemaId: string,
+    tenantId: string,
   ): Promise<any> {
     try {
-      const form = await this.getForm(formSchemaId);
+      const form = await this.getForm(formSchemaId, tenantId);
 
       const fieldNames = form.fields.map((f) => f.key).join(', ');
 
@@ -580,12 +594,14 @@ export class FormBuilderService {
     }
   }
 
+  // Same note as `extractFormDataWithAI` above — not wired to any route today.
   async validateFormWithAI(
     formData: Record<string, any>,
     formSchemaId: string,
+    tenantId: string,
   ): Promise<any> {
     try {
-      const form = await this.getForm(formSchemaId);
+      const form = await this.getForm(formSchemaId, tenantId);
 
       const validationRules = form.fields.map((f) => ({
         key: f.key,
@@ -695,8 +711,8 @@ export class FormBuilderService {
 
   // ==================== RENDER HELPERS ====================
 
-  async renderForm(formSchemaId: string): Promise<any> {
-    const form = await this.getForm(formSchemaId);
+  async renderForm(formSchemaId: string, tenantId: string): Promise<any> {
+    const form = await this.getForm(formSchemaId, tenantId);
 
     return {
       id: form.id,

@@ -48,6 +48,10 @@ export class PlatformController {
   @ApiResponse({ status: 200, description: 'Stats retrieved' })
   @ApiResponse({ status: 403, description: 'Requires platform_admin' })
   async stats(@Request() req: AuthenticatedRequest) {
+    // Left under the operator's own tenant, deliberately: this aggregates
+    // across every tenant on the platform, so there is no single target
+    // tenant to attribute the audit row to instead. Do not "fix" this to a
+    // specific tenant id — there isn't one.
     return this.tenancyService.runAsGod(
       req.user.id,
       req.user.tenantId,
@@ -77,7 +81,9 @@ export class PlatformController {
   async reloadConfigPacks(@Request() req: AuthenticatedRequest) {
     // runAsGod, like every other route here: `config_packs` is platform-global,
     // so this writes rows every tenant then reads, and that belongs in the
-    // CRITICAL audit trail rather than happening quietly.
+    // CRITICAL audit trail rather than happening quietly. Left under the
+    // operator's own tenant for the same reason as `stats` above — a pack
+    // reload touches every tenant on the platform, not one.
     return this.tenancyService.runAsGod(
       req.user.id,
       req.user.tenantId,

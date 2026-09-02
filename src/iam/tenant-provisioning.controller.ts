@@ -68,6 +68,9 @@ export class TenantProvisioningController {
   @ApiResponse({ status: 200, description: 'Tenants retrieved' })
   @ApiResponse({ status: 403, description: 'Requires platform_admin' })
   async listTenants(@Request() req: AuthenticatedRequest) {
+    // Left under the operator's own tenant, deliberately: this reads every
+    // tenant on the platform, so there is no single target tenant for the
+    // audit row. Same reasoning as `PlatformController.stats`.
     return this.tenancyService.runAsGod(
       req.user.id,
       req.user.tenantId,
@@ -137,6 +140,13 @@ export class TenantProvisioningController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: ProvisionTenantDto,
   ) {
+    // Left under the operator's own tenant, deliberately: `runAsGod` writes
+    // its audit entry BEFORE `work` runs, and the tenant being provisioned
+    // does not have an id yet at that point — `provisionTenant` mints it.
+    // There is no real target to attribute to until after the work, and
+    // rewriting the write-before-work ordering to accommodate that is a
+    // change to `TenancyService.runAsGod`'s contract, not this call site —
+    // Kyle's call, not made here.
     return this.tenancyService.runAsGod(
       req.user.id,
       req.user.tenantId,
@@ -161,9 +171,11 @@ export class TenantProvisioningController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
+    // Audited under `id` (the tenant being suspended), not the operator's
+    // own tenant — the correct target was right there in the parameter list.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      id,
       `Suspend tenant ${id} (God View)`,
       () =>
         this.tenantProvisioningService.setTenantStatus(
@@ -183,9 +195,11 @@ export class TenantProvisioningController {
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
   ) {
+    // Audited under `id` (the tenant being resumed), not the operator's own
+    // tenant — the correct target was right there in the parameter list.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      id,
       `Resume tenant ${id} (God View)`,
       () =>
         this.tenantProvisioningService.setTenantStatus(id, TenantStatus.ACTIVE),
@@ -316,9 +330,12 @@ export class TenantProvisioningController {
       );
     }
 
+    // Audited under `id` (the tenant whose stats are being read), not the
+    // operator's own tenant — the correct target was right there in the
+    // parameter list.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      id,
       `Read statistics for tenant ${id} (God View)`,
       () => this.tenantProvisioningService.getTenantStats(id),
     );

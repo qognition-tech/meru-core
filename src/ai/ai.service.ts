@@ -644,9 +644,13 @@ export class AiService {
         }
       }
 
-      // Workflow Context - Get active workflows
+      // Workflow Context - Get active workflows. `SYSTEM_ACTOR`: this builds
+      // AI prompt context for the tenant as a whole, not on a user's behalf —
+      // see the doc comment on `SYSTEM_ACTOR` for why that is the correct
+      // actor here rather than a bare `platform_admin`-shaped stand-in.
       context.workflow = await this.workflowService.listInstances(
         tenantId,
+        SYSTEM_ACTOR,
         InstanceStatus.ACTIVE,
       );
 
@@ -934,7 +938,14 @@ export class AiService {
 
     if (searchModules.includes('workflow')) {
       try {
-        const instances = await this.workflowService.listInstances(tenantId);
+        // `actor`, not `SYSTEM_ACTOR` — see this method's own doc comment:
+        // a search endpoint always has a real human waiting on the answer,
+        // and `listInstances` now narrows for `own` scope exactly as every
+        // other branch of this method already does.
+        const instances = await this.workflowService.listInstances(
+          tenantId,
+          actor,
+        );
         results.workflow = instances.filter((i) =>
           JSON.stringify(i).toLowerCase().includes(query.toLowerCase()),
         );

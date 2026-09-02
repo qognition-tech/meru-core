@@ -95,9 +95,15 @@ export class ConfigPackController {
       );
     }
 
+    // The audit row is filed under the tenant the work actually touches, not
+    // the operator's own tenant — `tenantId` (the target, right there in the
+    // parameter list) not `req.user.tenantId`. All ten `runAsGod` call sites
+    // in this codebase had this backwards, which meant a firm's own
+    // `firm_admin` could never see, in their own tenant's audit log, that an
+    // operator had reached into their tenant.
     return this.tenancyService.runAsGod(
       req.user.id,
-      req.user.tenantId,
+      tenantId,
       `${reason} for tenant ${tenantId} (God View)`,
       work,
     );
