@@ -26,15 +26,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm must be installed before setup-node, or `cache: pnpm` has no
+      # store path to resolve and the step fails.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
-          cache: npm
+          # Match the deployment. `vercel project inspect` reports Node 24.x;
+          # this said 22.x, which is the same class of drift the header comment
+          # complains about (the previous pipeline ran 18 against a 24 deploy).
+          # CI passing on a runtime production does not use proves less than it
+          # appears to.
+          node-version: '24.x'
+          cache: pnpm
 
-      # `npm ci` from package-lock.json — the maintained lockfile, same as the
-      # Dockerfile. Dev dependencies are required: the build is `nest build`.
+      # `pnpm install --frozen-lockfile`, not `npm ci`.
+      #
+      # **This is why the pipeline could never have gone green.** There is no
+      # `package-lock.json` in this repo — only `pnpm-lock.yaml`, with
+      # `packageManager: pnpm@10.26.2` pinned in package.json and Vercel
+      # building with pnpm. `npm ci` requires a lockfile it would not find and
+      # refuses to fall back, so this step failed before any real check ran.
+      #
+      # The header comment above says the *previous* pipeline failed at install
+      # against a stale pnpm lockfile; the fix at the time swung to npm, which
+      # this repo does not use. Both versions failed at the same step for
+      # opposite reasons. Dev dependencies are required either way: the build
+      # is `nest build`.
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: npm run build
