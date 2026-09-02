@@ -297,9 +297,27 @@ export class CrmService {
     }
   }
 
-  async findEntityById(id: string): Promise<UniversalEntity | null> {
+  /**
+   * Fetch by id without throwing, for internal callers that handle `null`.
+   *
+   * **`tenantId` is required, and that requirement is the point of this
+   * signature.** It previously took an id alone, which made it the unscoped
+   * primitive every by-id leak in this codebase eventually reached for:
+   * `AiService`'s cross-module context and three `OrchestrationService`
+   * methods all called it while a perfectly good `tenantId` sat unused in the
+   * same scope. RLS caught them — but RLS is the last line, not the first, and
+   * under `runAsGod` or a future job context it is not a line at all.
+   *
+   * Prefer {@link getEntity}, which is actor-scoped as well and 404s rather
+   * than returning `null`. Reach for this only where a missing row is an
+   * ordinary outcome rather than an error.
+   */
+  async findEntityById(
+    id: string,
+    tenantId: string,
+  ): Promise<UniversalEntity | null> {
     return this.entityRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
     });
   }
 
@@ -597,8 +615,10 @@ export class CrmService {
     documentId: string,
     userId: string,
   ): Promise<Document> {
-    // Verify entity exists
-    const entity = await this.findEntityById(entityId);
+    // Verify the entity exists *in this tenant* — an existence check that
+    // ignored the tenant would let a document be attached to an id from
+    // another firm, and "entity exists" would have been the wrong question.
+    const entity = await this.findEntityById(entityId, tenantId);
     if (!entity) {
       throw new BadRequestException('Entity not found');
     }

@@ -141,7 +141,7 @@ export class OrchestrationService {
     this.logger.log(`Auto-categorizing entity: ${entityId}`);
 
     try {
-      const entity = await this.crmService.findEntityById(entityId);
+      const entity = await this.crmService.findEntityById(entityId, tenantId);
       if (!entity) {
         throw new Error('Entity not found');
       }
@@ -309,7 +309,7 @@ export class OrchestrationService {
           error?: unknown;
         }> => {
           try {
-            const entity = await this.crmService.findEntityById(entityId);
+            const entity = await this.crmService.findEntityById(entityId, tenantId);
             if (entity) {
               await this.searchService.indexEntityData(entity);
               return { entityId, success: true };
@@ -349,7 +349,10 @@ export class OrchestrationService {
 
   private async indexForSearch(event: EntityCreatedEvent): Promise<void> {
     try {
-      const entity = await this.crmService.findEntityById(event.entityId);
+      const entity = await this.crmService.findEntityById(
+        event.entityId,
+        event.tenantId,
+      );
       if (entity) {
         await this.searchService.indexEntityData(entity);
         this.logger.debug(`Entity indexed for search: ${event.entityId}`);
