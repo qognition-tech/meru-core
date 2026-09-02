@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Actor, scopeOf } from '../common/access';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
@@ -52,6 +53,14 @@ export interface TransitionRequest {
   tenantId: string;
   transitionId?: string;
   userId: string;
+  /**
+   * The roles the caller actually holds, for `checkPermissions`.
+   *
+   * Optional so existing callers keep compiling, but pass it: without it a
+   * transition whose `permissions.roles` names a real `PlatformRole` can never
+   * be satisfied, because there is nothing to match against.
+   */
+  userRoles?: string[];
   context?: Record<string, any>;
 }
 
@@ -432,7 +441,13 @@ export class WorkflowEngineService {
     }
 
     // Check permissions
-    if (!this.checkPermissions(transition.permissions, request.userId)) {
+    if (
+      !this.checkPermissions(
+        transition.permissions,
+        request.userId,
+        request.userRoles ?? [],
+      )
+    ) {
       throw new BadRequestException('Insufficient permissions');
     }
 
@@ -647,17 +662,78 @@ export class WorkflowEngineService {
       : results.some((r) => r);
   }
 
+  /**
+   * May this actor take this transition?
+   *
+   * **This function used to deny everyone, and materialising a pack armed it.**
+   * It read only `permissions.users`, so any transition carrying
+   * `permissions.roles` with an empty `users` list fell through to
+   * `return false` — for every caller, including `firm_admin` and
+   * `platform_admin`. `PackWorkflowService` writes exactly that shape
+   * (`{ roles: [step.assignedRole] }`, never `users`), and the AU immigration
+   * pack sets `assignedRole` on all 14 steps of `wf_visa_matter`. So one click
+   * of "Materialise all" in Settings → Workflows would have frozen every matter
+   * in that tenant at its current stage, permanently, with no error to read.
+   *
+   * The rules now, in order:
+   *
+   * 1. No constraint at all → allow. Unchanged.
+   * 2. The actor is named in `users` → allow. Unchanged.
+   * 3. The actor holds one of the required roles → allow. **This is the branch
+   *    that never existed**, and it is why the comment here used to say
+   *    "in production, check user roles".
+   * 4. The requirement names no role this system can evaluate → **allow, and
+   *    warn**. The pack's practice-role vocabulary (`migration_agent`,
+   *    `case_coordinator`, `client_portal`) has no carrier on `User` yet —
+   *    `User.roles` holds `PlatformRole` values only — so a pack role can
+   *    never match, and denying on it is denying on a rule we have not
+   *    implemented rather than one the actor failed.
+   *
+   * Rule 4 is the deliberate part. Every route reaching here is already
+   * `@Roles(STAFF, FIRM_ADMIN)` at the controller, so "allow" means "any staff
+   * member", which is exactly the behaviour of a tenant that has not
+   * materialised a pack. It loosens nothing relative to today; it only stops
+   * materialisation from silently removing access.
+   *
+   * It is also the opposite call from `compileCondition`, which stores an
+   * uncompilable *condition* as `conditions.unevaluable` so the transition
+   * never opens. That asymmetry is intended: a condition is business logic and
+   * failing closed is safe, whereas a permission failing closed locks the
+   * product. **When the practice-role model lands, rule 4 must be deleted** —
+   * at that point an unmatched role is a real denial, and leaving this branch
+   * in would silently grant what the pack meant to restrict.
+   */
   private checkPermissions(
     permissions: { roles?: string[]; users?: string[] },
     userId: string,
+    userRoles: string[] = [],
   ): boolean {
-    // Simplified permission check - in production, check user roles
     if (!permissions.roles?.length && !permissions.users?.length) {
       return true;
     }
     if (permissions.users?.includes(userId)) {
       return true;
     }
+
+    const required = permissions.roles ?? [];
+    if (required.length) {
+      if (required.some((r) => userRoles.includes(r))) {
+        return true;
+      }
+
+      const platformRoles = Object.values(PlatformRole) as string[];
+      const evaluable = required.some((r) => platformRoles.includes(r));
+      if (!evaluable) {
+        this.logger.warn(
+          `Transition requires role(s) [${required.join(', ')}], which are not ` +
+            `PlatformRole values and cannot be evaluated against this user. ` +
+            `Deferring to the controller's role guard. This is an authoring ` +
+            `gap, not a grant — see checkPermissions().`,
+        );
+        return true;
+      }
+    }
+
     return false;
   }
 
