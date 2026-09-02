@@ -50,27 +50,70 @@ export class SearchService {
    * documents, forms) keeps working unchanged because it never passes this
    * second argument and `entity.tenantId` — already the caller's own,
    * server-derived value — is used exactly as before.
+   *
+   * Two payload shapes reach this method. `crm.service.ts` and
+   * `orchestration.service.ts` pass a real `UniversalEntity` row, keyed on
+   * `.id`, with no `searchableType` of its own — those always mean
+   * `SearchableType.ENTITY`. `task.service.ts`, `form-builder.service.ts`,
+   * `workflow.service.ts` and `document-hub.service.ts` pass a wrapper object
+   * that already carries its own `searchableId`/`searchableType` fields. This
+   * method used to read `entity.id` unconditionally and hardcode
+   * `SearchableType.ENTITY`, so every wrapped caller wrote `searchableId:
+   * undefined` against a NOT NULL column — an insert that always threw, into
+   * a try/catch that only logged. Tasks, form submissions, workflow instances
+   * and documents had never once landed in the index.
    */
   async indexEntityData(entity: any, overrideTenantId?: string) {
     const tenantId = overrideTenantId ?? entity.tenantId;
+    const searchableId: unknown = entity.searchableId ?? entity.id;
+    const searchableType: SearchableType = this.resolveSearchableType(
+      entity.searchableType,
+    );
+
+    // Loud, not swallowed: the class of failure this whole method exists to
+    // close was an undefined id reaching the database and throwing a bare
+    // Postgres NOT NULL violation that every caller's try/catch logged and
+    // moved on from. A named, specific error here is at least diagnosable
+    // from that same log line; the caller's catch-and-continue is correct
+    // (search indexing must never fail the write it is indexing) but the
+    // message it logs should say exactly what was missing.
+    if (typeof searchableId !== 'string' || searchableId.length === 0) {
+      throw new Error(
+        `SearchService.indexEntityData: no searchableId/id on a ` +
+          `"${searchableType}" payload for tenant ${tenantId ?? 'unknown'} — ` +
+          `refusing to index`,
+      );
+    }
 
     const existing = await this.searchRepo.findOne({
       where: {
         tenantId,
-        searchableId: entity.id,
-        searchableType: SearchableType.ENTITY,
+        searchableId,
+        searchableType,
       },
     });
 
     const searchData = {
       tenantId,
-      searchableType: SearchableType.ENTITY,
-      searchableId: entity.id,
+      searchableType,
+      searchableId,
+      // Wrapper callers (tasks, forms, workflow instances, documents) already
+      // computed their own `title`/`content` — a task's title is its title,
+      // not a person's name. Only a bare CRM entity (no `title` field on
+      // `UniversalEntity`) falls through to the name/email derivation below.
+      // Fixing the id/type above and leaving this branch untouched would have
+      // indexed every task, form submission and workflow instance under the
+      // title "Unknown" with an empty snippet — indexed, but unfindable by
+      // anything a person would actually type.
       title:
-        `${entity.firstName || ''} ${entity.lastName || ''}`.trim() ||
-        entity.email ||
-        'Unknown',
-      content: this.generateContent(entity),
+        entity.title ??
+        (`${entity.firstName || ''} ${entity.lastName || ''}`.trim() ||
+          entity.email ||
+          'Unknown'),
+      content:
+        typeof entity.content === 'string'
+          ? entity.content
+          : this.generateContent(entity),
       metadata: {
         entityType: entity.type,
         email: entity.email,

@@ -34,6 +34,8 @@ import { AddPaymentDirection1755900000000 } from '../migrations/1755900000000-Ad
 import { AddWhatsappChannel1756000000000 } from '../migrations/1756000000000-AddWhatsappChannel';
 import { AddDocumentVersionStorageProvider1756100000000 } from '../migrations/1756100000000-AddDocumentVersionStorageProvider';
 import { AddSarEntityType1756200000000 } from '../migrations/1756200000000-AddSarEntityType';
+import { AddInboundWebhooks1756300000000 } from '../migrations/1756300000000-AddInboundWebhooks';
+import { AddSearchableTaskTypes1756400000000 } from '../migrations/1756400000000-AddSearchableTaskTypes';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -83,4 +85,11 @@ export const ALL_MIGRATIONS = [
   AddWhatsappChannel1756000000000,
   AddDocumentVersionStorageProvider1756100000000,
   AddSarEntityType1756200000000,
+  // Found missing from this list while adding AddSearchableTaskTypes below —
+  // same trap the comment above already describes. On disk since 2026-08-22
+  // (AGENTS.md §3.0b, inbound webhooks) but never registered here, so
+  // `/jobs/migrate/:target` against a fresh database would never have created
+  // `webhook_endpoints` / `webhook_deliveries`.
+  AddInboundWebhooks1756300000000,
+  AddSearchableTaskTypes1756400000000,
 ];

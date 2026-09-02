@@ -5,6 +5,14 @@ export enum SearchableType {
   DOCUMENT = 'document',
   NOTE = 'note',
   EMAIL = 'email',
+  // Additive (CLAUDE.md §5.5b/§7.2) — appended, not inserted, so no stored
+  // row's enum ordinal shifts. Added because `indexEntityData` used to
+  // hardcode `SearchableType.ENTITY` regardless of what a caller asked to
+  // index; tasks, form submissions and workflow instances now index as
+  // themselves. `document` already existed and covers `document-hub.service.ts`.
+  TASK = 'task',
+  FORM_SUBMISSION = 'form_submission',
+  WORKFLOW_INSTANCE = 'workflow_instance',
 }
 
 @Entity('search_index')

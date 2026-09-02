@@ -150,17 +150,9 @@ export class WorkflowController {
     return workflows;
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get workflow by ID' })
-  @ApiResponse({ status: 200, description: 'Workflow retrieved' })
-  @ApiResponse({ status: 404, description: 'Not found' })
-  async getWorkflow(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
-    const workflow = await this.workflowService.getWorkflow(
-      id,
-      req.user.tenantId,
-    );
-    return workflow;
-  }
+  // `GET /workflows/:id` is declared at the BOTTOM of this controller, after
+  // every literal-prefixed route. See the note there — putting it here made
+  // `GET /workflows/instances` unreachable.
 
   // ==================== WORKFLOW INSTANCES ====================
 
@@ -266,5 +258,38 @@ export class WorkflowController {
       context: dto.context,
     });
     return instance;
+  }
+
+  // ==================== CATCH-ALL, DECLARED LAST ON PURPOSE ====================
+
+  /**
+   * Get one workflow *definition* by id.
+   *
+   * **Declared last, and it must stay last.** Nest matches routes in
+   * declaration order, so a `:id` parameter route swallows every literal path
+   * that follows it at the same depth. This handler used to sit above
+   * `@Get('instances')`, which meant `GET /workflows/instances` was read as
+   * `getWorkflow('instances')` and rejected by `ParseUUIDPipe` — a 400, for
+   * every caller including `firm_admin`. **The instances list route was
+   * unreachable, and had been for as long as both routes coexisted.**
+   *
+   * That is also why nobody noticed the route returned every matter in the
+   * tenant to a client token: it never returned anything at all. The scoping
+   * fix and this ordering fix are the same bug seen from two ends.
+   *
+   * The `tat` routes at the top of this file carry the same warning for the
+   * same reason. Anything literal — a new `/workflows/templates`, say — goes
+   * above this method, not below it.
+   */
+  @Get(':id')
+  @ApiOperation({ summary: 'Get workflow by ID' })
+  @ApiResponse({ status: 200, description: 'Workflow retrieved' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  async getWorkflow(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const workflow = await this.workflowService.getWorkflow(
+      id,
+      req.user.tenantId,
+    );
+    return workflow;
   }
 }
