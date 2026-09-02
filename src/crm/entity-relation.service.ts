@@ -12,6 +12,8 @@ import {
   UniversalEntity,
 } from './entities/universal-entity.entity';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { CrmAccessService } from './crm-access.service';
+import { Actor } from '../common/access';
 
 /** One `relationships[]` entry, as the pack declares it. */
 export interface RelationshipDefinition {
@@ -64,6 +66,7 @@ export class EntityRelationService {
     @InjectRepository(UniversalEntity)
     private readonly entityRepo: Repository<UniversalEntity>,
     private readonly packs: VerticalPackService,
+    private readonly access: CrmAccessService,
   ) {}
 
   /**
@@ -76,6 +79,12 @@ export class EntityRelationService {
    */
   async link(
     tenantId: string,
+    // Required — see `CrmAccessService`. The "from" entity is the parent this
+    // whole route hangs off (`POST /crm/entities/:id/relations`), so it is
+    // what gets the ownership check; an `own`-scope caller may only manage
+    // relations on records assigned to them, matching the rest of this
+    // resource's model.
+    actor: Actor,
     vertical: string | null,
     relationKey: string,
     fromId: string,
@@ -92,6 +101,16 @@ export class EntityRelationService {
       this.entity(tenantId, fromId),
       this.entity(tenantId, toId),
     ]);
+
+    this.access.assert(from, actor, 'read');
+    // **Both ends, not just the parent.** Checking only `from` was a privilege
+    // escalation, not merely an incomplete check: an `own`-scope caller who
+    // owns exactly one record could link it to *any* id in the tenant they
+    // could guess, and then read that record back in full through `traverse()`
+    // below — `verticalAttributes` included, which on ImmiStack is where
+    // passport and visa data lives. Ownership of a record you already hold
+    // must never become a key to one you do not.
+    this.access.assert(to, actor, 'read');
 
     if (from.type !== definition.fromType || to.type !== definition.toType) {
       throw new BadRequestException(
@@ -124,10 +143,13 @@ export class EntityRelationService {
 
   async unlink(
     tenantId: string,
+    actor: Actor,
     relationKey: string,
     fromId: string,
     toId: string,
   ): Promise<void> {
+    const from = await this.entity(tenantId, fromId);
+    this.access.assert(from, actor, 'read');
     await this.relationRepo.delete({ tenantId, relationKey, fromId, toId });
   }
 
@@ -140,9 +162,13 @@ export class EntityRelationService {
    */
   async traverse(
     tenantId: string,
+    actor: Actor,
     vertical: string | null,
     entityId: string,
   ): Promise<TraversalResult> {
+    const parent = await this.entity(tenantId, entityId);
+    this.access.assert(parent, actor, 'read');
+
     const definitions = await this.definitions(vertical);
     const byKey = new Map(definitions.map((d) => [d.key, d]));
 
@@ -155,7 +181,24 @@ export class EntityRelationService {
     const entities = ids.length
       ? await this.entityRepo.find({ where: { tenantId, id: In(ids) } })
       : [];
-    const entityById = new Map(entities.map((e) => [e.id, e]));
+
+    // **Filter per row, not just on the parent.** Reaching this point means the
+    // caller may read the record the traversal started from — it says nothing
+    // about the records on the other end of each edge, and this method returns
+    // whole `UniversalEntity` rows, `verticalAttributes` and all. Without this
+    // filter, being able to read one record made every record it links to
+    // readable, which turned a relation into a lateral-movement primitive.
+    //
+    // Dropping an unreadable row silently is correct here: the `flatMap`s below
+    // already skip an id missing from this map, so an inaccessible neighbour is
+    // simply not part of the graph this caller can see. Raising instead would
+    // confirm the record exists, which is the disclosure 404-not-403 avoids
+    // everywhere else in this service.
+    const entityById = new Map(
+      entities
+        .filter((e) => this.access.canAccess(e, actor, 'read'))
+        .map((e) => [e.id, e]),
+    );
 
     return {
       entityId,
@@ -196,6 +239,38 @@ export class EntityRelationService {
    */
   async completionBlockers(
     tenantId: string,
+    actor: Actor,
+    vertical: string | null,
+    entityId: string,
+  ): Promise<UniversalEntity[]> {
+    const parent = await this.entity(tenantId, entityId);
+    this.access.assert(parent, actor, 'read');
+
+    // Disclosure view: only the blockers this caller may actually read. See
+    // `openBlockers` for why the two are deliberately not the same list.
+    return (await this.openBlockers(tenantId, vertical, entityId)).filter((b) =>
+      this.access.canAccess(b, actor, 'read'),
+    );
+  }
+
+  /**
+   * Every open blocker, **unfiltered by who is asking**.
+   *
+   * Kept separate from {@link completionBlockers} because the two questions
+   * genuinely differ, and collapsing them breaks one or the other:
+   *
+   * - *"What may I show this caller?"* must hide records they cannot read,
+   *   or a relation becomes a way to read someone else's case.
+   * - *"May this record be completed?"* must count **every** blocker, readable
+   *   or not. Filtering here would mean a blocker a caller cannot see is a
+   *   blocker that does not stop them — an applicant could close a matter that
+   *   is genuinely blocked, simply because the thing blocking it belongs to
+   *   someone else.
+   *
+   * So the guard counts this list and the API renders the other one.
+   */
+  private async openBlockers(
+    tenantId: string,
     vertical: string | null,
     entityId: string,
   ): Promise<UniversalEntity[]> {
@@ -230,22 +305,33 @@ export class EntityRelationService {
    */
   async assertCompletable(
     tenantId: string,
+    actor: Actor,
     vertical: string | null,
     entityId: string,
   ): Promise<void> {
-    const blockers = await this.completionBlockers(
-      tenantId,
-      vertical,
-      entityId,
-    );
+    // The *unfiltered* list on purpose — a blocker the caller cannot read is
+    // still a blocker. Counting only what they can see would let an applicant
+    // close a matter that another party's open record is holding open.
+    const blockers = await this.openBlockers(tenantId, vertical, entityId);
     if (!blockers.length) return;
 
+    // Truthful count, but name only the records this caller may already read.
+    // The fact that something blocks is information they are entitled to — it
+    // is why their action failed. *Which* record it is, when it belongs to
+    // someone else, is not.
+    const nameable = blockers.filter((b) =>
+      this.access.canAccess(b, actor, 'read'),
+    );
+    const named = nameable
+      .slice(0, 3)
+      .map((b) => `${b.type} ${b.id.slice(0, 8)}`)
+      .join(', ');
+    const detail = named
+      ? ` (${named}${nameable.length > 3 ? ', …' : ''})`
+      : '';
+
     throw new BadRequestException(
-      `Cannot complete: ${blockers.length} related record(s) are still open ` +
-        `(${blockers
-          .slice(0, 3)
-          .map((b) => `${b.type} ${b.id.slice(0, 8)}`)
-          .join(', ')}${blockers.length > 3 ? ', …' : ''})`,
+      `Cannot complete: ${blockers.length} related record(s) are still open${detail}`,
     );
   }
 

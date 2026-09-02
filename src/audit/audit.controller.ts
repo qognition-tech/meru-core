@@ -21,15 +21,22 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import type { Response } from 'express';
 import { paginated } from '../common/paginated';
 import { DateRangeQueryDto } from '../common/dto/date-range.dto';
 import { ExportLogsDto } from './dto/export-logs.dto';
 import { ComplianceStandard } from './entities/audit-log.entity';
 
+// The audit trail is IPs, user-agents and other users' record ids — none of
+// it is a `client`'s own record, even the entries about their own case,
+// because every row also names the staff member who touched it. Staff-only,
+// class-wide.
 @ApiTags('audit')
 @Controller('audit')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
+@Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
 @ApiBearerAuth('JWT-auth')
 export class AuditController {
   constructor(private auditService: AuditService) {}

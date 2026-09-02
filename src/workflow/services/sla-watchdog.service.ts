@@ -13,6 +13,7 @@ import {
   NotificationCategory,
 } from '../../notifications/entities/notification.entity';
 import { WorkflowEngineService } from '../workflow.service';
+import { SYSTEM_ACTOR } from '../../common/access';
 
 @Injectable()
 export class SlaWatchdogService {
@@ -171,8 +172,11 @@ export class SlaWatchdogService {
         // guessed between two branches would be inventing a decision nobody
         // made, and an unmoved instance is recoverable where a wrongly
         // approved one is not.
+        // The watchdog is a scheduled job with no user behind it — SYSTEM_ACTOR
+        // is the documented use (`common/access.ts`), confined by the
+        // instance's own `tenantId` below.
         const moved = await this.workflowService
-          .getAvailableTransitions(instance.id)
+          .getAvailableTransitions(instance.id, instance.tenantId, SYSTEM_ACTOR)
           .then((available) => available[0])
           .catch(() => undefined);
 
@@ -185,6 +189,7 @@ export class SlaWatchdogService {
 
         await this.workflowService.transition({
           instanceId: instance.id,
+          tenantId: instance.tenantId,
           transitionId: moved.id,
           userId: instance.startedBy,
           context: { autoApprovedBySlaBreach: true },

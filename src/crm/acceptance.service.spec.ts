@@ -1,4 +1,6 @@
 import { AcceptanceService } from './acceptance.service';
+import { CrmAccessService } from './crm-access.service';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 /**
  * The frontend asked for e-signature and refused to build an approximation,
@@ -7,7 +9,14 @@ import { AcceptanceService } from './acceptance.service';
  *
  * These tests pin the narrower thing that is actually true — an audited,
  * hash-anchored record of assent that says on its face it is not a signature.
+ *
+ * Recording acceptance is `own`-scope-legitimate (CLAUDE.md-adjacent doc on
+ * `AcceptanceService.record`), so these use a `firm_admin` actor throughout —
+ * these tests are pinning behaviour, not re-deriving `CrmAccessService`'s own
+ * rules, which have their own spec.
  */
+const STAFF_ACTOR = { id: 'staff-1', roles: [PlatformRole.FIRM_ADMIN] };
+
 describe('AcceptanceService', () => {
   const build = (entity: Record<string, any> | null = { id: 'e1', tenantId: 't1', verticalAttributes: {} }) => {
     const saved: Record<string, any>[] = [];
@@ -19,7 +28,11 @@ describe('AcceptanceService', () => {
       }),
     };
     const audit = { logEvent: jest.fn().mockResolvedValue({}) };
-    const service = new AcceptanceService(entities as any, audit as any);
+    const service = new AcceptanceService(
+      entities as any,
+      audit as any,
+      new CrmAccessService(),
+    );
     return { service, saved, audit, entities };
   };
 
@@ -33,13 +46,13 @@ describe('AcceptanceService', () => {
 
   it('never claims to be a signature', async () => {
     const { service } = build();
-    const out = await service.record('t1', 'e1', input);
+    const out = await service.record('t1', 'e1', input, STAFF_ACTOR);
     expect(out.isSignature).toBe(false);
   });
 
   it('records who, when and from where', async () => {
     const { service } = build();
-    const out = await service.record('t1', 'e1', input);
+    const out = await service.record('t1', 'e1', input, STAFF_ACTOR);
 
     expect(out.email).toBe('priya@example.com');
     expect(out.userId).toBe('u1');
@@ -52,14 +65,14 @@ describe('AcceptanceService', () => {
     const out = await service.record('t1', 'e1', {
       ...input,
       documentBytes: Buffer.from('the exact agreement text'),
-    });
+    }, STAFF_ACTOR);
     expect(out.documentSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('accepts a hash the caller computed itself', async () => {
     const sha = 'a'.repeat(64);
     const { service } = build();
-    const out = await service.record('t1', 'e1', { ...input, documentSha256: sha });
+    const out = await service.record('t1', 'e1', { ...input, documentSha256: sha }, STAFF_ACTOR);
     expect(out.documentSha256).toBe(sha);
   });
 
@@ -67,7 +80,7 @@ describe('AcceptanceService', () => {
     // An acceptance with no anchor still has value — it just must not pretend to
     // one, or the wording can change afterwards undetected.
     const { service } = build();
-    const out = await service.record('t1', 'e1', input);
+    const out = await service.record('t1', 'e1', input, STAFF_ACTOR);
     expect(out.documentSha256).toBeNull();
   });
 
@@ -76,9 +89,9 @@ describe('AcceptanceService', () => {
     const entity = { id: 'e1', tenantId: 't1', verticalAttributes: {} };
     const { service, entities } = build(entity);
 
-    await service.record('t1', 'e1', { ...input, subject: 'terms_v1' });
+    await service.record('t1', 'e1', { ...input, subject: 'terms_v1' }, STAFF_ACTOR);
     entities.findOne.mockResolvedValue(entity);
-    await service.record('t1', 'e1', { ...input, subject: 'terms_v2' });
+    await service.record('t1', 'e1', { ...input, subject: 'terms_v2' }, STAFF_ACTOR);
 
     const list = entity.verticalAttributes as Record<string, any>;
     expect(list.acceptances).toHaveLength(2);
@@ -92,7 +105,7 @@ describe('AcceptanceService', () => {
       verticalAttributes: { matter: { subclass: '482' } },
     };
     const { service } = build(entity);
-    await service.record('t1', 'e1', input);
+    await service.record('t1', 'e1', input, STAFF_ACTOR);
     expect((entity.verticalAttributes as any).matter.subclass).toBe('482');
   });
 
@@ -100,7 +113,7 @@ describe('AcceptanceService', () => {
     // A jsonb row can be edited by anyone with write access; the hash-chained
     // audit entry cannot be altered without breaking the chain.
     const { service, audit } = build();
-    await service.record('t1', 'e1', input);
+    await service.record('t1', 'e1', input, STAFF_ACTOR);
 
     const entry = audit.logEvent.mock.calls[0][0];
     expect(entry.entityType).toBe('entity_acceptance');
@@ -112,17 +125,17 @@ describe('AcceptanceService', () => {
   it('refuses an acceptance of nothing in particular', async () => {
     const { service } = build();
     await expect(
-      service.record('t1', 'e1', { ...input, subject: '   ' }),
+      service.record('t1', 'e1', { ...input, subject: '   ' }, STAFF_ACTOR),
     ).rejects.toThrow(/subject is required/);
   });
 
   it("404s on a record that is not this tenant's", async () => {
     const { service } = build(null);
-    await expect(service.record('t1', 'e1', input)).rejects.toThrow(/not found/i);
+    await expect(service.record('t1', 'e1', input, STAFF_ACTOR)).rejects.toThrow(/not found/i);
   });
 
   it('lists nothing rather than throwing when there are no acceptances', async () => {
     const { service } = build();
-    await expect(service.list('t1', 'e1')).resolves.toEqual([]);
+    await expect(service.list('t1', 'e1', STAFF_ACTOR)).resolves.toEqual([]);
   });
 });

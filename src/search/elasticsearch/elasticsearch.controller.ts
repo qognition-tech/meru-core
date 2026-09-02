@@ -24,7 +24,10 @@ import { ElasticsearchService } from './elasticsearch.service';
 import { CurrentUser } from '../../iam/decorators/current-user.decorator';
 import { TenantId } from '../../tenant/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../../iam/guards/jwt-auth.guard';
-import { UseGuards } from '@nestjs/common';
+import { PolicyGuard } from '../../iam/guards/policy.guard';
+import { Roles } from '../../iam/decorators/roles.decorator';
+import { PlatformRole } from '../../iam/enums/platform-role.enum';
+import { UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import {
   SearchDocumentsDto,
   SemanticSearchDto,
@@ -49,9 +52,17 @@ import {
   IndexMapping,
 } from './interfaces/search.interface';
 
+// This is raw driver access — index create/delete, arbitrary document
+// delete, tenant-wide search-log reads — not a domain object a `client`
+// could legitimately own. Unlike Postgres, RLS is not even a backstop here:
+// ES has no row-level policy, so a missing role gate on this controller was
+// the *only* thing standing between any authenticated user and another
+// tenant's index if `tenantId` were ever passed wrong. `platform_admin` only,
+// not `firm_admin`/`staff`: this is index administration, not casework.
 @ApiTags('Elasticsearch')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PolicyGuard)
+@Roles(PlatformRole.PLATFORM_ADMIN)
 @Controller('elasticsearch')
 export class ElasticsearchController {
   constructor(private readonly elasticsearchService: ElasticsearchService) {}
@@ -285,30 +296,29 @@ export class ElasticsearchController {
 
   @Post('search/semantic')
   @ApiOperation({
-    summary: 'Semantic search',
-    description: 'Vector-based semantic search',
+    summary: 'Semantic search — NOT IMPLEMENTED',
+    description:
+      'No embedding pipeline is wired to this route. It used to run the ' +
+      'similarity search anyway against `embedding: []` — a zero-length ' +
+      "vector that cosine-similarity can't score against anything — and " +
+      'answer 200 with ranked-looking results built from nothing, which is ' +
+      'exactly the "unknown rendered as an answer" CLAUDE.md §7.3 forbids. ' +
+      '503 with `unavailableReason` until an embedding generator is wired in ' +
+      '(`AiService.createEmbedding` already exists for this).',
   })
   @ApiResponse({
-    status: 200,
-    description: 'Semantic search completed',
-    type: Object,
+    status: 503,
+    description: 'No embedding pipeline configured for this route',
   })
-  async semanticSearch(
-    @Body() dto: SemanticSearchDto,
-    @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
-  ): Promise<SearchResult> {
-    // In production, generate embedding from query text using OpenAI
-    // For now, return empty embedding - would need AI service integration
-    const embedding: number[] = [];
-
-    return this.elasticsearchService.semanticSearch(
-      tenantId,
-      dto.query,
-      embedding,
-      dto.k,
-      dto.threshold,
-    );
+  async semanticSearch(@Body() dto: SemanticSearchDto): Promise<never> {
+    throw new ServiceUnavailableException({
+      code: 'MER-SRV-0503',
+      message:
+        'Semantic search has no embedding pipeline wired to this route yet. ' +
+        'Use POST /search or GET /search for keyword search in the meantime.',
+      unavailableReason: 'embedding_pipeline_not_configured',
+      query: dto.query,
+    });
   }
 
   @Post('search/faceted')

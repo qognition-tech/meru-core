@@ -190,6 +190,26 @@ without an explicit god-mode audit entry.
   `DATABASE_URL` (owner) is for migrations; `DATABASE_APP_URL` is for runtime.
 - Every table is `ENABLE` **and** `FORCE ROW LEVEL SECURITY` — without `FORCE`
   the table owner is exempt.
+
+  > **Measured against the live database 2026-09-02: 63 of 64 public tables carry
+  > RLS.** The single exception is `migrations`, TypeORM's own bookkeeping table,
+  > which has no `tenantId` column — correctly excluded, not a gap. Earlier docs
+  > quoting "51 tables" undercount; the number moves as tables are added, so
+  > **measure rather than quote it**:
+  >
+  > ```sql
+  > SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+  > FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  > WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
+  > ```
+  >
+  > A policy's **`WITH CHECK`** clause matters as much as its `USING` clause, and
+  > only `WITH CHECK` constrains writes. `search_index` carries `cmd=ALL` with
+  > both, which is why `POST /search/index/entity` taking `tenantId` from the
+  > *request body* was a contained bug and not a cross-tenant write — Postgres
+  > rejects the insert. **Do not read that as permission to trust body input:**
+  > the route now derives the tenant server-side, because a policy is the last
+  > line of defence and not the first.
 - `TenantAlsMiddleware` opens an AsyncLocalStorage context;
   `TenantBindingInterceptor` fills the tenant in after the guards run;
   `applyRlsToDataSource` sets `app.current_tenant_id` on the *same pooled

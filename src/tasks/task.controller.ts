@@ -21,6 +21,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { TaskService } from './task.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { paginated } from '../common/paginated';
 import {
   CalendarEventsQueryDto,
@@ -39,6 +41,7 @@ export class TaskController {
   // ==================== TASKS ====================
 
   @Post()
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a new task' })
   @ApiResponse({ status: 201, description: 'Task created successfully' })
   async createTask(@Request() req, @Body() dto: CreateTaskDto) {
@@ -75,6 +78,7 @@ export class TaskController {
         ...(dueBefore ? { dueBefore: new Date(dueBefore) } : {}),
         ...(dueAfter ? { dueAfter: new Date(dueAfter) } : {}),
       },
+      req.user,
     );
     return paginated(items, total, page, limit);
   }
@@ -105,6 +109,7 @@ export class TaskController {
   // `getTask('recurring-jobs')` and 400'd on ParseUUIDPipe. Keep them here.
 
   @Get('recurring-jobs')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'List recurring jobs' })
   @ApiQuery({ name: 'status', required: false })
   @ApiResponse({ status: 200, description: 'Jobs retrieved' })
@@ -118,7 +123,8 @@ export class TaskController {
     description:
       'Tasks with a due date inside the window. `?scope=firm` returns every ' +
       "task in the tenant rather than only the caller's, which is what a " +
-      'shared team calendar needs.',
+      "shared team calendar needs — staff only; a client's `?scope=firm` is " +
+      "held to 'mine'.",
   })
   @ApiResponse({ status: 200, description: 'Events retrieved' })
   @ApiResponse({ status: 400, description: 'Missing or malformed date range' })
@@ -129,6 +135,7 @@ export class TaskController {
     return this.taskService.getCalendarEvents(
       req.user.tenantId,
       req.user.id,
+      req.user,
       new Date(query.startDate),
       new Date(query.endDate),
       query.scope ?? 'mine',
@@ -138,13 +145,14 @@ export class TaskController {
   @Get(':id')
   @ApiOperation({ summary: 'Get task by ID' })
   @ApiResponse({ status: 200, description: 'Task retrieved' })
-  @ApiResponse({ status: 404, description: 'Not found' })
-  async getTask(@Param('id', ParseUUIDPipe) id: string) {
-    const task = await this.taskService.getTask(id);
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
+  async getTask(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const task = await this.taskService.getTask(id, req.user.tenantId, req.user);
     return task;
   }
 
   @Put(':id')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Update task' })
   @ApiResponse({ status: 200, description: 'Task updated' })
   async updateTask(
@@ -161,30 +169,43 @@ export class TaskController {
   }
 
   @Post(':id/start')
-  @ApiOperation({ summary: 'Start task' })
+  @ApiOperation({
+    summary: 'Start task',
+    description:
+      "A client may start their own assigned task (ImmiStack's checklist " +
+      'items); staff may start any task in the tenant.',
+  })
   @ApiResponse({ status: 200, description: 'Task started' })
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
   async startTask(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.startTask(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
     return task;
   }
 
   @Post(':id/complete')
-  @ApiOperation({ summary: 'Complete task' })
+  @ApiOperation({
+    summary: 'Complete task',
+    description:
+      "A client may complete their own assigned task (ImmiStack's checklist " +
+      'items); staff may complete any task in the tenant.',
+  })
   @ApiResponse({ status: 200, description: 'Task completed' })
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
   async completeTask(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     const task = await this.taskService.completeTask(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
     return task;
   }
 
   @Post(':id/cancel')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Cancel task' })
   @ApiResponse({ status: 200, description: 'Task cancelled' })
   async cancelTask(
@@ -203,8 +224,12 @@ export class TaskController {
   // ==================== TASK COMMENTS ====================
 
   @Post(':id/comments')
-  @ApiOperation({ summary: 'Add comment to task' })
+  @ApiOperation({
+    summary: 'Add comment to task',
+    description: "A client may comment on their own task; staff on any.",
+  })
   @ApiResponse({ status: 201, description: 'Comment added' })
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
   async addComment(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
@@ -213,7 +238,7 @@ export class TaskController {
     const comment = await this.taskService.addComment(
       id,
       req.user.tenantId,
-      req.user.id,
+      req.user,
       dto.content,
     );
     return comment;
@@ -222,6 +247,7 @@ export class TaskController {
   // ==================== RECURRING JOBS ====================
 
   @Post('recurring-jobs')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a recurring job' })
   @ApiResponse({ status: 201, description: 'Recurring job created' })
   async createRecurringJob(@Request() req, @Body() dto: CreateRecurringJobDto) {
@@ -238,6 +264,7 @@ export class TaskController {
   }
 
   @Post('recurring-jobs/:id/pause')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Pause recurring job' })
   @ApiResponse({ status: 200, description: 'Job paused' })
   async pauseRecurringJob(
@@ -249,6 +276,7 @@ export class TaskController {
   }
 
   @Post('recurring-jobs/:id/resume')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Resume recurring job' })
   @ApiResponse({ status: 200, description: 'Job resumed' })
   async resumeRecurringJob(

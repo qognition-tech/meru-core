@@ -29,7 +29,7 @@ import { AuditService } from '../audit/audit.service';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { ConnectorsService } from '../integrations/services/connectors.service';
 import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
-import { SYSTEM_ACTOR } from '../common/access';
+import { Actor, SYSTEM_ACTOR } from '../common/access';
 
 /**
  * A prompt the gateway can execute, whichever layer it came from.
@@ -621,8 +621,27 @@ export class AiService {
 
     try {
       // CRM Context
+      //
+      // `getEntity` is the tenant-scoped, actor-checked accessor
+      // (`crm.service.ts`) — `findEntityById` took an id with no tenant
+      // filter at all, so an `entityId` from any tenant would have been
+      // pulled into this tenant's AI prompt context. `SYSTEM_ACTOR`: this is
+      // an internal context-gather with no user behind it (CLAUDE.md's own
+      // worked example for the constant), confined by the `tenantId` already
+      // passed in. Caught locally, not by the outer try/catch, so a deleted
+      // or cross-tenant `entityId` degrades to "no CRM context" rather than
+      // aborting workflow/tasks/documents/billing/analytics below it — the
+      // same behaviour `findEntityById`'s `| null` return used to give.
       if (entityId && entityType === 'crm_entity') {
-        context.crm = await this.crmService.findEntityById(entityId);
+        try {
+          context.crm = await this.crmService.getEntity(
+            entityId,
+            tenantId,
+            SYSTEM_ACTOR,
+          );
+        } catch {
+          context.crm = null;
+        }
       }
 
       // Workflow Context - Get active workflows
@@ -632,9 +651,11 @@ export class AiService {
       );
 
       // Tasks Context - Get pending tasks
-      context.tasks = await this.taskService.listTasks(tenantId, {
-        status: 'todo' as any,
-      });
+      context.tasks = await this.taskService.listTasks(
+        tenantId,
+        { status: 'todo' as any },
+        SYSTEM_ACTOR,
+      );
 
       // Documents Context - Get recent documents
       context.documents = await this.documentsService.findAll(
@@ -724,11 +745,15 @@ export class AiService {
    */
   async prioritizeTasks(tenantId: string, userId: string): Promise<AiResponse> {
     // `limit` explicitly: prioritisation reads the whole list into a prompt, so
-    // the page size is a token budget, not a UI concern.
-    const { items: tasks } = await this.taskService.listTasks(tenantId, {
-      assignedTo: userId,
-      limit: 200,
-    });
+    // the page size is a token budget, not a UI concern. Actor is this user,
+    // not SYSTEM_ACTOR — `listTasks` would otherwise apply no ownership
+    // narrowing at all for a bare id with no roles, and the explicit
+    // `assignedTo: userId` filter already asks for exactly this user's tasks.
+    const { items: tasks } = await this.taskService.listTasks(
+      tenantId,
+      { assignedTo: userId, limit: 200 },
+      { id: userId, roles: [] },
+    );
 
     return this.execute({
       category: 'workflow_decision' as PromptCategory,
@@ -856,11 +881,26 @@ export class AiService {
   }
 
   /**
-   * AI Smart Search across all modules
+   * AI Smart Search across all modules.
+   *
+   * **`actor` is required, and this method has no callers yet — that is the
+   * reason it is required now.** Every branch below fans out across CRM,
+   * workflow, tasks, documents and form submissions and merges the results
+   * into one payload, so whoever eventually wires this to a route inherits the
+   * union of five resources' access rules in a single call. Left with a
+   * `tenantId` alone, the first `client`-role caller to reach it would receive
+   * every other applicant's records — the sixth instance of the bug shape this
+   * codebase has already shipped five times.
+   *
+   * The documents branch previously passed `SYSTEM_ACTOR` here, which its own
+   * contract forbids: *"never use it to serve a user — if a human is waiting
+   * on the response, the real Actor is available, pass that."* A search
+   * endpoint always has a human waiting.
    */
   async smartSearch(
     tenantId: string,
     query: string,
+    actor: Actor,
     modules?: string[],
   ): Promise<{
     aiResponse: AiResponse;
@@ -903,9 +943,14 @@ export class AiService {
 
     if (searchModules.includes('tasks')) {
       try {
-        const { items: tasks } = await this.taskService.listTasks(tenantId, {
-          limit: 200,
-        });
+        // Tenant-wide smart search is an internal aggregation with no
+        // narrower user scope to apply — SYSTEM_ACTOR, same as the workflow
+        // and CRM branches above it (which are not user-scoped either).
+        const { items: tasks } = await this.taskService.listTasks(
+          tenantId,
+          { limit: 200 },
+          SYSTEM_ACTOR,
+        );
         results.tasks = tasks.filter((t) =>
           JSON.stringify(t).toLowerCase().includes(query.toLowerCase()),
         );
@@ -917,7 +962,7 @@ export class AiService {
         const docs = await this.documentsService.findAll(
           tenantId,
           { query, page: 1, limit: 20 },
-          SYSTEM_ACTOR,
+          actor,
         );
         results.documents = docs.documents;
       } catch (e) {}
@@ -925,7 +970,13 @@ export class AiService {
 
     if (searchModules.includes('forms')) {
       try {
-        const submissions = await this.formService.listSubmissions(tenantId);
+        const submissions = await this.formService.listSubmissions(
+          tenantId,
+          undefined,
+          undefined,
+          undefined,
+          actor,
+        );
         results.forms = submissions.filter((s) =>
           JSON.stringify(s).toLowerCase().includes(query.toLowerCase()),
         );

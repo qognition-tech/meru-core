@@ -18,6 +18,20 @@
 > like the variable is unset when it is not. Verify isolation against the
 > deployment with `BASE_URL=… bash scripts/smoke/cross-tenant.sh`, which proves
 > the same property over HTTP with two real tenants.
+>
+> **Additional pass, `harden/authz-golive`, 2026-09-02** — a second class of
+> authorisation gap, not a redeploy: the fifth instance of "a service method
+> took no actor" was found on CRM and closed, then the same access model was
+> extended to tasks, queue, search, Elasticsearch, forms, workflow, audit,
+> billing, notifications, analytics and orchestration. Detail in §3.0c. Two
+> compensating (not root-fixed) checks and several deliberately-still-open
+> findings are recorded there — do not re-discover them as new. Confirmed this
+> session, against the live DB: **RLS covers 63 of 64 public tables** (the
+> `migrations` table is the correct exception — no `tenantId` column); older
+> text below quoting "51 tables" undercounts. `DATABASE_APP_URL` is declared
+> but **empty** in the local `.env`, so `rls:verify` still cannot run locally.
+> `/api-json` currently reports **272 paths** (not all of the growth since 262
+> is this branch's — query it, do not carry forward either number).
 
 ---
 
@@ -196,6 +210,114 @@ JWT_SECRET=x node dist/src/main.js` and grep for
 
 Nothing here is wired to a consumer yet: a signature-provider adapter or a Cal.com sync is an `@OnEvent('webhook.inbound.received')` listener that reads `body` and acts. That is the seam; the receiver does not interpret.
 
+### 3.0c 2026-09-02 — `harden/authz-golive`: one access model, extended past CRM
+
+`src/common/access.ts` (`Actor`, `scopeOf` → `god | tenant | own`) shipped 2026-08-22
+(`75ed8ed`) for documents and storage and, before this branch, was imported by exactly those
+two services. This branch is not a list of bugs; it is that access model reaching the other
+places the same shape was sitting, closing a class rather than an instance.
+
+**New: `src/crm/crm-access.service.ts`.** CRM's own private `clientScoped()` helper had
+existed since `/crm/entities` list/export were narrowed, but every by-id route —
+`getEntity`, `updateEntity`, `convertEntity`, comments, acceptance, relations — reached
+`CrmService` / `CommentService` / `AcceptanceService` / `EntityRelationService` methods that
+took no actor at all. A `client` token that knew or guessed a UUID could read, and in several
+cases modify, any other applicant's case — status, assignee, `verticalAttributes`, which on
+ImmiStack is where passport and visa data lives. **This is the fifth instance** of the shape
+`meru/CLAUDE.md` §16 already tracks — its own "document access control was a no-op" entry
+already called itself the fourth instance, after `/crm/entities` (list only), `/payments` and
+`/communications/threads` — the first one found on a resource that already had the fix
+half-applied.
+
+The fix pattern, repeated across every file below:
+
+- `actor: Actor` is a **required** parameter, never optional. An optional actor a caller could
+  forget to pass is the same bug with extra steps — the point is that the compiler now finds
+  every call site.
+- `own` scope is **read-only** everywhere it appears. A client's actual state changes —
+  approving a draft, accepting a cost agreement, advancing a stage — go through named routes
+  (`/acceptance`, `/convert`, a workflow transition) that carry their own audit trail, never a
+  generic PATCH.
+- Unreadable → **404, not 403.** A 403 confirms the id exists, and record ids travel in
+  checklists and email links.
+- `CommentService.remove` keys deletion on the **comment's author**, not the parent record's
+  assignee — a client may delete their own message and nothing else.
+
+Extended to: `crm.service.ts`, `crm.controller.ts`, `comment.service.ts`,
+`acceptance.service.ts`, `entity-relation.service.ts` (CRM); `task.service.ts`,
+`task.controller.ts`; `queue.controller.ts`; `search.service.ts`, `search.controller.ts`,
+`elasticsearch.controller.ts`; `form.controller.ts`; `workflow.service.ts`,
+`workflow.controller.ts`; `audit.controller.ts`; `billing.controller.ts`;
+`notifications.controller.ts`; `analytics.controller.ts`; `orchestration.controller.ts`;
+`ai.service.ts`; `tenant-id.decorator.ts`.
+
+Specifics worth keeping:
+
+- `?includeInternal=true` on `GET /crm/entities/:id/comments` used to be read straight off the
+  query string with no role check — any client could ask for, and receive, the firm's private
+  file notes on any case they could reach. It is now `&&`-ed with
+  `CrmAccessService.mayReadInternalNotes(actor)` inside the service, not the controller.
+- `SearchService.indexEntityData` used to trust the request body's `entity.tenantId`
+  outright, and the dedup lookup matched on `searchableId` alone with no `tenantId` in the
+  `WHERE` — a cross-tenant overwrite primitive on `POST /search/index/entity` and
+  `/search/index/bulk`. `search_index`'s RLS policy is `cmd=ALL` with both `USING` and
+  `WITH CHECK`, which is why this was a contained bug and not a live cross-tenant write —
+  Postgres rejected the insert. **Do not read that as licence to trust body input**: the
+  controller now derives `tenantId` server-side and passes it as `overrideTenantId`; every
+  internal caller (CRM, tasks, workflow, documents, forms) is unaffected because none of them
+  pass it and `entity.tenantId` is already server-derived.
+- `POST /search/semantic` now 503s with `unavailableReason: 'embedding_pipeline_not_configured'`
+  instead of returning a fabricated HTTP 200 off a zero-vector cosine similarity.
+- `TenantId` decorator's `|| request.headers['x-tenant-id']` fallback is deleted. The JWT
+  claim is non-nullable today so this never actually fired in production, but a
+  caller-controlled header as a tenant-identity fallback was a cross-tenant escape waiting for
+  a token minted before the claim existed. Grepped first: nothing else in `src/` read the
+  header back out for tenant resolution — only CORS logging in `main.ts` and Swagger's
+  documentation of it as accepted; the header itself is untouched.
+- `AiService.gatherCrossModuleContext` used the unscoped `findEntityById` to pull CRM context
+  into an AI prompt; it now calls the tenant-scoped, actor-checked `getEntity(id, tenantId,
+  SYSTEM_ACTOR)` and degrades to "no CRM context" on a cross-tenant or deleted id rather than
+  aborting the rest of the gather.
+
+**Two compensating checks, recorded as handoff, not as closed.** Both are cross-*tenant*, not
+merely cross-user, and both were fixed at the controller because the owning service file was
+outside this pass's scope:
+
+1. `src/forms/form-builder.service.ts` — `getSubmission(id)` takes **no `tenantId` at all**.
+   `form.controller.ts` now fetches then checks `tenantId`/`submittedBy` and 404s
+   (`assertSubmissionReadable`). The correct fix is `(id, tenantId, actor)` on the
+   `DocumentAccessService` model — the controller-level check is a stopgap, not the fix.
+2. `src/billing/billing.service.ts` — `getCreditBalance(subscriptionId)` and
+   `generateInvoice(subscriptionId, …)` take no `tenantId`. `billing.controller.ts`
+   compensates by calling the tenant-scoped `getSubscription(id, tenantId)` first and
+   discarding the result. Same handoff: move the `tenantId` parameter onto the two billing
+   methods themselves.
+
+**Found, and deliberately left open — do not re-discover these as new:**
+
+- `workflow.service.ts` `listInstances` / `listWorkflows` are still tenant-scoped only — same
+  bug shape `getInstance` had before this branch, not yet fixed.
+- `orchestration.controller.ts` `GET search/intelligent` and `GET entity/:id/insights` read
+  tenant-wide with no ownership scoping and no `@Roles` gate — `POST agents/:id/run` and
+  `GET events` in the same controller got one on this branch, these two did not.
+- `SearchService.indexEntityData` always writes `SearchableType.ENTITY` regardless of caller;
+  non-CRM callers (tasks, workflow, documents, forms) pass a wrapper object with no `.id`, so
+  `searchableId` lands `undefined` for those writes. Pre-existing, not introduced or fixed
+  here.
+- `src/storage/providers/supabase.provider.spec.ts` fails a plain `tsc --noEmit -p
+  tsconfig.json` — five methods referenced on `SupabaseStorageProvider` that do not exist on
+  the type (`initiateMultipartUpload`, `completeMultipartUpload`, `abortMultipartUpload`,
+  `getPresignedUrlForPart`, `changeStorageClass`), plus two mock-shape mismatches. **Verified
+  pre-existing on this branch's base** — `git status` shows `src/storage/` untouched on
+  `harden/authz-golive`. It is invisible to CI because `tsconfig.build.json` excludes
+  `**/*spec.ts`, so `npm run build` never runs the check that would catch it. This is a
+  handoff, not something this branch introduced or fixed.
+
+**Also confirmed, not a regression:** every billing route (`createPlan`, `getPlans`,
+`createSubscription`, `getSubscription`, `recordUsage`, `addCredits`, `getCreditBalance`,
+`generateInvoice`, `getMetrics`) gained `@Roles(STAFF, FIRM_ADMIN)` on this branch —
+previously reachable by any authenticated tenant user, including `client`.
+
 ### 3.1 The nine pack arrays (Layer 4 → Layer 1)
 
 | Array | Evaluator | Fixed |
@@ -223,8 +345,13 @@ workflows.
 ### 3.2 Tenant isolation
 
 Implemented and verified end to end: `meru_app` non-`BYPASSRLS` role,
-`ENABLE`+`FORCE` RLS on all 51 tables, connection-level tenant binding,
-`npm run rls:verify` passing 10/10 against Neon. See CLAUDE.md §5.1.
+`ENABLE`+`FORCE` RLS, connection-level tenant binding, `npm run rls:verify` passing 10/10
+against Neon. See CLAUDE.md §5.1.
+
+**Measured against the live database 2026-09-02: 63 of 64 public tables carry RLS.** The
+single exception is `migrations` — TypeORM's own bookkeeping table, no `tenantId` column,
+correctly excluded. The table count moves as tables are added; **measure it, do not quote
+it** — this doc previously said "51 tables" and undercounted.
 
 ### 3.3 Screening
 
@@ -379,7 +506,7 @@ anywhere on the list and currently the largest single blocker.
 | Variable | For | Consequence today |
 |---|---|---|
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
-| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | a provisioned tenant admin never receives their invite — **no customer can be onboarded** |
+| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | **harder than "invites are delayed": no new user can self-activate.** `POST /iam/users/invite` returns `inviteSent: false`; the invited row is created with an unusable placeholder password (`iam.service.ts` `inviteUser`, "never returned, never sent anywhere") and the acceptance link is otherwise **only in the server log** — not retrievable by a tenant admin on Vercel. There is deliberately no admin set-password route either: `UpdateUserDto` carries no `password` field, precisely so a tenant admin can never take over another user's account (`update-user.dto.ts`'s own doc comment). With this unset, the invite email is the sole path to a first login, and it never arrives. Confirmed 2026-09-02 |
 | `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` (private), `STORAGE_PROVIDER=supabase` | DOC | `POST /documents/upload` → 503 `unavailableReason` (no driver credentialed). The service key bypasses Supabase RLS — CLAUDE.md §5.1b |
 | ~~`CRON_SECRET`~~ **set** (verified `vercel env ls`, 2026-08-22) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `POST /engines/screening` answers **503** `listsLoaded:false` |
@@ -467,6 +594,15 @@ out. A missing credential can only ever mean "not licensed yet"
 
 ## 7. Things that will bite you
 
+- **An optional `actor`/`tenantId` parameter is how this bug shape keeps recurring.** Five
+  separate resources (documents, storage, `/crm/entities`, `/payments`,
+  `/communications/threads`) shipped a service method that could be called with no actor and
+  no tenant filter, relying on RLS or the controller to remember the check. §3.0c is the
+  latest and broadest instance, and it still leaves two compensating (not root-fixed) checks
+  in forms and billing, plus `workflow.service.ts` `listInstances`/`listWorkflows` and
+  `orchestration.controller.ts`'s two intelligence routes with no ownership scoping at all.
+  When adding a new by-id method on a tenant-scoped entity, make `tenantId` and `actor`
+  required parameters from the start.
 - **A change for one vertical can break another, silently.** Meru stacks —
   country modules on verticals, verticals on this core — and each layer only
   knows the one below it (`CLAUDE.md` §5.5b). The failure mode has no compile

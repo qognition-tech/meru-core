@@ -20,6 +20,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
 import { PackDashboardService } from './pack-dashboard.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { CreateReportDto, CreateWidgetDto } from './dto/analytics.dto';
 import { TrendQueryDto } from './dto/trend-query.dto';
 import type { DashboardWidget } from './entities/dashboard-widget.entity';
@@ -45,6 +47,7 @@ export class AnalyticsController {
   // ==================== REPORTS ====================
 
   @Post('reports')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a new report' })
   async createReport(@Request() req, @Body() dto: CreateReportDto) {
     const report = await this.analyticsService.createReport(
@@ -56,6 +59,7 @@ export class AnalyticsController {
   }
 
   @Get('reports')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get all reports' })
   @ApiQuery({ name: 'dataSource', required: false })
   async getReports(@Request() req, @Query('dataSource') dataSource?: string) {
@@ -71,6 +75,7 @@ export class AnalyticsController {
   // `getReport('generated')` — a 500 from Postgres
   // (`invalid input syntax for type uuid: "generated"`) rather than a result.
   @Get('reports/generated')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({
     summary: 'List past report runs, newest first',
     description:
@@ -88,12 +93,14 @@ export class AnalyticsController {
   }
 
   @Get('reports/:id')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get report by ID' })
   async getReport(@Request() req, @Param('id') id: string) {
     return this.analyticsService.getReport(id, req.user.tenantId);
   }
 
   @Post('reports/:id/execute')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Execute a report' })
   async executeReport(
     @Request() req,
@@ -117,6 +124,13 @@ export class AnalyticsController {
   // Distinct from the `widgets` CRUD below, which is a tenant's own saved
   // widgets. These are the vertical's dashboards, declared in the config pack
   // and resolved against the caller's data — nothing here is stored per tenant.
+  //
+  // Deliberately NOT staff-gated, unlike `reports`/`widgets` below: these
+  // routes already narrow by portal, role and entitlement via
+  // `packUi.audienceFor` (CLAUDE.md §7.6 — render from the pack), and the
+  // `client` portal is one of the audiences a pack legitimately declares a
+  // dashboard for. Gating the class would take away a client's own dashboard,
+  // which is the over-tightening this pass is told not to do.
 
   @Get('dashboards')
   @ApiOperation({
@@ -223,6 +237,7 @@ export class AnalyticsController {
   // ==================== WIDGETS ====================
 
   @Post('widgets')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a dashboard widget' })
   async createWidget(@Request() req, @Body() dto: CreateWidgetDto) {
     // The DTO guarantees name and widgetType. `configuration` is the widget's
@@ -237,6 +252,7 @@ export class AnalyticsController {
   }
 
   @Get('widgets')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get all dashboard widgets' })
   async getWidgets(@Request() req) {
     const widgets = await this.analyticsService.getWidgets(req.user.tenantId);
@@ -244,6 +260,7 @@ export class AnalyticsController {
   }
 
   @Get('widgets/:id/execute')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Execute widget query' })
   async executeWidget(@Request() req, @Param('id') id: string) {
     const result = await this.analyticsService.executeWidget(
@@ -256,6 +273,7 @@ export class AnalyticsController {
   // ==================== EXPORT ====================
 
   @Post('reports/:id/export')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Export report to file' })
   async exportReport(
     @Request() req,

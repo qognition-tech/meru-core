@@ -33,6 +33,8 @@ import {
   MarkAsReadDto,
 } from './dto/notification.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { paginated } from '../common/paginated';
 
 @ApiTags('Notifications')
@@ -65,6 +67,7 @@ export class NotificationsController {
       },
     },
   })
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiResponse({ status: 400, description: 'Invalid input data' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   async sendNotification(@Request() req, @Body() dto: CreateNotificationDto) {
@@ -95,6 +98,7 @@ export class NotificationsController {
       },
     },
   })
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   async sendBulkNotifications(
     @Request() req,
     @Body() dto: SendBulkNotificationsDto,
@@ -130,6 +134,7 @@ export class NotificationsController {
     },
   })
   @ApiResponse({ status: 201, description: 'Notification sent from template' })
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   async sendFromTemplate(
     @Request() req,
     @Param('templateKey') templateKey: string,

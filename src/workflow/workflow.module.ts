@@ -8,6 +8,7 @@ import { Workflow } from './entities/workflow.entity';
 import { WorkflowState } from './entities/workflow-state.entity';
 import { WorkflowTransition } from './entities/workflow-transition.entity';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { AiModule } from '../ai/ai.module';
@@ -26,6 +27,10 @@ import { PackWorkflowService } from './services/pack-workflow.service';
       WorkflowState,
       WorkflowTransition,
       WorkflowInstance,
+      // Read-only here — instance-ownership scoping (`assertInstanceOwnership`
+      // in workflow.service.ts), same pattern as `documents.module.ts`'s
+      // `DocumentAccessService`.
+      UniversalEntity,
     ]),
     SearchModule,
     forwardRef(() => DocumentsModule),

@@ -77,6 +77,7 @@ export class BillingController {
   // ==================== PLANS ====================
 
   @Post('plans')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a billing plan' })
   async createPlan(@Request() req, @Body() dto: CreatePlanDto) {
     // The DTO guarantees the envelope — name present, price a non-negative
@@ -91,6 +92,7 @@ export class BillingController {
   }
 
   @Get('plans')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get all billing plans' })
   @ApiQuery({ name: 'billingModel', required: false })
   async getPlans(@Request() req, @Query('billingModel') billingModel?: string) {
@@ -104,6 +106,7 @@ export class BillingController {
   // ==================== SUBSCRIPTIONS ====================
 
   @Post('subscriptions')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a subscription' })
   async createSubscription(@Request() req, @Body() dto: CreateSubscriptionDto) {
     const subscription = await this.billingService.createSubscription(
@@ -114,6 +117,7 @@ export class BillingController {
   }
 
   @Get('subscriptions/:id')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get subscription details' })
   async getSubscription(@Request() req, @Param('id') id: string) {
     const subscription = await this.billingService.getSubscription(
@@ -126,6 +130,7 @@ export class BillingController {
   // ==================== USAGE ====================
 
   @Post('usage')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Record metered usage' })
   async recordUsage(@Request() req, @Body() dto: RecordUsageDto) {
     const usage = await this.billingService.recordUsage(req.user.tenantId, dto);
@@ -135,6 +140,7 @@ export class BillingController {
   // ==================== CREDITS ====================
 
   @Post('credits')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Add credits to subscription' })
   async addCredits(@Request() req, @Body() dto: AddCreditsDto) {
     // `expiryDate` arrives as an ISO string (that is what IsDateString
@@ -148,22 +154,36 @@ export class BillingController {
   }
 
   @Get('subscriptions/:id/credits/balance')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get credit balance' })
   async getCreditBalance(@Request() req, @Param('id') id: string) {
-    const balance = await this.billingService.getCreditBalance(id);
+    // `BillingService.getCreditBalance` now takes `tenantId` as a required
+    // parameter and 404s itself on another tenant's subscription id — the
+    // compensating `getSubscription` pre-check this route used to make is
+    // redundant and has been removed.
+    const balance = await this.billingService.getCreditBalance(
+      id,
+      req.user.tenantId,
+    );
     return { balance };
   }
 
   // ==================== INVOICES ====================
 
   @Post('invoices/generate')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Generate invoice for period' })
   async generateInvoice(
     @Request() req,
     @Body() dto: { subscriptionId: string; periodStart: Date; periodEnd: Date },
   ) {
+    // Same fix as `getCreditBalance` above: `BillingService.generateInvoice`
+    // now takes `tenantId` as a required parameter and 404s itself on another
+    // tenant's subscription id, so the compensating `getSubscription`
+    // pre-check this route used to make is redundant and has been removed.
     const invoice = await this.billingService.generateInvoice(
       dto.subscriptionId,
+      req.user.tenantId,
       new Date(dto.periodStart),
       new Date(dto.periodEnd),
     );
@@ -173,6 +193,7 @@ export class BillingController {
   // ==================== ANALYTICS ====================
 
   @Get('metrics')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get billing metrics' })
   @ApiQuery({ name: 'startDate', required: true })
   @ApiQuery({ name: 'endDate', required: true })

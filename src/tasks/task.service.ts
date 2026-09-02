@@ -25,6 +25,7 @@ import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import { Actor, scopeOf } from '../common/access';
 
 export interface CreateTaskDto {
   title: string;
@@ -72,13 +73,22 @@ export class TaskService {
     const saved = await this.taskRepo.save(task);
     this.logger.log(`Task created: ${saved.id}`);
 
-    return this.getTask(saved.id);
+    // Trusted internal re-fetch of the row just created — not the
+    // actor-scoped `getTask` below, because the creator (staff, per the
+    // controller's `@Roles` gate) is not necessarily the assignee, and a
+    // `client`-shaped ownership check on the caller's own creation would be
+    // nonsensical here.
+    return this.findTaskOrThrow(saved.id, tenantId, ['comments']);
   }
 
-  async getTask(id: string): Promise<Task> {
+  private async findTaskOrThrow(
+    id: string,
+    tenantId: string,
+    relations: string[] = [],
+  ): Promise<Task> {
     const task = await this.taskRepo.findOne({
-      where: { id },
-      relations: ['comments'],
+      where: { id, tenantId },
+      relations,
     });
 
     if (!task) {
@@ -88,6 +98,36 @@ export class TaskService {
     return task;
   }
 
+  /**
+   * Refuses a task that is neither this tenant's nor (for a non-staff caller)
+   * this caller's own assignment.
+   *
+   * RLS confines the connection to the tenant; this is the user-inside-a-
+   * tenant check CLAUDE.md §8 requires on top of it — `getTask` previously
+   * took no `tenantId` at all, so RLS was the *only* thing standing between a
+   * `client` token and any task in the firm, with no explicit filter as
+   * defence-in-depth. 404, not 403: a task id that is not this caller's is
+   * not confirmed to exist for them, the same shape `DocumentAccessService`
+   * uses for documents.
+   */
+  private assertOwnedByOrTenant(task: Task, actor: Actor): void {
+    if (scopeOf(actor) === 'own' && task.assignedTo !== actor.id) {
+      throw new NotFoundException('Task not found');
+    }
+  }
+
+  async getTask(id: string, tenantId: string, actor: Actor): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId, ['comments']);
+    this.assertOwnedByOrTenant(task, actor);
+    return task;
+  }
+
+  /**
+   * Every `assignedTo` a non-staff caller could ask for is overridden to
+   * their own id — a `client` requesting `?assignedTo=<other-user>` used to
+   * get exactly that other user's caseload back, since `GET /tasks` carried
+   * no role gate and the service applied no ownership at all.
+   */
   async listTasks(
     tenantId: string,
     options: {
@@ -101,6 +141,7 @@ export class TaskService {
       page?: number;
       limit?: number;
     } = {},
+    actor: Actor,
   ): Promise<{ items: Task[]; total: number; page: number; limit: number }> {
     const where: Record<string, unknown> = { tenantId };
 
@@ -121,6 +162,12 @@ export class TaskService {
       where.dueDate = LessThan(options.dueBefore);
     } else if (options.dueAfter) {
       where.dueDate = MoreThanOrEqual(options.dueAfter);
+    }
+
+    // Wins over whatever `assignedTo` was requested above — see the doc
+    // comment on this method.
+    if (scopeOf(actor) === 'own') {
+      where.assignedTo = actor.id;
     }
 
     const page = Math.max(1, Number(options.page) || 1);
@@ -153,10 +200,18 @@ export class TaskService {
     Object.assign(task, updates);
     await this.taskRepo.save(task);
 
-    return this.getTask(id);
+    return this.findTaskOrThrow(id, tenantId, ['comments']);
   }
 
-  async startTask(id: string, tenantId: string, userId: string): Promise<Task> {
+  /**
+   * A `client`'s own assigned checklist task keeps working — start/complete
+   * are the two actions ImmiStack gives an applicant on their own task —
+   * scoped to their own assignment via `assertOwnedByOrTenant`. Staff reach
+   * any task in the tenant, as before.
+   */
+  async startTask(id: string, tenantId: string, actor: Actor): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
     return this.updateTask(id, tenantId, {
       status: TaskStatus.IN_PROGRESS,
       startedAt: new Date(),
@@ -166,15 +221,20 @@ export class TaskService {
   async completeTask(
     id: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
     return this.updateTask(id, tenantId, {
       status: TaskStatus.DONE,
       completedAt: new Date(),
-      completedBy: userId,
+      completedBy: actor.id,
     });
   }
 
+  // Staff-only at the controller (`@Roles`), so no ownership check here —
+  // cancelling is an administrative action, not a checklist step a client
+  // performs on their own task.
   async cancelTask(
     id: string,
     tenantId: string,
@@ -278,20 +338,15 @@ export class TaskService {
   async addComment(
     taskId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
     content: string,
   ): Promise<TaskComment> {
-    const task = await this.taskRepo.findOne({
-      where: { id: taskId, tenantId },
-    });
-
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+    const task = await this.findTaskOrThrow(taskId, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
 
     const comment = this.commentRepo.create({
       taskId,
-      userId,
+      userId: actor.id,
       content,
       mentions: this.extractMentions(content),
     });
@@ -497,18 +552,25 @@ export class TaskService {
    * hard-scoped to the caller with no way to widen it, so a shared team calendar
    * — the main thing a firm wants a calendar for — could not be built from it,
    * and the frontend assembled its month grid client-side instead.
+   *
+   * `scope: 'firm'` is a staff privilege. A non-staff caller asking for it is
+   * silently held to `'mine'` rather than rejected — the same "narrow, don't
+   * block" posture as `listTasks`' `assignedTo` override — since `'mine'` is
+   * always what they were entitled to ask for anyway.
    */
   async getCalendarEvents(
     tenantId: string,
     userId: string,
+    actor: Actor,
     startDate: Date,
     endDate: Date,
     scope: 'mine' | 'firm' = 'mine',
   ): Promise<any[]> {
+    const effectiveScope = scopeOf(actor) === 'own' ? 'mine' : scope;
     const tasks = await this.taskRepo.find({
       where: {
         tenantId,
-        ...(scope === 'firm' ? {} : { assignedTo: userId }),
+        ...(effectiveScope === 'firm' ? {} : { assignedTo: userId }),
         dueDate: Between(startDate, endDate),
       },
       order: { dueDate: 'ASC' },

@@ -108,4 +108,115 @@ describe('SearchService', () => {
       service.indexEntityData({ id: 'e3', tenantId: 't1', email: 'x@y' }),
     ).resolves.toBeDefined();
   });
+
+  /**
+   * `POST /search/index/entity` used to trust the request body's
+   * `entity.tenantId` outright — a cross-tenant overwrite primitive, since the
+   * dedup lookup below matched on `searchableId` alone with no `tenantId` in
+   * the `WHERE`. The controller now always passes the authenticated caller's
+   * own `tenantId` as `overrideTenantId`; these tests pin the service side of
+   * that fix independent of the controller, the way the class doc says a
+   * "trusted from the request body" bug must never come back.
+   */
+  describe('tenant derivation — the authenticated caller, never the payload', () => {
+    it('writes the caller-derived tenantId, ignoring a hostile tenantId in the entity payload', async () => {
+      repo.findOne.mockResolvedValue(null);
+
+      const hostilePayload = {
+        id: 'e1',
+        // A `client` token for tenant "attacker" naming a victim tenant.
+        tenantId: 'victim-tenant',
+        firstName: 'Evil',
+        type: 'person',
+      };
+
+      await service.indexEntityData(hostilePayload, 'attacker-tenant');
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'attacker-tenant' }),
+      );
+      // Never the value the caller supplied in the body.
+      expect(repo.save).not.toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'victim-tenant' }),
+      );
+    });
+
+    it('falls back to entity.tenantId only for internal callers that pass no override', async () => {
+      // CRM, tasks, workflow, documents and forms call this with their own
+      // already-tenant-scoped entity and never pass a second argument — this
+      // is the "everything keeps working unchanged" half of the fix, not a
+      // second way for a client-controlled value to win.
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData({ id: 'e9', tenantId: 'internal-t1', type: 'task' });
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'internal-t1' }),
+      );
+    });
+
+    it('scopes the dedup lookup by tenantId, not searchableId alone', async () => {
+      // Without `tenantId` in the WHERE, indexing entity "e1" under tenant B
+      // would find and overwrite tenant A's existing "e1" row.
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData({ id: 'e1', type: 'person' }, 'attacker-tenant');
+
+      expect(repo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: 'attacker-tenant',
+            searchableId: 'e1',
+          }),
+        }),
+      );
+    });
+  });
+
+  /**
+   * `GET /search` used to hand a `client` token titles and snippets of every
+   * record in the tenant. `scopeResults` is the fix: an `own`-scope caller's
+   * results are filtered to what `indexEntityData` tagged as theirs.
+   */
+  describe('actor scoping on search results', () => {
+    const rows = () => [
+      {
+        id: 'r1',
+        searchableType: SearchableType.ENTITY,
+        searchableId: 'e1',
+        title: 'Applicant One',
+        content: 'applicant one',
+        metadata: { assignedTo: 'client-a' },
+      },
+      {
+        id: 'r2',
+        searchableType: SearchableType.ENTITY,
+        searchableId: 'e2',
+        title: 'Applicant Two',
+        content: 'applicant two',
+        metadata: { assignedTo: 'client-b' },
+      },
+    ];
+
+    it('narrows results to their own records for a client actor', async () => {
+      repo.find.mockResolvedValue(rows());
+      const out = await service.search('t1', 'applicant', 20, {
+        id: 'client-a',
+        roles: ['client'],
+      });
+      expect(out.map((r) => r.searchableId)).toEqual(['e1']);
+    });
+
+    it('does not narrow results for staff', async () => {
+      repo.find.mockResolvedValue(rows());
+      const out = await service.search('t1', 'applicant', 20, {
+        id: 'staff-1',
+        roles: ['staff'],
+      });
+      expect(out.map((r) => r.searchableId)).toEqual(['e1', 'e2']);
+    });
+
+    it('does not narrow results when no actor is passed — internal callers keep tenant-wide answers', async () => {
+      repo.find.mockResolvedValue(rows());
+      const out = await service.search('t1', 'applicant', 20);
+      expect(out.map((r) => r.searchableId)).toEqual(['e1', 'e2']);
+    });
+  });
 });

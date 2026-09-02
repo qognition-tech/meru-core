@@ -25,6 +25,8 @@ import { AgentRegistryService } from './agent-registry.service';
 import { AuditService } from '../audit/audit.service';
 import { paginated } from '../common/paginated';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import type { AuthenticatedRequest } from './authenticated-request.interface';
 
 // Citations or silence (CLAUDE.md §5.3). /search/intelligent?includeAI=true
@@ -87,6 +89,7 @@ export class OrchestrationController {
 
   @Post('agents/:id/run')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -111,6 +114,7 @@ export class OrchestrationController {
 
   @Get('events')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'System activity feed for this tenant',

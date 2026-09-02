@@ -1,5 +1,7 @@
 import { CrmService } from './crm.service';
 import { EntityStatus, EntityType } from './entities/universal-entity.entity';
+import { CrmAccessService } from './crm-access.service';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 /**
  * Lead conversion has to keep the record's id.
@@ -9,7 +11,13 @@ import { EntityStatus, EntityType } from './entities/universal-entity.entity';
  * comment, document, task, payment and message filed during intake stayed
  * attached to a row the UI no longer shows — the discontinuity the one-generic-
  * record design exists to prevent, caused by a missing route.
+ *
+ * `convertEntity` now requires an `actor` (`CrmAccessService`'s fix for the
+ * missing-actor bug shape) — these tests use a `firm_admin` throughout since
+ * they are pinning conversion behaviour, not re-deriving access rules.
  */
+const STAFF_ACTOR = { id: 'staff-1', roles: [PlatformRole.FIRM_ADMIN] };
+
 describe('CrmService.convertEntity', () => {
   const build = (entity: Record<string, any> | null) => {
     const saved: Record<string, any>[] = [];
@@ -29,6 +37,7 @@ describe('CrmService.convertEntity', () => {
       searchService as any,
       {} as any,
       {} as any,
+      new CrmAccessService(),
     );
     return { service, saved, entityRepo, searchService };
   };
@@ -46,7 +55,7 @@ describe('CrmService.convertEntity', () => {
 
   it('keeps the same id, so history stays attached', async () => {
     const { service, saved } = build(lead());
-    const result = await service.convertEntity('e1', 't1', EntityType.PERSON);
+    const result = await service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON);
 
     expect(result.id).toBe('e1');
     expect(saved[0].type).toBe(EntityType.PERSON);
@@ -54,7 +63,7 @@ describe('CrmService.convertEntity', () => {
 
   it('does not lose the attributes gathered during intake', async () => {
     const { service } = build(lead());
-    const result = await service.convertEntity('e1', 't1', EntityType.PERSON);
+    const result = await service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON);
 
     expect(result.verticalAttributes.lead.fields).toEqual({
       first_name: 'Priya',
@@ -64,7 +73,7 @@ describe('CrmService.convertEntity', () => {
 
   it('records what it used to be', async () => {
     const { service } = build(lead());
-    const result = await service.convertEntity('e1', 't1', EntityType.PERSON);
+    const result = await service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON);
 
     expect(result.verticalAttributes.conversion).toMatchObject({
       fromType: EntityType.LEAD,
@@ -77,7 +86,7 @@ describe('CrmService.convertEntity', () => {
     // A person is reference data. Keeping `status: open` would leave a value
     // that reads as meaningful and is not.
     const { service } = build(lead());
-    const result = await service.convertEntity('e1', 't1', EntityType.PERSON);
+    const result = await service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON);
     expect(result.status).toBeNull();
   });
 
@@ -95,6 +104,7 @@ describe('CrmService.convertEntity', () => {
     const result = await service.convertEntity(
       'e1',
       't1',
+      STAFF_ACTOR,
       EntityType.ORGANIZATION,
     );
     expect(result.status).toBeNull();
@@ -102,21 +112,21 @@ describe('CrmService.convertEntity', () => {
 
   it('re-indexes, so filtered lists stop answering to the old type', async () => {
     const { service, searchService } = build(lead());
-    await service.convertEntity('e1', 't1', EntityType.PERSON);
+    await service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON);
     expect(searchService.indexEntityData).toHaveBeenCalled();
   });
 
   it("404s on a record that is not this tenant's", async () => {
     const { service } = build(null);
     await expect(
-      service.convertEntity('e1', 't1', EntityType.PERSON),
+      service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON),
     ).rejects.toThrow(/not found/i);
   });
 
   it('refuses a conversion to the type it already is', async () => {
     const { service } = build(lead());
     await expect(
-      service.convertEntity('e1', 't1', EntityType.LEAD),
+      service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.LEAD),
     ).rejects.toThrow(/already of type/i);
   });
 
@@ -124,21 +134,21 @@ describe('CrmService.convertEntity', () => {
     const { service } = build(lead());
     // A lead is not a case. Left open, the id would keep the mistake alive.
     await expect(
-      service.convertEntity('e1', 't1', EntityType.CASE),
+      service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.CASE),
     ).rejects.toThrow(/Cannot convert 'lead' to 'case'.*person|organization/s);
   });
 
   it('refuses to convert a type with no permitted transitions at all', async () => {
     const { service } = build({ ...lead(), type: EntityType.CASE });
     await expect(
-      service.convertEntity('e1', 't1', EntityType.PERSON),
+      service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.PERSON),
     ).rejects.toThrow(/may become: nothing/);
   });
 
   it('does not write anything when the transition is refused', async () => {
     const { service, entityRepo } = build(lead());
     await expect(
-      service.convertEntity('e1', 't1', EntityType.CASE),
+      service.convertEntity('e1', 't1', STAFF_ACTOR, EntityType.CASE),
     ).rejects.toThrow();
     expect(entityRepo.save).not.toHaveBeenCalled();
   });

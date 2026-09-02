@@ -23,6 +23,7 @@ import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import { Actor, scopeOf } from '../common/access';
 
 export interface FormDefinition {
   name: string;
@@ -339,12 +340,30 @@ export class FormBuilderService {
     const saved = await this.submissionRepo.save(submission);
     this.logger.log(`Submission created: ${saved.id}`);
 
-    return this.getSubmission(saved.id);
+    return this.getSubmission(saved.id, tenantId);
   }
 
-  async getSubmission(id: string): Promise<FormSubmission> {
+  /**
+   * Tenant-scoped fetch. `tenantId` is required, not optional — this used to
+   * be `findOne({ where: { id } })` with **no tenant filter at all**, so any
+   * submission in any tenant resolved by id alone: a `client` in one tenant
+   * who knew or guessed a submission UUID could read another tenant's form
+   * data outright. An optional tenant parameter a caller could forget to pass
+   * would have been the same bug with extra steps — the compiler now finds
+   * every call site instead, the same fix `CrmService.getEntity` made for
+   * `/crm/entities`.
+   *
+   * This is tenant isolation only, not user-scoping. Whether a `client`-role
+   * caller may reach a submission that is not theirs (as opposed to not their
+   * tenant's) is a different rule — it narrows *inside* one tenant, tenant
+   * isolation narrows *across* tenants — and it lives one layer up, in
+   * `FormController.assertSubmissionOwnership`, exactly the split
+   * `CrmAccessService`/`DocumentAccessService` make between tenant scope and
+   * ownership.
+   */
+  async getSubmission(id: string, tenantId: string): Promise<FormSubmission> {
     const submission = await this.submissionRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['formSchema', 'formSchema.fields'],
     });
 
@@ -360,11 +379,29 @@ export class FormBuilderService {
     formSchemaId?: string,
     status?: SubmissionStatus,
     entityId?: string,
+    /**
+     * Optional, unlike the pattern `CrmAccessService.applyScope` sets, because
+     * one caller outside `src/forms/*` — `AiService`'s smart-search branch —
+     * calls this with only a `tenantId`, aggregating tenant-wide the same way
+     * its CRM and document branches next to it do (those use `SYSTEM_ACTOR`).
+     * `ai.service.ts` is out of this hardening pass's file ownership, so
+     * threading a real actor through that call is a handoff, not done here —
+     * until then a `client`-role caller reaching AI smart-search still sees
+     * every applicant's form submissions in those results, same as before
+     * this change. Every caller inside this module (`FormController`) passes
+     * one.
+     */
+    actor?: Actor,
   ): Promise<FormSubmission[]> {
     const where: any = { tenantId };
     if (formSchemaId) where.formSchemaId = formSchemaId;
     if (status) where.status = status;
     if (entityId) where.entityId = entityId;
+    // `own` scope: a client sees only what they submitted. Applied in the
+    // query, not filtered after the fact in the controller, so every future
+    // caller of this method inherits it — see the note on `actor` above for
+    // the one caller that does not yet supply one.
+    if (actor && scopeOf(actor) === 'own') where.submittedBy = actor.id;
 
     return this.submissionRepo.find({
       where,
@@ -379,11 +416,11 @@ export class FormBuilderService {
     userId: string,
     data: Record<string, any>,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `getSubmission` is tenant-scoped by its required `tenantId` argument —
+    // this 404s rather than yielding another tenant's row, so the explicit
+    // `tenantId` comparison this method used to make afterwards is dead code
+    // now and has been removed.
+    const submission = await this.getSubmission(id, tenantId);
 
     // Validate data
     const validationErrors = this.validateData(
@@ -408,7 +445,7 @@ export class FormBuilderService {
       history: submission.history,
     });
 
-    return this.getSubmission(id);
+    return this.getSubmission(id, tenantId);
   }
 
   async submitForm(
@@ -416,11 +453,9 @@ export class FormBuilderService {
     tenantId: string,
     userId: string,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // See the note on `updateSubmission` — `getSubmission` already 404s on a
+    // wrong-tenant id, so the redundant `tenantId` check is gone.
+    const submission = await this.getSubmission(id, tenantId);
 
     if (submission.validationErrors.length > 0) {
       throw new BadRequestException('Form has validation errors');
@@ -436,7 +471,7 @@ export class FormBuilderService {
     });
 
     await this.submissionRepo.save(submission);
-    return this.getSubmission(id);
+    return this.getSubmission(id, tenantId);
   }
 
   async reviewSubmission(
@@ -446,11 +481,12 @@ export class FormBuilderService {
     status: 'approved' | 'rejected',
     notes?: string,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // See the note on `updateSubmission` — `getSubmission` already 404s on a
+    // wrong-tenant id, so the redundant `tenantId` check is gone. Staff-only
+    // (`@Roles(STAFF, FIRM_ADMIN)` on the controller route) is unaffected: this
+    // is tenant isolation, not the `own`-scope ownership check, so a staff
+    // reviewer still reaches any applicant's submission in their own tenant.
+    const submission = await this.getSubmission(id, tenantId);
 
     submission.status =
       status === 'approved'
@@ -473,7 +509,7 @@ export class FormBuilderService {
       await this.indexSubmission(submission);
     }
 
-    return this.getSubmission(id);
+    return this.getSubmission(id, tenantId);
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================
@@ -704,11 +740,11 @@ export class FormBuilderService {
     documentId: string,
     userId: string,
   ): Promise<Document> {
-    const submission = await this.getSubmission(submissionId);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // Confirms the submission exists in this tenant before attaching — see
+    // `getSubmission`'s own note on why `tenantId` is required. The redundant
+    // post-fetch tenant comparison this method used to make is gone; the
+    // return value is not otherwise needed here.
+    await this.getSubmission(submissionId, tenantId);
 
     return this.documentHubService.attachDocumentToEntity(
       documentId,
@@ -737,7 +773,7 @@ export class FormBuilderService {
     );
 
     // Update submission with document analysis
-    const submission = await this.getSubmission(submissionId);
+    const submission = await this.getSubmission(submissionId, tenantId);
     submission.metadata = {
       ...submission.metadata,
       documentAnalysis: results,

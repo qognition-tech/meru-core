@@ -154,8 +154,11 @@ export class WorkflowController {
   @ApiOperation({ summary: 'Get workflow by ID' })
   @ApiResponse({ status: 200, description: 'Workflow retrieved' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  async getWorkflow(@Param('id', ParseUUIDPipe) id: string) {
-    const workflow = await this.workflowService.getWorkflow(id);
+  async getWorkflow(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const workflow = await this.workflowService.getWorkflow(
+      id,
+      req.user.tenantId,
+    );
     return workflow;
   }
 
@@ -195,24 +198,48 @@ export class WorkflowController {
   }
 
   @Get('instances/:id')
-  @ApiOperation({ summary: 'Get workflow instance by ID' })
+  @ApiOperation({
+    summary: 'Get workflow instance by ID',
+    description:
+      "A client reaches only their own matter — the instance they started, " +
+      "or one linked to a CRM record assigned to them; staff reach any " +
+      "instance in the tenant.",
+  })
   @ApiResponse({ status: 200, description: 'Instance retrieved' })
-  @ApiResponse({ status: 404, description: 'Not found' })
-  async getInstance(@Param('id', ParseUUIDPipe) id: string) {
-    const instance = await this.workflowService.getInstance(id);
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
+  async getInstance(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    const instance = await this.workflowService.getInstance(
+      id,
+      req.user.tenantId,
+      req.user,
+    );
     return instance;
   }
 
   @Get('instances/:id/transitions')
   @ApiOperation({ summary: 'Get available transitions for instance' })
   @ApiResponse({ status: 200, description: 'Transitions retrieved' })
-  async getAvailableTransitions(@Param('id', ParseUUIDPipe) id: string) {
-    const transitions = await this.workflowService.getAvailableTransitions(id);
+  @ApiResponse({ status: 404, description: "Not found, or not this caller's" })
+  async getAvailableTransitions(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const transitions = await this.workflowService.getAvailableTransitions(
+      id,
+      req.user.tenantId,
+      req.user,
+    );
     return transitions;
   }
 
   @Post('instances/:id/transition')
-  @ApiOperation({ summary: 'Execute a state transition' })
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
+  @ApiOperation({
+    summary: 'Execute a state transition',
+    description:
+      'Staff only — advancing a matter to its next stage is a case decision, ' +
+      "not a checklist action a client performs on their own record.",
+  })
   @ApiResponse({ status: 200, description: 'Transition executed' })
   async transition(
     @Request() req,
@@ -221,6 +248,7 @@ export class WorkflowController {
   ) {
     const instance = await this.workflowService.transition({
       instanceId: id,
+      tenantId: req.user.tenantId,
       transitionId: dto.transitionId,
       userId: req.user.id,
       context: dto.context,

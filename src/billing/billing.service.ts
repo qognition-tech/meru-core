@@ -167,7 +167,10 @@ export class BillingService {
     }
 
     // Check if subscription has credit balance
-    const creditBalance = await this.getCreditBalance(dto.subscriptionId);
+    const creditBalance = await this.getCreditBalance(
+      dto.subscriptionId,
+      tenantId,
+    );
 
     // Calculate price based on plan's metered pricing
     let unitPrice = 0;
@@ -205,7 +208,12 @@ export class BillingService {
 
     // If using credits, deduct from ledger
     if (creditBalance > 0 && amount > 0) {
-      await this.deductCreditsForUsage(dto.subscriptionId, amount, saved.id);
+      await this.deductCreditsForUsage(
+        tenantId,
+        dto.subscriptionId,
+        amount,
+        saved.id,
+      );
     }
 
     this.logger.log(
@@ -224,7 +232,10 @@ export class BillingService {
       dto.subscriptionId,
       tenantId,
     );
-    const currentBalance = await this.getCreditBalance(dto.subscriptionId);
+    const currentBalance = await this.getCreditBalance(
+      dto.subscriptionId,
+      tenantId,
+    );
 
     const transaction = this.creditRepo.create({
       tenantId,
@@ -245,30 +256,53 @@ export class BillingService {
     return saved;
   }
 
-  async getCreditBalance(subscriptionId: string): Promise<number> {
+  /**
+   * `tenantId` is required, not optional — this used to be
+   * `findOne({ where: { subscriptionId } })` with no tenant filter, so a
+   * `subscriptionId` from any tenant resolved a balance. Every caller already
+   * holds a `tenantId` (from its own required parameter, or from a
+   * tenant-scoped `Subscription` row it already fetched), so an optional
+   * parameter here would only be a way for the next caller to forget it — see
+   * `FormBuilderService.getSubmission` for the identical fix and its own note
+   * on why.
+   */
+  async getCreditBalance(
+    subscriptionId: string,
+    tenantId: string,
+  ): Promise<number> {
     const lastTransaction = await this.creditRepo.findOne({
-      where: { subscriptionId },
+      where: { subscriptionId, tenantId },
       order: { createdAt: 'DESC' },
     });
 
     return lastTransaction?.balance || 0;
   }
 
+  /**
+   * `tenantId` added for the same reason as `getCreditBalance`, which this
+   * calls. It also replaces the unscoped `subscriptionRepo.findOne({ where: {
+   * id: subscriptionId } })` this method used to run just to discover the
+   * ledger row's `tenantId` — an unscoped lookup of exactly the shape this
+   * hardening pass exists to remove — with the tenantId the caller already
+   * has.
+   */
   async deductCredits(
     subscriptionId: string,
+    tenantId: string,
     amount: number,
     description: string,
   ): Promise<CreditLedger> {
-    const currentBalance = await this.getCreditBalance(subscriptionId);
+    const currentBalance = await this.getCreditBalance(
+      subscriptionId,
+      tenantId,
+    );
 
     if (currentBalance < amount) {
       throw new BadRequestException('Insufficient credit balance');
     }
 
     const transaction = this.creditRepo.create({
-      tenantId:
-        (await this.subscriptionRepo.findOne({ where: { id: subscriptionId } }))
-          ?.tenantId || '',
+      tenantId,
       subscriptionId,
       transactionType: CreditTransactionType.USAGE,
       amount: -amount,
@@ -319,13 +353,27 @@ export class BillingService {
 
   // ==================== INVOICING ====================
 
+  /**
+   * `tenantId` is required, not optional — this used to be
+   * `findOne({ where: { id: subscriptionId } })` with no tenant filter, so a
+   * `subscriptionId` from any tenant produced a real invoice: `billing.controller.ts`
+   * compensated by calling the tenant-scoped `getSubscription` first, which is
+   * exactly the pattern that has failed this codebase repeatedly — the check
+   * lives in the caller, not the callee, until a later caller reaches the
+   * service directly and it is not there. Filtering the query itself is the
+   * fix; the compensating call in the controller is now redundant and has
+   * been removed. `processDailyBilling` (its only other caller) already loops
+   * over tenant-scoped `Subscription` rows and has `subscription.tenantId` on
+   * hand.
+   */
   async generateInvoice(
     subscriptionId: string,
+    tenantId: string,
     periodStart: Date,
     periodEnd: Date,
   ): Promise<Invoice> {
     const subscription = await this.subscriptionRepo.findOne({
-      where: { id: subscriptionId },
+      where: { id: subscriptionId, tenantId },
       relations: ['plan'],
     });
 
@@ -338,9 +386,15 @@ export class BillingService {
     await queryRunner.startTransaction();
 
     try {
-      // Get un-invoiced usage records
+      // Get un-invoiced usage records. `tenantId` here is belt-and-braces
+      // alongside the tenant-scoped `subscription` fetch above (CLAUDE.md
+      // §7 — "use both" where both database- and application-level scoping
+      // are available): every `UsageRecord` is written with the same
+      // `tenantId` as the subscription it belongs to, so this can never
+      // narrow the result differently, only fail closed if it ever did.
       const usageRecords = await this.usageRepo.find({
         where: {
+          tenantId,
           subscriptionId,
           timestamp: Between(periodStart, periodEnd),
           invoiced: false,
@@ -412,7 +466,10 @@ export class BillingService {
 
       // Update invoice totals
       const total = subtotal + usageTotal + taxAmount;
-      const creditBalance = await this.getCreditBalance(subscriptionId);
+      const creditBalance = await this.getCreditBalance(
+        subscriptionId,
+        tenantId,
+      );
       const creditApplied = Math.min(creditBalance, total);
       const amountDue = total - creditApplied;
 
@@ -437,6 +494,7 @@ export class BillingService {
       if (creditApplied > 0) {
         await this.deductCredits(
           subscriptionId,
+          tenantId,
           creditApplied,
           `Invoice ${invoiceNumber}`,
         );
@@ -477,6 +535,7 @@ export class BillingService {
         // Generate invoice for the period
         await this.generateInvoice(
           subscription.id,
+          subscription.tenantId,
           subscription.currentPeriodStart,
           subscription.currentPeriodEnd,
         );
@@ -551,12 +610,14 @@ export class BillingService {
   }
 
   private async deductCreditsForUsage(
+    tenantId: string,
     subscriptionId: string,
     amount: number,
     usageRecordId: string,
   ): Promise<void> {
     await this.deductCredits(
       subscriptionId,
+      tenantId,
       amount,
       `Usage record: ${usageRecordId}`,
     );

@@ -4,6 +4,8 @@ import { Repository, ILike } from 'typeorm';
 import { SearchIndex, SearchableType } from './entities/search-index.entity';
 import { ElasticsearchService } from './elasticsearch/elasticsearch.service';
 import type { SearchDocument } from './elasticsearch/interfaces/search.interface';
+import type { SearchResultDto } from './dto/search-result.dto';
+import { Actor, scopeOf } from '../common/access';
 
 /** The ES index every CRM entity lands in, per tenant. */
 const ENTITY_INDEX = 'entities';
@@ -34,16 +36,34 @@ export class SearchService {
     private readonly es: ElasticsearchService,
   ) {}
 
-  async indexEntityData(entity: any) {
+  /**
+   * `overrideTenantId`, when passed, wins over whatever `entity.tenantId`
+   * says.
+   *
+   * `POST /search/index/entity` and `POST /search/index/bulk` used to trust
+   * the request body's `entity.tenantId` outright — a `client` token (once
+   * the routes are also role-gated: see the controller) could index, or
+   * overwrite, a row under any tenant id it named, because the dedup lookup
+   * below matched on `searchableId` alone with no `tenantId` in the `WHERE` —
+   * a cross-tenant overwrite primitive. The controller now passes
+   * `req.user.tenantId` here; every internal caller (CRM, tasks, workflow,
+   * documents, forms) keeps working unchanged because it never passes this
+   * second argument and `entity.tenantId` — already the caller's own,
+   * server-derived value — is used exactly as before.
+   */
+  async indexEntityData(entity: any, overrideTenantId?: string) {
+    const tenantId = overrideTenantId ?? entity.tenantId;
+
     const existing = await this.searchRepo.findOne({
       where: {
+        tenantId,
         searchableId: entity.id,
         searchableType: SearchableType.ENTITY,
       },
     });
 
     const searchData = {
-      tenantId: entity.tenantId,
+      tenantId,
       searchableType: SearchableType.ENTITY,
       searchableId: entity.id,
       title:
@@ -56,6 +76,13 @@ export class SearchService {
         email: entity.email,
         phoneNumber: entity.phoneNumber,
         verticalAttributes: entity.verticalAttributes,
+        // Present only when the caller is a CRM entity row itself
+        // (`crm.service.ts` passes the real entity) — used to scope
+        // `GET /search` to a client's own records in `scopeResults` below.
+        // Callers that wrap their payload (tasks, workflow, documents, forms)
+        // do not carry this field on the outer object, so their rows are
+        // simply excluded from a client's results rather than mis-scoped.
+        assignedTo: entity.assignedTo ?? null,
       },
     };
 
@@ -101,26 +128,60 @@ export class SearchService {
     }
   }
 
-  async search(tenantId: string, query: string, limit: number = 20) {
+  /**
+   * `actor`, when passed, narrows results for a non-staff caller.
+   *
+   * `GET /search` used to hand a `client` token titles and snippets of every
+   * record in the tenant — full-text search has no natural query-level
+   * tenant-user scope the way `/crm/entities?assignedTo=` does, so this
+   * filters the answer down to what `indexEntityData` tagged as the caller's
+   * own (`metadata.assignedTo`, present on CRM-entity rows). Internal callers
+   * (tasks, workflow, documents, forms, orchestration) do not pass `actor`
+   * and keep the unrestricted tenant-wide answer they always got — this is
+   * the *client route's* scoping, not a change to what indexing means.
+   *
+   * Narrowing happens after the page is fetched, so a scoped caller can see
+   * fewer than `limit` hits even when more of their own records exist further
+   * down the ranking. Acceptable for a safety filter — it can only under- not
+   * over-return — but a caller wanting exhaustive results should page.
+   */
+  async search(
+    tenantId: string,
+    query: string,
+    limit: number = 20,
+    actor?: Actor,
+  ): Promise<SearchResultDto[]> {
+    let results: SearchResultDto[];
     if (this.es.available) {
       try {
-        return await this.searchElasticsearch(tenantId, query, limit);
+        results = await this.searchElasticsearch(tenantId, query, limit);
       } catch (err) {
         this.logger.warn(
           `Elasticsearch query failed, answering from Postgres: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
+        results = await this.searchPostgres(tenantId, query, limit);
       }
+    } else {
+      results = await this.searchPostgres(tenantId, query, limit);
     }
-    return this.searchPostgres(tenantId, query, limit);
+    return this.scopeResults(results, actor);
+  }
+
+  private scopeResults(
+    results: SearchResultDto[],
+    actor?: Actor,
+  ): SearchResultDto[] {
+    if (!actor || scopeOf(actor) !== 'own') return results;
+    return results.filter((r) => r.metadata?.assignedTo === actor.id);
   }
 
   private async searchElasticsearch(
     tenantId: string,
     query: string,
     limit: number,
-  ) {
+  ): Promise<SearchResultDto[]> {
     const result = await this.es.search(tenantId, {
       query,
       filters: [
@@ -149,7 +210,7 @@ export class SearchService {
     tenantId: string,
     query: string,
     limit: number,
-  ) {
+  ): Promise<SearchResultDto[]> {
     const results = await this.searchRepo.find({
       where: [
         // ILike, not Like. TypeORM's Like maps to SQL LIKE, which is
@@ -177,9 +238,9 @@ export class SearchService {
       .sort((a, b) => b.score - a.score);
   }
 
-  async indexBulk(entities: any[]) {
+  async indexBulk(entities: any[], overrideTenantId?: string) {
     for (const entity of entities) {
-      await this.indexEntityData(entity);
+      await this.indexEntityData(entity, overrideTenantId);
     }
 
     return { indexed: entities.length };

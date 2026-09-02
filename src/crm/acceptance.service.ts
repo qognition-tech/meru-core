@@ -10,6 +10,8 @@ import * as crypto from 'crypto';
 import { UniversalEntity } from './entities/universal-entity.entity';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditSeverity } from '../audit/entities/audit-log.entity';
+import { CrmAccessService } from './crm-access.service';
+import { Actor } from '../common/access';
 
 export interface AcceptanceRecord {
   /** What was accepted — a document template key, or a named term. */
@@ -63,6 +65,7 @@ export class AcceptanceService {
     @InjectRepository(UniversalEntity)
     private readonly entities: Repository<UniversalEntity>,
     private readonly audit: AuditService,
+    private readonly access: CrmAccessService,
   ) {}
 
   /**
@@ -72,6 +75,12 @@ export class AcceptanceService {
    * client who accepts revised terms does not erase the version they agreed to
    * first — the earlier acceptance is the one that governs what happened before
    * the change.
+   *
+   * `actor` is required and checked for **read**, not write. Recording
+   * acceptance is a client-facing action they legitimately perform on their
+   * own record — an applicant accepting a cost agreement — so it must keep
+   * working for `own` scope; `CrmAccessService` only refuses `own` scope on
+   * the generic write path (`PATCH /crm/entities/:id`), which this is not.
    */
   async record(
     tenantId: string,
@@ -87,11 +96,13 @@ export class AcceptanceService {
       /** A hash the caller computed itself, if it has the bytes and we do not. */
       documentSha256?: string | null;
     },
+    actor: Actor,
   ): Promise<AcceptanceRecord> {
     const entity = await this.entities.findOne({
       where: { id: entityId, tenantId },
     });
     if (!entity) throw new NotFoundException('Entity not found');
+    this.access.assert(entity, actor, 'read');
 
     if (!input.subject?.trim()) {
       throw new BadRequestException(
@@ -155,11 +166,16 @@ export class AcceptanceService {
   }
 
   /** Every acceptance on a record, oldest first. */
-  async list(tenantId: string, entityId: string): Promise<AcceptanceRecord[]> {
+  async list(
+    tenantId: string,
+    entityId: string,
+    actor: Actor,
+  ): Promise<AcceptanceRecord[]> {
     const entity = await this.entities.findOne({
       where: { id: entityId, tenantId },
     });
     if (!entity) throw new NotFoundException('Entity not found');
+    this.access.assert(entity, actor, 'read');
 
     const raw = entity.verticalAttributes?.acceptances;
     return Array.isArray(raw) ? (raw as AcceptanceRecord[]) : [];

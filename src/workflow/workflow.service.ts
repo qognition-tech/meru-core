@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { Actor, scopeOf } from '../common/access';
 import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
@@ -43,6 +45,11 @@ import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 
 export interface TransitionRequest {
   instanceId: string;
+  // Defence-in-depth: `transition` is staff-only at the controller
+  // (`@Roles`), so RLS plus the role gate already confine this, but every
+  // other tenant-scoped write in this file takes `tenantId` explicitly and
+  // this one previously did not.
+  tenantId: string;
   transitionId?: string;
   userId: string;
   context?: Record<string, any>;
@@ -85,6 +92,8 @@ export class WorkflowEngineService {
     private transitionRepo: Repository<WorkflowTransition>,
     @InjectRepository(WorkflowInstance)
     private instanceRepo: Repository<WorkflowInstance>,
+    @InjectRepository(UniversalEntity)
+    private entityRepo: Repository<UniversalEntity>,
     private dataSource: DataSource,
     private searchService: SearchService,
     @Inject(forwardRef(() => AiService))
@@ -166,7 +175,7 @@ export class WorkflowEngineService {
       await queryRunner.commitTransaction();
       this.logger.log(`Workflow created: ${savedWorkflow.id}`);
 
-      return this.getWorkflow(savedWorkflow.id);
+      return this.getWorkflow(savedWorkflow.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -175,9 +184,13 @@ export class WorkflowEngineService {
     }
   }
 
-  async getWorkflow(id: string): Promise<Workflow> {
+  // Defence-in-depth: RLS already confines the connection to the tenant, but
+  // this took no `tenantId` at all — the only thing standing between a
+  // `GET /workflows/:id` from one tenant and another tenant's workflow
+  // *definition* (states, transitions, actions) was RLS alone.
+  async getWorkflow(id: string, tenantId: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['states', 'transitions'],
     });
 
@@ -214,7 +227,7 @@ export class WorkflowEngineService {
     userId: string,
     context: Record<string, any> = {},
   ): Promise<WorkflowInstance> {
-    const workflow = await this.getWorkflow(workflowId);
+    const workflow = await this.getWorkflow(workflowId, tenantId);
 
     if (workflow.status !== WorkflowStatus.ACTIVE) {
       throw new BadRequestException('Workflow is not active');
@@ -251,12 +264,20 @@ export class WorkflowEngineService {
     const saved = await this.instanceRepo.save(instance);
     this.logger.log(`Workflow instance started: ${saved.id}`);
 
-    return this.getInstance(saved.id);
+    // Trusted internal re-fetch of the row just started — not the
+    // actor-scoped `getInstance` below, on the same reasoning as
+    // `TaskService.createTask`: the starter (often staff, on a client's
+    // behalf) is not necessarily who `assertInstanceOwnership` would treat as
+    // the owner.
+    return this.findInstanceOrThrow(saved.id, tenantId);
   }
 
-  async getInstance(id: string): Promise<WorkflowInstance> {
+  private async findInstanceOrThrow(
+    id: string,
+    tenantId: string,
+  ): Promise<WorkflowInstance> {
     const instance = await this.instanceRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['workflow', 'currentState'],
     });
 
@@ -264,6 +285,64 @@ export class WorkflowEngineService {
       throw new NotFoundException('Workflow instance not found');
     }
 
+    return instance;
+  }
+
+  /**
+   * The CRM records a caller owns, as ids — same field, same query
+   * `DocumentAccessService.ownedEntityIds` uses for documents, kept local
+   * here rather than shared because each domain's ownership rule is its own
+   * (workflow instances additionally check `startedBy`; documents check
+   * `uploadedById`).
+   */
+  private async ownedEntityIds(
+    tenantId: string,
+    userId: string,
+  ): Promise<string[]> {
+    const rows = await this.entityRepo.find({
+      where: { tenantId, assignedTo: userId },
+      select: ['id'],
+    });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Refuses an instance that is neither this tenant's nor (for a non-staff
+   * caller) this caller's own matter.
+   *
+   * `getInstance`, `getAvailableTransitions` took no `tenantId` at all and
+   * checked no ownership — a `client` token that knew an instance id could
+   * read, and (before `transition` was staff-gated) advance, any matter in
+   * the tenant. `startedBy` covers a caller who began their own application;
+   * `entityId` against `ownedEntityIds` covers the more common case where
+   * staff started the case and the client is tracking their own matter's
+   * stage — same two-source ownership `DocumentAccessService` uses for a
+   * document's `uploadedById` and its `linkedEntityId`. 404, not 403, same
+   * precedent.
+   */
+  private async assertInstanceOwnership(
+    instance: WorkflowInstance,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<void> {
+    if (scopeOf(actor) !== 'own') return;
+    if (instance.startedBy === actor.id) return;
+
+    if (instance.entityId) {
+      const owned = await this.ownedEntityIds(tenantId, actor.id);
+      if (owned.includes(instance.entityId)) return;
+    }
+
+    throw new NotFoundException('Workflow instance not found');
+  }
+
+  async getInstance(
+    id: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<WorkflowInstance> {
+    const instance = await this.findInstanceOrThrow(id, tenantId);
+    await this.assertInstanceOwnership(instance, tenantId, actor);
     return instance;
   }
 
@@ -285,11 +364,12 @@ export class WorkflowEngineService {
 
   // ==================== STATE TRANSITIONS ====================
 
-  async getAvailableTransitions(
-    instanceId: string,
+  /** Shared by the actor-scoped public method below and `transition`'s
+   * internal auto-transition lookup, which must not re-run the ownership
+   * check on an instance it already loaded via `findInstanceOrThrow`. */
+  private async computeAvailableTransitions(
+    instance: WorkflowInstance,
   ): Promise<WorkflowTransition[]> {
-    const instance = await this.getInstance(instanceId);
-
     const transitions = await this.transitionRepo.find({
       where: {
         workflowId: instance.workflowId,
@@ -304,8 +384,24 @@ export class WorkflowEngineService {
     );
   }
 
+  async getAvailableTransitions(
+    instanceId: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<WorkflowTransition[]> {
+    const instance = await this.getInstance(instanceId, tenantId, actor);
+    return this.computeAvailableTransitions(instance);
+  }
+
+  // Staff-only at the controller (`@Roles`) — a client advancing another
+  // applicant's case stage was the sharpest edge of this gap. `tenantId` is
+  // still required and checked here as defence-in-depth, same as every other
+  // mutation in this file.
   async transition(request: TransitionRequest): Promise<WorkflowInstance> {
-    const instance = await this.getInstance(request.instanceId);
+    const instance = await this.findInstanceOrThrow(
+      request.instanceId,
+      request.tenantId,
+    );
 
     if (instance.status !== InstanceStatus.ACTIVE) {
       throw new BadRequestException('Workflow instance is not active');
@@ -324,9 +420,7 @@ export class WorkflowEngineService {
       });
     } else {
       // Auto-transition: find first matching automatic transition
-      const transitions = await this.getAvailableTransitions(
-        request.instanceId,
-      );
+      const transitions = await this.computeAvailableTransitions(instance);
       const autoTransition = transitions.find(
         (t) => t.type === TransitionType.AUTOMATIC,
       );
@@ -427,7 +521,7 @@ export class WorkflowEngineService {
         `Transition executed: ${instance.id} (${oldState.name} -> ${newState.name})`,
       );
 
-      return this.getInstance(instance.id);
+      return this.findInstanceOrThrow(instance.id, request.tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -902,11 +996,12 @@ export class WorkflowEngineService {
     documentId: string,
     userId: string,
   ): Promise<Document> {
-    const instance = await this.getInstance(workflowInstanceId);
-
-    if (instance.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `findInstanceOrThrow` filters by tenantId directly — no unreachable
+    // route currently calls this method, but the manual post-fetch
+    // `instance.tenantId !== tenantId` check it replaces was the same shape
+    // as the `getInstance()` gap elsewhere in this file: reachable without a
+    // tenant filter at the query itself.
+    await this.findInstanceOrThrow(workflowInstanceId, tenantId);
 
     return this.documentHubService.attachDocumentToEntity(
       documentId,
@@ -917,11 +1012,15 @@ export class WorkflowEngineService {
   }
 
   async processDocumentsWithAI(
+    tenantId: string,
     workflowInstanceId: string,
     documentIds: string[],
     extractionSchema: Record<string, any>,
   ): Promise<any> {
-    const instance = await this.getInstance(workflowInstanceId);
+    const instance = await this.findInstanceOrThrow(
+      workflowInstanceId,
+      tenantId,
+    );
 
     const results = await Promise.all(
       documentIds.map(async (docId) => {

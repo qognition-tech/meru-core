@@ -1,7 +1,20 @@
 import { ConfigService } from '@nestjs/config';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseStorageProvider } from './supabase.provider';
-import { StorageProvider } from '../interfaces/storage.interface';
+import {
+  ObjectStorageDriver,
+  StorageProvider,
+} from '../interfaces/storage.interface';
+
+/**
+ * A storage-js call result, as the mocks below must be allowed to return it.
+ *
+ * `jest.fn(async () => ({ data: {...}, error: null }))` infers `error` as
+ * exactly `null`, so a later `mockResolvedValueOnce({ data: null, error: {...} })`
+ * — the whole point of the error-mapping test — does not type-check. Naming the
+ * union once keeps the failure path typed instead of reaching for `any`.
+ */
+type SbResult<T> = { data: T | null; error: { message: string } | null };
 
 /**
  * The driver is a thin adapter, so what is worth proving is the part that
@@ -15,11 +28,18 @@ describe('SupabaseStorageProvider', () => {
     ({ get: (k: string, d?: string) => env[k] ?? d }) as unknown as ConfigService;
 
   const mockBucket = () => ({
-    upload: jest.fn(async () => ({ data: { path: 'k' }, error: null })),
-    download: jest.fn(async () => ({
-      data: { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer },
-      error: null,
-    })),
+    upload: jest.fn(
+      async (): Promise<SbResult<{ path: string }>> => ({
+        data: { path: 'k' },
+        error: null,
+      }),
+    ),
+    download: jest.fn(
+      async (): Promise<SbResult<{ arrayBuffer: () => Promise<ArrayBuffer> }>> => ({
+        data: { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer },
+        error: null,
+      }),
+    ),
     remove: jest.fn(async () => ({ data: [], error: null })),
     copy: jest.fn(async () => ({ data: { path: 'b' }, error: null })),
     move: jest.fn(async () => ({ data: { message: 'ok' }, error: null })),
@@ -74,7 +94,13 @@ describe('SupabaseStorageProvider', () => {
   it('does not implement the S3-only optional members', () => {
     // Honest absence, not a stub that resolves. StorageService reports the
     // operation as unsupported for this provider when these are undefined.
-    const { driver } = build();
+    //
+    // Read through `ObjectStorageDriver`, where these members are declared
+    // optional, rather than through the concrete class, where they are absent
+    // entirely and every line below is a compile error instead of an
+    // assertion. The distinction is the point of the test: the contract offers
+    // them, this driver does not provide them, and that must stay observable.
+    const driver: ObjectStorageDriver = build().driver;
     expect(driver.initiateMultipartUpload).toBeUndefined();
     expect(driver.completeMultipartUpload).toBeUndefined();
     expect(driver.abortMultipartUpload).toBeUndefined();

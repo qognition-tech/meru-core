@@ -45,6 +45,7 @@ import { AddCommentDto } from './dto/add-comment.dto';
 import { LinkEntitiesDto } from './dto/link-entities.dto';
 import { paginated } from '../common/paginated';
 import type { Response } from 'express';
+import { Actor } from '../common/access';
 
 @Controller('crm')
 @ApiTags('crm')
@@ -84,6 +85,16 @@ export class CrmController {
       : query;
   }
 
+  /**
+   * `Actor` is deliberately not `UserPayload` — see its own doc comment.
+   * Every by-id route builds one from `req.user` and passes it down so
+   * `CrmAccessService` can decide, in the service, whether this caller may
+   * reach this particular record.
+   */
+  private actorFrom(user: UserPayload): Actor {
+    return { id: user.id, roles: user.roles ?? [] };
+  }
+
   // ==================== COMMENTS ====================
   //
   // Any record, not just tasks. Document annotations, case file notes and
@@ -104,11 +115,17 @@ export class CrmController {
     @Body() dto: AddCommentDto,
   ) {
     const user = req.user as UserPayload;
-    return this.comments.add(user.tenantId, 'record', id, {
-      body: dto.body,
-      authorId: user.id,
-      internal: dto.internal,
-    });
+    return this.comments.add(
+      user.tenantId,
+      'record',
+      id,
+      {
+        body: dto.body,
+        authorId: user.id,
+        internal: dto.internal,
+      },
+      this.actorFrom(user),
+    );
   }
 
   @Get('entities/:id/comments')
@@ -128,7 +145,7 @@ export class CrmController {
     @Query('includeInternal') includeInternal?: string,
   ) {
     const user = req.user as UserPayload;
-    return this.comments.list(user.tenantId, id, {
+    return this.comments.list(user.tenantId, id, this.actorFrom(user), {
       includeInternal: includeInternal === 'true',
     });
   }
@@ -142,7 +159,7 @@ export class CrmController {
   })
   removeComment(@Request() req: ExpressRequest, @Param('id') id: string) {
     const user = req.user as UserPayload;
-    return this.comments.remove(user.tenantId, id);
+    return this.comments.remove(user.tenantId, id, this.actorFrom(user));
   }
 
   @Post('entities')
@@ -238,7 +255,7 @@ export class CrmController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const user = req.user as UserPayload;
-    return this.crmService.getEntity(id, user.tenantId);
+    return this.crmService.getEntity(id, user.tenantId, this.actorFrom(user));
   }
 
   @Patch('entities/:id')
@@ -270,6 +287,7 @@ export class CrmController {
     return this.crmService.updateEntity(
       id,
       user.tenantId,
+      this.actorFrom(user),
       {
         ...rest,
         ...(dueDate !== undefined ? { dueDate: new Date(dueDate) } : {}),
@@ -311,16 +329,21 @@ export class CrmController {
     @Body() dto: RecordAcceptanceDto,
   ) {
     const user = req.user as UserPayload;
-    return this.acceptance.record(user.tenantId, id, {
-      subject: dto.subject,
-      userId: user.id,
-      email: user.email,
-      // From the request, never the body: a client-supplied "I accepted from
-      // this address" is not evidence of anything.
-      ip: req.ip ?? null,
-      userAgent: req.headers['user-agent'] ?? null,
-      documentSha256: dto.documentSha256,
-    });
+    return this.acceptance.record(
+      user.tenantId,
+      id,
+      {
+        subject: dto.subject,
+        userId: user.id,
+        email: user.email,
+        // From the request, never the body: a client-supplied "I accepted
+        // from this address" is not evidence of anything.
+        ip: req.ip ?? null,
+        userAgent: req.headers['user-agent'] ?? null,
+        documentSha256: dto.documentSha256,
+      },
+      this.actorFrom(user),
+    );
   }
 
   @Get('entities/:id/acceptance')
@@ -338,7 +361,7 @@ export class CrmController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const user = req.user as UserPayload;
-    return this.acceptance.list(user.tenantId, id);
+    return this.acceptance.list(user.tenantId, id, this.actorFrom(user));
   }
 
   @Post('entities/:id/convert')
@@ -375,6 +398,7 @@ export class CrmController {
     return this.crmService.convertEntity(
       id,
       user.tenantId,
+      this.actorFrom(user),
       dto.toType,
       (req as AuthenticatedRequest).tenantVertical ?? null,
     );
@@ -425,6 +449,7 @@ export class CrmController {
     const user = req.user as UserPayload;
     return this.relations.link(
       user.tenantId,
+      this.actorFrom(user),
       (req as AuthenticatedRequest).tenantVertical ?? null,
       dto.relationKey,
       id,
@@ -452,6 +477,7 @@ export class CrmController {
     const user = req.user as UserPayload;
     return this.relations.traverse(
       user.tenantId,
+      this.actorFrom(user),
       (req as AuthenticatedRequest).tenantVertical ?? null,
       id,
     );
@@ -475,6 +501,7 @@ export class CrmController {
     const user = req.user as UserPayload;
     return this.relations.completionBlockers(
       user.tenantId,
+      this.actorFrom(user),
       (req as AuthenticatedRequest).tenantVertical ?? null,
       id,
     );
@@ -501,7 +528,11 @@ export class CrmController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const user = req.user as UserPayload;
-    const entity = await this.crmService.getEntity(id, user.tenantId);
+    const entity = await this.crmService.getEntity(
+      id,
+      user.tenantId,
+      this.actorFrom(user),
+    );
     return this.packRules.evaluate(
       (req as AuthenticatedRequest).tenantVertical ?? null,
       entity as unknown as Record<string, unknown>,
@@ -521,7 +552,13 @@ export class CrmController {
     @Param('toId', ParseUUIDPipe) toId: string,
   ) {
     const user = req.user as UserPayload;
-    await this.relations.unlink(user.tenantId, relationKey, id, toId);
+    await this.relations.unlink(
+      user.tenantId,
+      this.actorFrom(user),
+      relationKey,
+      id,
+      toId,
+    );
     return { removed: true };
   }
 }

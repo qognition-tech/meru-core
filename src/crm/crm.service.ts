@@ -19,6 +19,8 @@ import { deepMerge } from '../common/deep-merge';
 import { toCsv } from '../common/csv';
 import { Document } from '../documents/entities/document.entity';
 import { EntityRelationService } from './entity-relation.service';
+import { CrmAccessService } from './crm-access.service';
+import { Actor } from '../common/access';
 
 /**
  * Statuses that mean the record is finished. Transitioning *into* one of these
@@ -99,6 +101,7 @@ export class CrmService {
     private searchService: SearchService,
     private documentHubService: DocumentHubService,
     private relations: EntityRelationService,
+    private readonly access: CrmAccessService,
   ) {}
 
   async createEntity(
@@ -304,14 +307,37 @@ export class CrmService {
    * Tenant-scoped fetch. Unlike `findEntityById`, this cannot return another
    * tenant's row and 404s rather than yielding null, so controllers do not each
    * have to remember the scoping.
+   *
+   * `actor` is required, not optional — this is the fix for the bug
+   * `CrmAccessService` documents: every by-id route used to reach this method
+   * with no actor at all, so a `client` token that knew a UUID could read any
+   * other applicant's case. An optional actor a caller could forget to pass
+   * would have been the same bug with extra steps; the compiler now finds
+   * every call site instead.
    */
-  async getEntity(id: string, tenantId: string): Promise<UniversalEntity> {
+  async getEntity(
+    id: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<UniversalEntity> {
     const entity = await this.entityRepo.findOne({ where: { id, tenantId } });
     if (!entity) throw new NotFoundException('Entity not found');
+    this.access.assert(entity, actor, 'read');
     return entity;
   }
 
-  async deleteEntity(id: string, tenantId: string): Promise<void> {
+  /**
+   * Currently unreachable from any controller — `grep -rn deleteEntity src`
+   * finds no route registered for it, only this definition. Secured anyway,
+   * on the same reasoning as `getEntity`: an actor-less method is exactly how
+   * this bug shape keeps recurring, and the next person to wire up
+   * `DELETE /crm/entities/:id` should not have to remember to add the check.
+   */
+  async deleteEntity(
+    id: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<void> {
     const entity = await this.entityRepo.findOne({
       where: { id, tenantId },
     });
@@ -320,6 +346,8 @@ export class CrmService {
       throw new BadRequestException('Entity not found');
     }
 
+    this.access.assert(entity, actor, 'delete');
+
     await this.entityRepo.remove(entity);
     this.logger.log(`Entity deleted: ${id}`);
   }
@@ -327,6 +355,14 @@ export class CrmService {
   async updateEntity(
     id: string,
     tenantId: string,
+    /**
+     * Required, not optional — see the note on `getEntity`. `own` scope (a
+     * bare client, a bare `platform_admin`) never passes `CrmAccessService`'s
+     * write check: a client changes their record through a named route
+     * (acceptance, a workflow transition), never this generic PATCH, or they
+     * could reassign their own case or mark it lodged.
+     */
+    actor: Actor,
     updates: Partial<UniversalEntity>,
     /**
      * The caller's vertical, which selects the pack whose `relationships[]`
@@ -348,6 +384,11 @@ export class CrmService {
       throw new NotFoundException('Entity not found');
     }
 
+    // `own` scope reaches here only through `deleteEntity`'s sibling checks
+    // never applying — this throws 404 on an unreadable record, 403 on a
+    // readable one it may not change. See `CrmAccessService.assert`.
+    this.access.assert(entity, actor, 'write');
+
     // Dependency gate. A relation the pack marks `blocksCompletion` refuses
     // the close while the thing it points at is still open — which is what
     // makes a declared dependency a dependency rather than a note on a record.
@@ -359,7 +400,12 @@ export class CrmService {
       !COMPLETION_STATUSES.includes(entity.status as EntityStatus);
 
     if (closing) {
-      await this.relations.assertCompletable(tenantId, vertical ?? null, id);
+      await this.relations.assertCompletable(
+        tenantId,
+        actor,
+        vertical ?? null,
+        id,
+      );
     }
 
     const { verticalAttributes, ...rest } = updates;
@@ -407,6 +453,9 @@ export class CrmService {
   async convertEntity(
     id: string,
     tenantId: string,
+    // Required, not optional — see `getEntity`. A conversion rewrites `type`
+    // and, on the allowlist's other branches, `status`; that is a write.
+    actor: Actor,
     toType: EntityType,
     vertical?: string | null,
   ): Promise<UniversalEntity> {
@@ -414,6 +463,8 @@ export class CrmService {
     if (!entity) {
       throw new NotFoundException('Entity not found');
     }
+
+    this.access.assert(entity, actor, 'write');
 
     if (entity.type === toType) {
       throw new BadRequestException(`Entity is already of type '${toType}'`);

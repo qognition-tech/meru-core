@@ -14,6 +14,7 @@ import { DocumentsModule } from '../documents/documents.module';
 import { AuditModule } from '../audit/audit.module';
 import { AcceptanceService } from './acceptance.service';
 import { PackRuleModule } from '../rules/pack-rule.module';
+import { CrmAccessService } from './crm-access.service';
 
 // CRM module per CLAUDE.md §2 row 3: polymorphic UniversalEntity.
 // All types (person, organization, case, note, tag, asset) live in one table.
@@ -41,6 +42,11 @@ import { PackRuleModule } from '../rules/pack-rule.module';
     EntityRelationService,
     CommentService,
     AcceptanceService,
+    // Who may see/change which record — see its own header for the model.
+    // Not exported: nothing outside CRM currently reaches getEntity/
+    // updateEntity/convertEntity/deleteEntity (grep confirmed before adding
+    // it here), so widen `exports` only when a caller actually needs it.
+    CrmAccessService,
   ],
   exports: [CrmService, EntityRelationService, CommentService],
 })
