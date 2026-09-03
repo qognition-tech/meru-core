@@ -32,6 +32,7 @@ import { DocumentGenerationService } from './document-generation.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
+import { RequestDocumentUploadUrlDto } from './dto/request-upload-url.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
 import { ChecklistResponseDto } from './dto/checklist-response.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -82,6 +83,35 @@ export class DocumentsController {
     );
 
     return result;
+  }
+
+  @Post('upload-url')
+  @ApiOperation({
+    summary: 'Request a direct-to-bucket upload URL',
+    description:
+      'Step one of the presigned-upload path: a short-TTL signed PUT URL ' +
+      'and the storage key it targets, so the browser can send the bytes ' +
+      'straight to the object store instead of through POST ' +
+      '/documents/upload, which routes through the single Vercel function ' +
+      'fronting this API and its own body-size ceiling — scanned passports ' +
+      'and multi-page PDFs routinely exceed it.\n\n' +
+      'PUT the file to `uploadUrl`, then call `POST /documents` with the ' +
+      'same `storageKey`/`storageProvider`/`storageBucket` echoed back to ' +
+      'finalise the document with a real, readable version. Until that ' +
+      'second call, the bytes have no document record pointing at them.\n\n' +
+      '503 with `unavailableReason` when no object storage driver is ' +
+      'configured — gated the same way POST /documents/upload is.',
+  })
+  @ApiResponse({ status: 201, description: 'Signed upload URL issued' })
+  @ApiResponse({
+    status: 503,
+    description: 'No object storage driver is configured',
+  })
+  async requestUploadUrl(
+    @Body() dto: RequestDocumentUploadUrlDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.documentsService.requestUploadUrl(dto, req.user.tenantId);
   }
 
   @Post()

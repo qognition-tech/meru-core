@@ -138,6 +138,27 @@ export class SearchService {
   }
 
   /**
+   * A caller's `searchableType` string, validated against the real enum
+   * rather than cast straight through. `entity.searchableType` is a plain
+   * string on every wrapper payload (it crosses a module boundary as a
+   * literal, not the enum type), so a typo or a future caller inventing its
+   * own label would otherwise reach Postgres as a value the column's own enum
+   * type rejects — a worse failure than falling back to `ENTITY`, which is
+   * at least indexed and findable. A bare CRM entity (no `searchableType`
+   * field at all) always resolves to `ENTITY`, exactly as before this method
+   * read the wrapper shape at all.
+   */
+  private resolveSearchableType(candidate: unknown): SearchableType {
+    if (
+      typeof candidate === 'string' &&
+      (Object.values(SearchableType) as string[]).includes(candidate)
+    ) {
+      return candidate as SearchableType;
+    }
+    return SearchableType.ENTITY;
+  }
+
+  /**
    * Best effort, never blocking: Postgres already holds the row, so a failed
    * mirror costs ranking quality, not data.
    */

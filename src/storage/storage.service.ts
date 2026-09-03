@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Actor, scopeOf } from '../common/access';
 import { StorageDriverRegistry } from './storage-driver.registry';
@@ -100,6 +101,63 @@ export class StorageService {
       expiresInSeconds: this.clampTtl(options.expiresInSeconds),
       responseDisposition: options.disposition,
     });
+  }
+
+  /**
+   * A short-TTL signed **upload** URL, so a browser can PUT bytes straight to
+   * the bucket instead of routing them through the single Vercel function
+   * that fronts this whole API (CLAUDE.md §10) — which enforces its own body
+   * -size ceiling well below what a scanned passport or a multi-page PDF
+   * needs, so a large document upload was hitting a 413 at the platform edge
+   * before `DocumentsController.upload` ever ran.
+   *
+   * The key is asserted under the caller's tenant prefix *before* any driver
+   * sees it, same as every other operation here (§5.1b) — this is a PUT
+   * target under `tenants/<tenantId>/…`, not a bucket-wide credential.
+   *
+   * Only a driver that implements the optional `getUploadPresignedUrl`
+   * (Supabase, S3) can answer this; `drivers.require` is what turns a driver
+   * lacking it into a 501 rather than a URL that silently fails on PUT.
+   * `drivers.forTenant` is what turns "no driver is configured at all" into a
+   * 503 naming the missing variable — re-thrown here with `unavailableReason`
+   * so a caller/UI can distinguish "storage isn't set up yet" from every
+   * other failure shape, per CLAUDE.md §5.2.
+   */
+  async getUploadPresignedUrl(
+    tenantId: string,
+    key: string,
+    expiresInSeconds?: number,
+  ): Promise<{ uploadUrl: string; provider: StorageProvider; bucket: string }> {
+    this.assertTenantKey(tenantId, key);
+
+    let driver: ObjectStorageDriver;
+    try {
+      driver = await this.drivers.forTenant(tenantId);
+    } catch (err) {
+      throw new ServiceUnavailableException({
+        code: 'MER-SRV-0503',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Object storage is not configured.',
+        unavailableReason: 'storage_not_configured',
+      });
+    }
+
+    const sign = this.drivers.require(driver, 'getUploadPresignedUrl');
+    const uploadUrl = await sign(key, this.clampTtl(expiresInSeconds));
+    return { uploadUrl, provider: driver.kind, bucket: driver.bucket };
+  }
+
+  /**
+   * Whether `key` sits under `tenantId`'s prefix — the public face of
+   * `assertTenantKey`, for a caller (today: `DocumentsService.create`
+   * finalising a direct-to-bucket upload) that must validate a
+   * client-supplied key before trusting it in a new row, rather than only at
+   * the point something later tries to read or write through it.
+   */
+  assertKeyBelongsToTenant(tenantId: string, key: string): void {
+    this.assertTenantKey(tenantId, key);
   }
 
   // ==================== UPLOAD OPERATIONS ====================

@@ -282,11 +282,20 @@ export class TaskService {
       ]);
     }
 
+    // Same clamp as `listTasks` above (line 174) — a caller-supplied `limit`
+    // is bounded, not trusted outright. Not currently reachable from
+    // `TaskController.getMyWork`, which does not read `?limit=` off the
+    // query string at all, but this method takes `options.limit` directly
+    // and an unclamped `take` here — plus the eager `relations: ['comments']`
+    // — is exactly the primitive an unbounded read reaches for the moment
+    // something (a future route, an internal caller) does wire it up.
+    const limit = Math.min(200, Math.max(1, Number(options.limit) || 50));
+
     const tasks = await this.taskRepo.find({
       where,
       relations: ['comments'],
       order: { priority: 'DESC', dueDate: 'ASC' },
-      take: options.limit || 50,
+      take: limit,
     });
 
     // Get counts for each status

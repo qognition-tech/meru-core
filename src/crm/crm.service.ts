@@ -220,6 +220,55 @@ export class CrmService {
   }
 
   /**
+   * The `WHERE`/`ORDER BY` shared by `listEntities` and `exportEntitiesCsv` —
+   * everything about "which rows and in what order" except how many. Split
+   * out so the export's row cap (10,000) cannot be silently clamped down to
+   * the list's page size (200) the way it was: `exportEntitiesCsv` used to
+   * call `listEntities({ ...filters, limit: MAX_ROWS })`, and `listEntities`
+   * clamps whatever `limit` it is given to 200 before the query ever runs —
+   * so a firm exporting 600 matching records got a 200-row file with
+   * `X-Export-Truncated` never even firing to say so (`total` was computed
+   * against the same 200-row page).
+   */
+  private buildEntityListQuery(
+    tenantId: string,
+    filters: {
+      type?: EntityType;
+      status?: EntityStatus;
+      assignedTo?: string;
+      dueBefore?: string;
+      dueAfter?: string;
+    },
+  ) {
+    const qb = this.entityRepo
+      .createQueryBuilder('e')
+      .where('e."tenantId" = :tenantId', { tenantId })
+      // Soft-deleted rows are not results. `deleteEntity` currently hard
+      // -removes, but the column exists and anything that starts using it
+      // must not silently resurrect rows here.
+      .andWhere('e."deletedAt" IS NULL');
+
+    if (filters.type) qb.andWhere('e.type = :type', { type: filters.type });
+    if (filters.status)
+      qb.andWhere('e.status = :status', { status: filters.status });
+    if (filters.assignedTo)
+      qb.andWhere('e."assignedTo" = :assignedTo', {
+        assignedTo: filters.assignedTo,
+      });
+    if (filters.dueAfter)
+      qb.andWhere('e."dueDate" >= :dueAfter', { dueAfter: filters.dueAfter });
+    if (filters.dueBefore)
+      qb.andWhere('e."dueDate" <= :dueBefore', {
+        dueBefore: filters.dueBefore,
+      });
+
+    // Nulls last so undated records do not crowd out what is actually due.
+    return qb
+      .orderBy('e."dueDate"', 'ASC', 'NULLS LAST')
+      .addOrderBy('e."createdAt"', 'DESC');
+  }
+
+  /**
    * Filtered, paginated entity listing.
    *
    * This is what backs the obligation and breach registers and the case
@@ -247,32 +296,7 @@ export class CrmService {
     const page = Math.max(1, Number(filters.page) || 1);
     const limit = Math.min(200, Math.max(1, Number(filters.limit) || 50));
 
-    const qb = this.entityRepo
-      .createQueryBuilder('e')
-      .where('e."tenantId" = :tenantId', { tenantId })
-      // Soft-deleted rows are not results. `deleteEntity` currently hard
-      // -removes, but the column exists and anything that starts using it
-      // must not silently resurrect rows here.
-      .andWhere('e."deletedAt" IS NULL');
-
-    if (filters.type) qb.andWhere('e.type = :type', { type: filters.type });
-    if (filters.status)
-      qb.andWhere('e.status = :status', { status: filters.status });
-    if (filters.assignedTo)
-      qb.andWhere('e."assignedTo" = :assignedTo', {
-        assignedTo: filters.assignedTo,
-      });
-    if (filters.dueAfter)
-      qb.andWhere('e."dueDate" >= :dueAfter', { dueAfter: filters.dueAfter });
-    if (filters.dueBefore)
-      qb.andWhere('e."dueDate" <= :dueBefore', {
-        dueBefore: filters.dueBefore,
-      });
-
-    // Nulls last so undated records do not crowd out what is actually due.
-    const [items, total] = await qb
-      .orderBy('e."dueDate"', 'ASC', 'NULLS LAST')
-      .addOrderBy('e."createdAt"', 'DESC')
+    const [items, total] = await this.buildEntityListQuery(tenantId, filters)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -547,6 +571,15 @@ export class CrmService {
    * Capped, and a capped export says so. A file that is quietly a prefix of the
    * answer is the same class of lie as a truncated count reported as exact
    * (CLAUDE.md §5.2), and worse in practice because it leaves the building.
+   *
+   * Builds its own query via `buildEntityListQuery` rather than delegating to
+   * `listEntities` — delegating used to pass `limit: MAX_ROWS` (10,000)
+   * straight into `listEntities`, which clamps whatever `limit` it receives
+   * to 200 before the query runs. A firm exporting 600 matching records was
+   * getting a 200-row file, and `X-Export-Truncated` never fired because
+   * `total` was computed against that same 200-row page rather than the real
+   * count. `getManyAndCount()`'s count query ignores `.take()`, so `total`
+   * here is genuinely the full matching count regardless of the cap.
    */
   async exportEntitiesCsv(
     tenantId: string,
@@ -554,11 +587,16 @@ export class CrmService {
   ): Promise<{ csv: string; rows: number; truncated: boolean }> {
     const MAX_ROWS = 10_000;
 
-    const { items, total } = await this.listEntities(tenantId, {
-      ...filters,
-      page: 1,
-      limit: MAX_ROWS,
-    });
+    // `page`/`limit` are accepted on the type (the controller shares one DTO
+    // between the list and export routes) but not honoured here — an export
+    // is the whole filtered set up to MAX_ROWS, not one page of it.
+    const { page: _page, limit: _limit, ...listFilters } = filters ?? {};
+    void _page;
+    void _limit;
+
+    const [items, total] = await this.buildEntityListQuery(tenantId, listFilters)
+      .take(MAX_ROWS)
+      .getManyAndCount();
 
     const headers = [
       'id',

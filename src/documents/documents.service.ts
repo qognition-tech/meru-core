@@ -30,6 +30,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
+import { RequestDocumentUploadUrlDto } from './dto/request-upload-url.dto';
 import { OrchestrationService } from '../orchestration/orchestration.service';
 import { DocumentAccessService } from './document-access.service';
 import type { Actor } from '../common/access';
@@ -179,6 +180,49 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * Step one of the presigned-upload path: a short-TTL signed PUT URL and the
+   * key it targets, so the browser can send the bytes straight to the bucket
+   * instead of through `POST /documents/upload` — which routes through the
+   * single Vercel function fronting this API and its own body-size ceiling
+   * (CLAUDE.md §10). Scanned passports and multi-page PDFs routinely exceed
+   * that ceiling; this route does not.
+   *
+   * Returns the storage key up front rather than requiring the caller to
+   * recompute it: the browser echoes `storageKey`/`storageProvider`/
+   * `storageBucket` back on the follow-up `POST /documents` call, which is
+   * what finalises the document with a real, readable version. Until that
+   * second call happens, the bytes sit in the bucket with no `Document`/
+   * `DocumentVersion` row pointing at them — an orphaned object, not a
+   * document, and never rendered as one.
+   */
+  async requestUploadUrl(
+    dto: RequestDocumentUploadUrlDto,
+    tenantId: string,
+  ): Promise<{
+    uploadUrl: string;
+    storageKey: string;
+    storageProvider: string;
+    storageBucket: string;
+    expiresInSeconds: number;
+  }> {
+    const fileType = dto.fileType || this.detectFileType(dto.originalFileName);
+    const slug = this.generateSlug(dto.name, tenantId);
+    const storageKey = this.generateObjectKey(tenantId, slug, 1, fileType);
+    const expiresInSeconds = 300;
+
+    const { uploadUrl, provider, bucket } =
+      await this.storage.getUploadPresignedUrl(tenantId, storageKey, expiresInSeconds);
+
+    return {
+      uploadUrl,
+      storageKey,
+      storageProvider: provider,
+      storageBucket: bucket,
+      expiresInSeconds,
+    };
+  }
+
   async create(
     dto: CreateDocumentDto,
     tenantId: string,
@@ -192,6 +236,32 @@ export class DocumentsService {
     }
 
     const documentSlug = this.generateSlug(dto.name, tenantId);
+
+    // A direct-to-bucket upload finalising here (see `requestUploadUrl`)
+    // supplies all three; every other caller of this route supplies none.
+    const directUpload =
+      dto.storageKey && dto.storageProvider && dto.storageBucket
+        ? {
+            key: dto.storageKey,
+            provider: dto.storageProvider,
+            bucket: dto.storageBucket,
+          }
+        : null;
+    if (!directUpload && (dto.storageKey || dto.storageProvider || dto.storageBucket)) {
+      throw new BadRequestException(
+        'storageKey, storageProvider and storageBucket must all be present ' +
+          'together, or all absent.',
+      );
+    }
+
+    // A client-supplied key must not be trusted just because it round-tripped
+    // through this tenant's own token — assert it before it is ever written
+    // into a row, the same discipline `StorageService` applies on every read
+    // and write. `POST /documents/upload-url` only ever hands back a key
+    // already under this prefix, so this only fires on a forged or stale one.
+    if (directUpload) {
+      this.storage.assertKeyBelongsToTenant(tenantId, directUpload.key);
+    }
 
     const document = this.documentRepo.create({
       id: randomUUID(),
@@ -212,13 +282,46 @@ export class DocumentsService {
       rbac: {
         owner: userId,
       },
-      versionNumber: 0,
+      versionNumber: directUpload ? 1 : 0,
       currentVersionId: '',
       uploadedById: userId,
       uploadedBy: user,
     });
 
-    return this.documentRepo.save(document);
+    const saved = await this.documentRepo.save(document);
+
+    if (directUpload) {
+      const versionId = randomUUID();
+      const version = this.versionRepo.create({
+        id: versionId,
+        documentId: saved.id,
+        versionNumber: 1,
+        status: VersionStatus.ACTIVE,
+        s3Key: directUpload.key,
+        s3Bucket: directUpload.bucket,
+        storageProvider: directUpload.provider,
+        fileSize: dto.fileSize,
+        // The server never touched the bytes for a direct-to-bucket upload —
+        // a checksum here would be a fabricated claim, not a computed one
+        // (CLAUDE.md §5.2: unknown is never clear). Left unset, same as
+        // `encryptionKey`/`encryptionAlgorithm` above for a non-encrypted
+        // version, rather than a value nobody calculated.
+        checksum: undefined,
+        changeDescription: dto.changeDescription || 'Direct upload',
+        changeMetadata: {
+          changedBy: userId,
+          changeReason: 'Direct upload via POST /documents/upload-url',
+        },
+        uploadedById: userId,
+        uploadedBy: user,
+      });
+      await this.versionRepo.save(version);
+
+      saved.currentVersionId = versionId;
+      await this.documentRepo.save(saved);
+    }
+
+    return saved;
   }
 
   async createNewVersion(

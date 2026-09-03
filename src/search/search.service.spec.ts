@@ -110,6 +110,112 @@ describe('SearchService', () => {
   });
 
   /**
+   * `task.service.ts`, `form-builder.service.ts`, `workflow.service.ts` and
+   * `document-hub.service.ts` do not pass a CRM entity — they pass a wrapper
+   * object with its own `searchableId`/`searchableType`/`title`/`content` and
+   * no `.id` at all. `indexEntityData` used to read `entity.id`
+   * (`undefined`) and hardcode `SearchableType.ENTITY`, so every one of these
+   * four callers' inserts violated the `searchableId` NOT NULL column and
+   * their own try/catch swallowed it — tasks, form submissions, workflow
+   * instances and documents had never once landed in the index. This is the
+   * regression guard for that fix.
+   */
+  describe('wrapper-object payloads — tasks, forms, workflow instances, documents', () => {
+    const wrapper = (overrides: Record<string, unknown> = {}) => ({
+      tenantId: 't1',
+      searchableType: 'task',
+      searchableId: 'task-1',
+      title: 'Renew visa',
+      content: 'Follow up on the 482 renewal',
+      metadata: { status: 'todo' },
+      ...overrides,
+    });
+
+    it('indexes a task wrapper under its own id and type, not "Unknown" as an entity', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData(wrapper());
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 't1',
+          searchableId: 'task-1',
+          searchableType: 'task',
+          title: 'Renew visa',
+          content: 'Follow up on the 482 renewal',
+        }),
+      );
+    });
+
+    it('scopes the dedup lookup by the wrapper\'s own searchableId, not entity.id', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData(wrapper());
+
+      expect(repo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: 't1',
+            searchableId: 'task-1',
+            searchableType: 'task',
+          }),
+        }),
+      );
+    });
+
+    it.each([
+      ['form_submission', 'form-1'],
+      ['workflow_instance', 'wf-1'],
+      ['document', 'doc-1'],
+    ])('indexes a %s wrapper the same way', async (searchableType, searchableId) => {
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData(
+        wrapper({ searchableType, searchableId, title: 'X', content: 'y' }),
+      );
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ searchableId, searchableType }),
+      );
+    });
+
+    it('falls back to ENTITY for an unrecognised searchableType rather than failing the insert', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData(
+        wrapper({ searchableType: 'not_a_real_type', searchableId: 'x-1' }),
+      );
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ searchableType: SearchableType.ENTITY }),
+      );
+    });
+
+    it('refuses, loudly, a payload with neither searchableId nor id — never a silent undefined insert', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(
+        service.indexEntityData({ tenantId: 't1', searchableType: 'task', title: 'No id' }),
+      ).rejects.toThrow(/no searchableId\/id/);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('a bare CRM entity (no searchableId/searchableType/title/content of its own) still resolves ENTITY, keyed on .id, named from firstName/lastName — unchanged from before this fix', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await service.indexEntityData({
+        id: 'e-crm-1',
+        tenantId: 't1',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        type: 'person',
+      });
+
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchableId: 'e-crm-1',
+          searchableType: SearchableType.ENTITY,
+          title: 'Jane Doe',
+        }),
+      );
+    });
+  });
+
+  /**
    * `POST /search/index/entity` used to trust the request body's
    * `entity.tenantId` outright — a cross-tenant overwrite primitive, since the
    * dedup lookup below matched on `searchableId` alone with no `tenantId` in
