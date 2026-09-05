@@ -47,7 +47,7 @@ echo
 echo "── Auth surface (validation + guards) ─────────────────────"
 check login-empty    POST /auth/login    400,401 '{}'
 check login-bad      POST /auth/login    400,401 '{"email":"nobody@example.com","password":"wrong"}'
-check register-empty POST /auth/register 400 '{}'
+check register-gone  POST /auth/register 404 '{}'  # removed 2026-09-04, see iam.controller.ts
 check refresh-empty  POST /auth/refresh  400,401 '{}'
 check profile-noauth GET  /auth/profile  401
 

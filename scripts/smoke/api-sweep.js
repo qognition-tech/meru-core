@@ -31,7 +31,9 @@ const PUBLIC = [
   /^$/,
   /^\/health/,
   /^\/auth\/login$/,
-  /^\/auth\/register$/,
+  // /auth/register removed 2026-09-04 — see iam.controller.ts. Self-signup
+  // into an existing tenant needs a per-tenant opt-in gate that does not
+  // exist yet; do not re-add this pattern until that route exists again.
   /^\/auth\/refresh$/,
   /^\/auth\/logout$/,
   /^\/auth\/forgot-password$/,

@@ -637,6 +637,26 @@ out. A missing credential can only ever mean "not licensed yet"
   deliberately deleted. Do not develop there; the live app is
   `meru-core-fe/immistack`.
 - **Vercel deploys are CLI-only.** Pushing to GitHub does nothing.
+- **`POST /auth/register` was removed 2026-09-04, not repaired.** It 500'd on
+  the RLS `WITH CHECK` for every caller — the write ran outside the
+  `runAsSystem` bypass that wrapped its two reads, back on an unbound
+  connection (`iam.service.ts`, was lines 447-471). Fixing only that scoping
+  bug would have shipped a worse one: the route was `@Public()`, keyed on
+  nothing but a tenant slug, and `POST /tenants/check-slug` is also public and
+  anonymously confirms which slugs exist — so a "fixed" version would let
+  anyone self-provision into an existing tenant they can guess the slug of,
+  including another firm's or a bank's, with no invite and no role gate. No
+  product app has ever called it (all three portals' `(auth)` route groups are
+  login/forgot/reset only). The two supported paths — `POST /tenants/signup`
+  (new workspace) and `POST /iam/users/invite` (authenticated, into your own
+  tenant) — are untouched. `scripts/smoke/cross-tenant.sh`'s intra-tenant
+  document-isolation block used `/auth/register` to mint cheap same-tenant test
+  users and now SKIPs with a stated reason instead of failing; the scoping
+  logic it exercised is still covered by
+  `src/documents/document-access.service.spec.ts`. **Still true separately:**
+  no new user can obtain a login by any route today — invites need
+  `RESEND_API_KEY`, and there is no admin "set initial password" route. That
+  gap is not this one; do not resurrect register to paper over it.
 
 ---
 
