@@ -22,7 +22,7 @@ import { Role } from './entities/role.entity';
 import { Session } from './entities/session.entity';
 import { ApiKey } from './entities/api-key.entity';
 import { AuthToken, AuthTokenType } from './entities/auth-token.entity';
-import { UserPayload, CreateUserInput, DirectoryUser } from '../common/types';
+import { UserPayload, DirectoryUser } from '../common/types';
 import { TenantContext } from '../core/tenancy/tenant-context';
 import { PlatformRole, ROLE_PRECEDENCE } from './enums/platform-role.enum';
 import { MailService } from '../core/mail/mail.service';
@@ -436,39 +436,6 @@ export class IamService {
       mfaSecret: null as any,
     });
     return { success: true };
-  }
-
-  // ─── Registration ─────────────────────────────────────────────────
-
-  async register(dto: CreateUserInput) {
-    // Registration runs unauthenticated: the tenant slug is the only identity
-    // signal, so resolving it and checking for a duplicate email both precede
-    // any tenant binding.
-    const { tenant, existing } = await TenantContext.runAsSystem(
-      'resolve tenant by slug during registration',
-      async () => ({
-        tenant: await this.tenantRepo.findOne({
-          where: { slug: dto.tenantSlug },
-        }),
-        existing: await this.userRepo.findOne({ where: { email: dto.email } }),
-      }),
-    );
-
-    if (!tenant) throw new NotFoundException('Invalid tenant slug');
-    if (existing) throw new ConflictException('Email already registered');
-
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const user = this.userRepo.create({
-      email: dto.email,
-      password: hashedPassword,
-      tenantId: tenant.id,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      provider: AuthProvider.LOCAL,
-      status: UserStatus.ACTIVE,
-    });
-
-    return this.userRepo.save(user);
   }
 
   // ─── RBAC / Role Management ──────────────────────────────────────

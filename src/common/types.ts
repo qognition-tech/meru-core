@@ -188,14 +188,6 @@ export interface AuthenticatedRequest extends Request {
   tenantVertical?: string;
 }
 
-export interface CreateUserInput {
-  tenantSlug: string;
-  email: string;
-  password: string;
-  firstName?: string;
-  lastName?: string;
-}
-
 /**
  * A user as rendered in a tenant's user directory.
  *
