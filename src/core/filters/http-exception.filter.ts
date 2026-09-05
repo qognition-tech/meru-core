@@ -126,7 +126,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   /** Builds a MeruError from exception */
   private buildError(exception: unknown, status: number): MeruError {
     const httpException = exception instanceof HttpException ? exception : null;
-    const code = this.mapStatusToErrorCode(status, httpException);
+    let code = this.mapStatusToErrorCode(status, httpException);
 
     let message = 'An unexpected error occurred';
     let details: ValidationErrorDetail[] | undefined;
@@ -142,6 +142,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message = message.join('; ');
         }
         details = this.extractValidationDetails(response);
+
+        // A thrower may name its own MeruErrorCode rather than accept the
+        // generic per-status default — e.g. a 409 that means "this connector
+        // is disabled", not "this resource already exists". Only a value that
+        // is actually one of ours is honoured, so every existing HttpException
+        // body (which never sets this field) keeps resolving through the
+        // status-based mapping exactly as before.
+        const explicitCode = (response as any).code;
+        if (
+          typeof explicitCode === 'string' &&
+          (Object.values(MeruErrorCode) as string[]).includes(explicitCode)
+        ) {
+          code = explicitCode as MeruErrorCode;
+        }
       }
     } else if (exception instanceof Error) {
       message = exception.message;

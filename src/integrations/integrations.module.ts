@@ -21,6 +21,7 @@ import { VesselPosition } from './entities/vessel-position.entity';
 import { TenantConnector } from './entities/tenant-connector.entity';
 import { ConnectorsController } from './connectors.controller';
 import { ConnectorsService } from './services/connectors.service';
+import { AdapterAccessService } from './services/adapter-access.service';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { VerticalPackModule } from '../tenant/vertical-pack.module';
 import { AiModule } from '../ai/ai.module';
@@ -66,6 +67,7 @@ import { AiModule } from '../ai/ai.module';
     TradeService,
     AisIngestService,
     ConnectorsService,
+    AdapterAccessService,
     AuHomeAffairsAdapter,
     UaeCentralBankAdapter,
     SaSamaAdapter,

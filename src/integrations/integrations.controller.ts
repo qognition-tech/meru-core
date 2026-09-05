@@ -38,6 +38,7 @@ import { AddVesselDto, TradeInstrumentBodyDto } from './dto/vessel-trade.dto';
 import { VesselService } from './services/vessel.service';
 import { TradeService } from './services/trade.service';
 import { ImportService } from './services/import.service';
+import { AdapterAccessService } from './services/adapter-access.service';
 import type { AuthenticatedRequest } from '../common/types';
 import { AuHomeAffairsAdapter } from './adapters/au-home-affairs.adapter';
 import { UaeCentralBankAdapter } from './adapters/uae-central-bank.adapter';
@@ -66,6 +67,7 @@ export class IntegrationsController {
     private readonly vesselService: VesselService,
     private readonly tradeService: TradeService,
     private readonly importService: ImportService,
+    private readonly adapterAccess: AdapterAccessService,
   ) {}
 
   /**
@@ -353,9 +355,11 @@ export class IntegrationsController {
   @ApiOperation({ summary: 'AU — Check visa status via DHA' })
   @ApiQuery({ name: 'passportNumber', required: true })
   async auVisaStatus(
+    @Request() req: AuthenticatedRequest,
     @Param('visaNumber') visaNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
+    await this.adapterAccess.require(req, 'au-home-affairs');
     const result = await this.auAdapter.getVisaStatus(
       visaNumber,
       passportNumber,
@@ -365,7 +369,11 @@ export class IntegrationsController {
 
   @Get('au/application-status/:applicationId')
   @ApiOperation({ summary: 'AU — Check application status via DHA' })
-  async auApplicationStatus(@Param('applicationId') applicationId: string) {
+  async auApplicationStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    await this.adapterAccess.require(req, 'au-home-affairs');
     const result = await this.auAdapter.getApplicationStatus(applicationId);
     return IntegrationsController.unwrap(result, this.auAdapter);
   }
@@ -373,14 +381,22 @@ export class IntegrationsController {
   @Get('au/sponsor-validation')
   @ApiOperation({ summary: 'AU — Validate employer sponsor licence via DHA' })
   @ApiQuery({ name: 'abn', required: true })
-  async auSponsorValidation(@Query('abn') abn: string) {
+  async auSponsorValidation(
+    @Request() req: AuthenticatedRequest,
+    @Query('abn') abn: string,
+  ) {
+    await this.adapterAccess.require(req, 'au-home-affairs');
     const result = await this.auAdapter.validateSponsor(abn);
     return IntegrationsController.unwrap(result, this.auAdapter);
   }
 
   @Post('au/vevo-check')
   @ApiOperation({ summary: 'AU — VEVO visa entitlement check' })
-  async auVevoCheck(@Body() body: { visaNumber: string; dateOfBirth: string }) {
+  async auVevoCheck(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { visaNumber: string; dateOfBirth: string },
+  ) {
+    await this.adapterAccess.require(req, 'au-home-affairs');
     const result = await this.auAdapter.vevoCheck(
       body.visaNumber,
       body.dateOfBirth,
@@ -392,7 +408,11 @@ export class IntegrationsController {
 
   @Post('ae/screening')
   @ApiOperation({ summary: 'AE — Sanctions screening via CBUAE' })
-  async aeScreening(@Body() body: ScreenEntityDto) {
+  async aeScreening(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: ScreenEntityDto,
+  ) {
+    await this.adapterAccess.require(req, 'uae-central-bank');
     const result = await this.cbuaeAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -405,6 +425,7 @@ export class IntegrationsController {
     summary: 'AE — File Suspicious Transaction Report via CBUAE',
   })
   async aeFileSTR(
+    @Request() req: AuthenticatedRequest,
     @Body()
     body: {
       reportingEntityId: string;
@@ -417,6 +438,7 @@ export class IntegrationsController {
       transactionDate?: string;
     },
   ) {
+    await this.adapterAccess.require(req, 'uae-central-bank');
     const result = await this.cbuaeAdapter.fileSTR(body);
     return IntegrationsController.unwrap(result, this.cbuaeAdapter);
   }
@@ -426,9 +448,11 @@ export class IntegrationsController {
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'since', required: false })
   async aeRegulatoryUpdates(
+    @Request() req: AuthenticatedRequest,
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
+    await this.adapterAccess.require(req, 'uae-central-bank');
     const result = await this.cbuaeAdapter.getRegulatoryUpdates({
       category,
       since,
@@ -438,7 +462,11 @@ export class IntegrationsController {
 
   @Get('ae/verify-entity/:licenseNumber')
   @ApiOperation({ summary: 'AE — Verify trade license via CBUAE' })
-  async aeVerifyEntity(@Param('licenseNumber') licenseNumber: string) {
+  async aeVerifyEntity(
+    @Request() req: AuthenticatedRequest,
+    @Param('licenseNumber') licenseNumber: string,
+  ) {
+    await this.adapterAccess.require(req, 'uae-central-bank');
     const result = await this.cbuaeAdapter.verifyEntity(licenseNumber);
     return IntegrationsController.unwrap(result, this.cbuaeAdapter);
   }
@@ -447,7 +475,11 @@ export class IntegrationsController {
 
   @Post('sa/screening')
   @ApiOperation({ summary: 'SA — Sanctions screening via SAMA' })
-  async saScreening(@Body() body: ScreenEntityDto) {
+  async saScreening(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: ScreenEntityDto,
+  ) {
+    await this.adapterAccess.require(req, 'sa-sama');
     const result = await this.samaAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -458,6 +490,7 @@ export class IntegrationsController {
   @Post('sa/str')
   @ApiOperation({ summary: 'SA — File Suspicious Transaction Report via SAMA' })
   async saFileSTR(
+    @Request() req: AuthenticatedRequest,
     @Body()
     body: {
       reportingEntityId: string;
@@ -470,6 +503,7 @@ export class IntegrationsController {
       transactionDate?: string;
     },
   ) {
+    await this.adapterAccess.require(req, 'sa-sama');
     const result = await this.samaAdapter.fileSTR(body);
     return IntegrationsController.unwrap(result, this.samaAdapter);
   }
@@ -479,9 +513,11 @@ export class IntegrationsController {
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'since', required: false })
   async saRegulatoryUpdates(
+    @Request() req: AuthenticatedRequest,
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
+    await this.adapterAccess.require(req, 'sa-sama');
     const result = await this.samaAdapter.getRegulatoryUpdates({
       category,
       since,
@@ -491,7 +527,11 @@ export class IntegrationsController {
 
   @Get('sa/verify-entity/:crn')
   @ApiOperation({ summary: 'SA — Verify commercial registration via SAMA' })
-  async saVerifyEntity(@Param('crn') crn: string) {
+  async saVerifyEntity(
+    @Request() req: AuthenticatedRequest,
+    @Param('crn') crn: string,
+  ) {
+    await this.adapterAccess.require(req, 'sa-sama');
     const result = await this.samaAdapter.verifyEntity(crn);
     return IntegrationsController.unwrap(result, this.samaAdapter);
   }
@@ -500,7 +540,11 @@ export class IntegrationsController {
 
   @Post('qa/screening')
   @ApiOperation({ summary: 'QA — Sanctions screening via QCB' })
-  async qaScreening(@Body() body: ScreenEntityDto) {
+  async qaScreening(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: ScreenEntityDto,
+  ) {
+    await this.adapterAccess.require(req, 'qa-central-bank');
     const result = await this.qcbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -511,6 +555,7 @@ export class IntegrationsController {
   @Post('qa/str')
   @ApiOperation({ summary: 'QA — File Suspicious Transaction Report via QCB' })
   async qaFileSTR(
+    @Request() req: AuthenticatedRequest,
     @Body()
     body: {
       reportingEntityId: string;
@@ -523,6 +568,7 @@ export class IntegrationsController {
       transactionDate?: string;
     },
   ) {
+    await this.adapterAccess.require(req, 'qa-central-bank');
     const result = await this.qcbAdapter.fileSTR(body);
     return IntegrationsController.unwrap(result, this.qcbAdapter);
   }
@@ -532,9 +578,11 @@ export class IntegrationsController {
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'since', required: false })
   async qaRegulatoryUpdates(
+    @Request() req: AuthenticatedRequest,
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
+    await this.adapterAccess.require(req, 'qa-central-bank');
     const result = await this.qcbAdapter.getRegulatoryUpdates({
       category,
       since,
@@ -544,7 +592,11 @@ export class IntegrationsController {
 
   @Get('qa/verify-entity/:crn')
   @ApiOperation({ summary: 'QA — Verify commercial registration via QCB' })
-  async qaVerifyEntity(@Param('crn') crn: string) {
+  async qaVerifyEntity(
+    @Request() req: AuthenticatedRequest,
+    @Param('crn') crn: string,
+  ) {
+    await this.adapterAccess.require(req, 'qa-central-bank');
     const result = await this.qcbAdapter.verifyEntity(crn);
     return IntegrationsController.unwrap(result, this.qcbAdapter);
   }
@@ -553,7 +605,11 @@ export class IntegrationsController {
 
   @Post('bh/screening')
   @ApiOperation({ summary: 'BH — Sanctions screening via CBB' })
-  async bhScreening(@Body() body: ScreenEntityDto) {
+  async bhScreening(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: ScreenEntityDto,
+  ) {
+    await this.adapterAccess.require(req, 'bh-central-bank');
     const result = await this.cbbAdapter.screenEntity(body.entityName, {
       nationality: body.nationality,
       idNumber: body.idNumber,
@@ -564,6 +620,7 @@ export class IntegrationsController {
   @Post('bh/str')
   @ApiOperation({ summary: 'BH — File Suspicious Transaction Report via CBB' })
   async bhFileSTR(
+    @Request() req: AuthenticatedRequest,
     @Body()
     body: {
       reportingEntityId: string;
@@ -576,6 +633,7 @@ export class IntegrationsController {
       transactionDate?: string;
     },
   ) {
+    await this.adapterAccess.require(req, 'bh-central-bank');
     const result = await this.cbbAdapter.fileSTR(body);
     return IntegrationsController.unwrap(result, this.cbbAdapter);
   }
@@ -585,9 +643,11 @@ export class IntegrationsController {
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'since', required: false })
   async bhRegulatoryUpdates(
+    @Request() req: AuthenticatedRequest,
     @Query('category') category?: string,
     @Query('since') since?: string,
   ) {
+    await this.adapterAccess.require(req, 'bh-central-bank');
     const result = await this.cbbAdapter.getRegulatoryUpdates({
       category,
       since,
@@ -597,7 +657,11 @@ export class IntegrationsController {
 
   @Get('bh/verify-entity/:crn')
   @ApiOperation({ summary: 'BH — Verify commercial registration via CBB' })
-  async bhVerifyEntity(@Param('crn') crn: string) {
+  async bhVerifyEntity(
+    @Request() req: AuthenticatedRequest,
+    @Param('crn') crn: string,
+  ) {
+    await this.adapterAccess.require(req, 'bh-central-bank');
     const result = await this.cbbAdapter.verifyEntity(crn);
     return IntegrationsController.unwrap(result, this.cbbAdapter);
   }
@@ -608,9 +672,11 @@ export class IntegrationsController {
   @ApiOperation({ summary: 'CA — Check visa status via IRCC' })
   @ApiQuery({ name: 'passportNumber', required: true })
   async caVisaStatus(
+    @Request() req: AuthenticatedRequest,
     @Param('documentNumber') documentNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
+    await this.adapterAccess.require(req, 'ca-ircc');
     const result = await this.irccAdapter.getVisaStatus(
       documentNumber,
       passportNumber,
@@ -620,7 +686,11 @@ export class IntegrationsController {
 
   @Get('ca/application-status/:applicationId')
   @ApiOperation({ summary: 'CA — Check application status via IRCC' })
-  async caApplicationStatus(@Param('applicationId') applicationId: string) {
+  async caApplicationStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    await this.adapterAccess.require(req, 'ca-ircc');
     const result = await this.irccAdapter.getApplicationStatus(applicationId);
     return IntegrationsController.unwrap(result, this.irccAdapter);
   }
@@ -628,7 +698,11 @@ export class IntegrationsController {
   @Get('ca/employer-validation')
   @ApiOperation({ summary: 'CA — Validate employer via IRCC' })
   @ApiQuery({ name: 'businessNumber', required: true })
-  async caEmployerValidation(@Query('businessNumber') businessNumber: string) {
+  async caEmployerValidation(
+    @Request() req: AuthenticatedRequest,
+    @Query('businessNumber') businessNumber: string,
+  ) {
+    await this.adapterAccess.require(req, 'ca-ircc');
     const result = await this.irccAdapter.validateEmployer(businessNumber);
     return IntegrationsController.unwrap(result, this.irccAdapter);
   }
@@ -639,9 +713,11 @@ export class IntegrationsController {
   @ApiOperation({ summary: 'UK — Check visa status via UKVI' })
   @ApiQuery({ name: 'passportNumber', required: true })
   async ukVisaStatus(
+    @Request() req: AuthenticatedRequest,
     @Param('visaReference') visaReference: string,
     @Query('passportNumber') passportNumber: string,
   ) {
+    await this.adapterAccess.require(req, 'uk-home-office');
     const result = await this.ukviAdapter.getVisaStatus(
       visaReference,
       passportNumber,
@@ -651,14 +727,22 @@ export class IntegrationsController {
 
   @Get('uk/application-status/:applicationId')
   @ApiOperation({ summary: 'UK — Check application status via UKVI' })
-  async ukApplicationStatus(@Param('applicationId') applicationId: string) {
+  async ukApplicationStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    await this.adapterAccess.require(req, 'uk-home-office');
     const result = await this.ukviAdapter.getApplicationStatus(applicationId);
     return IntegrationsController.unwrap(result, this.ukviAdapter);
   }
 
   @Get('uk/sponsor-validation/:licenceNumber')
   @ApiOperation({ summary: 'UK — Validate sponsor licence via UKVI' })
-  async ukSponsorValidation(@Param('licenceNumber') licenceNumber: string) {
+  async ukSponsorValidation(
+    @Request() req: AuthenticatedRequest,
+    @Param('licenceNumber') licenceNumber: string,
+  ) {
+    await this.adapterAccess.require(req, 'uk-home-office');
     const result = await this.ukviAdapter.validateSponsor(licenceNumber);
     return IntegrationsController.unwrap(result, this.ukviAdapter);
   }
@@ -666,8 +750,10 @@ export class IntegrationsController {
   @Post('uk/right-to-work')
   @ApiOperation({ summary: 'UK — Right to Work check via UKVI' })
   async ukRightToWork(
+    @Request() req: AuthenticatedRequest,
     @Body() body: { shareCode: string; dateOfBirth: string },
   ) {
+    await this.adapterAccess.require(req, 'uk-home-office');
     const result = await this.ukviAdapter.rightToWorkCheck(
       body.shareCode,
       body.dateOfBirth,
@@ -681,9 +767,11 @@ export class IntegrationsController {
   @ApiOperation({ summary: 'NZ — Check visa status via INZ' })
   @ApiQuery({ name: 'passportNumber', required: true })
   async nzVisaStatus(
+    @Request() req: AuthenticatedRequest,
     @Param('visaNumber') visaNumber: string,
     @Query('passportNumber') passportNumber: string,
   ) {
+    await this.adapterAccess.require(req, 'nz-immigration');
     const result = await this.inzAdapter.getVisaStatus(
       visaNumber,
       passportNumber,
@@ -693,7 +781,11 @@ export class IntegrationsController {
 
   @Get('nz/application-status/:applicationId')
   @ApiOperation({ summary: 'NZ — Check application status via INZ' })
-  async nzApplicationStatus(@Param('applicationId') applicationId: string) {
+  async nzApplicationStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    await this.adapterAccess.require(req, 'nz-immigration');
     const result = await this.inzAdapter.getApplicationStatus(applicationId);
     return IntegrationsController.unwrap(result, this.inzAdapter);
   }
@@ -701,14 +793,22 @@ export class IntegrationsController {
   @Get('nz/employer-validation')
   @ApiOperation({ summary: 'NZ — Validate employer via INZ' })
   @ApiQuery({ name: 'nzbn', required: true })
-  async nzEmployerValidation(@Query('nzbn') nzbn: string) {
+  async nzEmployerValidation(
+    @Request() req: AuthenticatedRequest,
+    @Query('nzbn') nzbn: string,
+  ) {
+    await this.adapterAccess.require(req, 'nz-immigration');
     const result = await this.inzAdapter.validateEmployer(nzbn);
     return IntegrationsController.unwrap(result, this.inzAdapter);
   }
 
   @Post('nz/visa-view')
   @ApiOperation({ summary: 'NZ — VisaView entitlement check via INZ' })
-  async nzVisaView(@Body() body: { visaNumber: string; dateOfBirth: string }) {
+  async nzVisaView(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { visaNumber: string; dateOfBirth: string },
+  ) {
+    await this.adapterAccess.require(req, 'nz-immigration');
     const result = await this.inzAdapter.visaViewCheck(
       body.visaNumber,
       body.dateOfBirth,
