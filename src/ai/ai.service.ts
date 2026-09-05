@@ -531,14 +531,22 @@ export class AiService {
     prompt: ResolvedPrompt,
     tenantId?: string,
   ): Promise<AiResponse> {
-    const { client, defaultModel } = await this.clientFor(tenantId);
+    const { client, defaultModel, source } = await this.clientFor(tenantId);
 
     const config = prompt.modelConfig || {};
-    // Precedence: the prompt's own model, then the tenant provider's, then the
-    // platform default. A pack that pins a model is being deliberate — usually
-    // because the prompt was tuned against it — so it outranks a tenant-level
-    // preference.
-    const model = config.model || defaultModel || 'gpt-4o-mini';
+    // Precedence depends on WHICH vendor is being called. A platform-key call
+    // always goes to OpenAI, so a pack's pin — tuned against OpenAI — rightly
+    // outranks nothing else. A tenant-connector call is a different vendor's
+    // API entirely (DeepSeek, Anthropic, a self-hosted endpoint), and every
+    // prompt in both vertical packs pins `gpt-4o-mini` regardless of vendor —
+    // so applying the platform precedence there was a guaranteed 400 on every
+    // AI call for any tenant not on the platform key. For a tenant connector,
+    // its own model wins; the pack's pin is only the fallback if the tenant
+    // supplied none of its own.
+    const model =
+      source === 'tenant_connector'
+        ? defaultModel || config.model || 'gpt-4o-mini'
+        : config.model || defaultModel || 'gpt-4o-mini';
 
     try {
       const response = await client.chat.completions.create({
