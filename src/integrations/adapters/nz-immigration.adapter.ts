@@ -82,6 +82,7 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
   private readonly logger = new Logger(NzImmigrationAdapter.name);
   private readonly config: AdapterConfig;
   private readonly sandboxMode: boolean;
+  private readonly credentialsConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
     // Sandbox unless BOTH a deliberate opt-in to live AND real credentials are
@@ -100,6 +101,7 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
     const useSandbox = !(liveRequested && credentialsPresent);
 
     this.sandboxMode = useSandbox;
+    this.credentialsConfigured = credentialsPresent;
     this.config = {
       baseUrl: useSandbox
         ? configService.get(
@@ -122,6 +124,11 @@ export class NzImmigrationAdapter implements GovernmentAdapter {
 
   isSandbox(): boolean {
     return this.sandboxMode;
+  }
+
+  /** Whether a live credential pair is configured — independent of whether live mode was requested. */
+  hasCredentials(): boolean {
+    return this.credentialsConfigured;
   }
 
   supportsCapability(capability: AdapterCapability): boolean {

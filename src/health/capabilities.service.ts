@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { TenantContext } from '../core/tenancy/tenant-context';
+import { AI_PROVIDER_ADAPTERS } from '../integrations/services/connectors.service';
 
 /**
  * What this deployment can actually do, decided by which credentials are set.
@@ -83,13 +84,6 @@ const SPECS: CapabilitySpec[] = [
           'so a provisioned admin cannot sign in. Set RESEND_API_KEY.'
         : 'Sending from the Resend shared default. Set RESEND_FROM to a verified ' +
           'sender or delivery will be unreliable.',
-  },
-  {
-    capability: 'ai',
-    requires: ['OPENAI_API_KEY'],
-    describe: () =>
-      'Every AI feature is off: regulatory radar, document-intelligence OCR, ' +
-      'natural-language GRC and the assistant. Set OPENAI_API_KEY.',
   },
   {
     capability: 'scheduler',
@@ -275,6 +269,93 @@ export class CapabilitiesService implements OnModuleInit {
   }
 
   /**
+   * Tenants with their own connected AI provider (`PUT
+   * /integrations/connectors/{code}`), counted the same way `watchlistCount`
+   * counts ingested sanctions rows: DB truth, not an env var.
+   *
+   * This exists because `AiService.clientFor` checks the tenant's connector
+   * BEFORE the platform key (`ai.service.ts`), so `OPENAI_API_KEY` alone was
+   * never the right signal — a deployment with no platform key can still be
+   * fully live for every tenant that has connected DeepSeek, Anthropic or a
+   * self-hosted endpoint. Reporting `unconfigured` in that state told an
+   * operator to spend a credential the product did not need, while filing a
+   * genuine per-tenant model-pin defect as a missing key.
+   */
+  private async tenantAiConnectorCount(): Promise<number | null> {
+    if (!this.dataSource) return null;
+    try {
+      const codes = AI_PROVIDER_ADAPTERS.map((a) => a.id);
+      const rows = await TenantContext.runAsSystem(
+        'capabilities: count tenant AI connectors',
+        () =>
+          this.dataSource!.query(
+            'SELECT COUNT(*)::int AS n FROM "tenant_connectors" ' +
+              'WHERE "adapterCode" = ANY($1) AND "enabled" = true ' +
+              'AND "credentials" IS NOT NULL',
+            [codes],
+          ),
+      );
+      const n = Number(rows?.[0]?.n);
+      return Number.isFinite(n) ? n : null;
+    } catch (err) {
+      this.logger.warn(
+        `Could not count tenant AI connectors: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * `live` when the platform key is set — unchanged. Otherwise the platform
+   * key alone is not the whole answer: count tenants who have connected their
+   * own provider before calling AI `unconfigured`.
+   */
+  private async evaluateAi(): Promise<CapabilityReport> {
+    const capability = 'ai';
+    if (this.has('OPENAI_API_KEY')) {
+      return { capability, status: 'live', reason: 'Configured.' };
+    }
+
+    const count = await this.tenantAiConnectorCount();
+
+    if (count === null) {
+      return {
+        capability,
+        status: 'unknown',
+        reason:
+          'No platform OPENAI_API_KEY, and tenant AI connectors could not ' +
+          'be counted (no database, or the query failed), so whether any ' +
+          'tenant can reach AI right now is unknown.',
+      };
+    }
+
+    if (count > 0) {
+      return {
+        capability,
+        status: 'degraded',
+        reason:
+          `No platform OPENAI_API_KEY. ${count} tenant(s) have connected ` +
+          'their own AI provider and are served from it; tenants without ' +
+          'one get 503 on every AI call. Set OPENAI_API_KEY for ' +
+          'platform-wide coverage, or have the remaining tenants connect a ' +
+          'provider under PUT /integrations/connectors/{code}.',
+      };
+    }
+
+    return {
+      capability,
+      status: 'unconfigured',
+      reason:
+        'Every AI feature is off: regulatory radar, document-intelligence ' +
+        'OCR, natural-language GRC and the assistant. No tenant has ' +
+        'connected their own provider either. Set OPENAI_API_KEY, or have a ' +
+        'tenant connect one under PUT /integrations/connectors/{code}.',
+    };
+  }
+
+  /**
    * Object storage is live with EITHER driver credentialed. Two credentialed
    * drivers without STORAGE_PROVIDER is degraded: the registry refuses to
    * guess between them and uploads answer 503 until one is chosen.
@@ -340,6 +421,7 @@ export class CapabilitiesService implements OnModuleInit {
       ...SPECS.map((s) => this.evaluate(s)),
       this.evaluateStorage(),
       await this.evaluateScreeningLists(),
+      await this.evaluateAi(),
     ];
 
     const regulators = REGULATORS.map(({ code, requires }) =>

@@ -26,7 +26,15 @@ export interface AdapterResponse<T = unknown> {
 }
 
 export interface HealthCheckResult {
-  status: 'healthy' | 'degraded' | 'down';
+  /**
+   * `'unknown'` added additively alongside the original three: a sandboxed
+   * adapter's `healthCheck()` performs no I/O, so `'healthy'` there was never
+   * an observed fact — it was the absence of a check reported as a result.
+   * Existing producers of `'healthy' | 'degraded' | 'down'` still typecheck;
+   * only the caller that decides sandbox adapters are unprobed needs to know
+   * about this value.
+   */
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
   latencyMs: number;
   lastCheckedAt: Date;
   message?: string;
@@ -37,9 +45,18 @@ export interface GovernmentAdapter {
   readonly country: string;
   readonly regulatorName: string;
 
-  // Every adapter exposes these three base methods.
+  // Every adapter exposes these four base methods.
   healthCheck(): Promise<HealthCheckResult>;
   isSandbox(): boolean;
+  /**
+   * Whether a live credential pair is configured for this adapter, independent
+   * of whether live mode was actually requested (`isSandbox()` requires both).
+   * Surfaced on `/integrations/adapters/health` so an operator can tell
+   * "sandbox because nobody asked for live" from "sandbox because there is no
+   * credential to go live with" — the same distinction `hasCredentials` on
+   * `/integrations/connectors` already draws for the tenant's own connectors.
+   */
+  hasCredentials(): boolean;
 
   // Adapters optionally implement capability-specific methods.
   // Callers check `supportsCapability()` before calling.

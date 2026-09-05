@@ -77,6 +77,7 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
   // When SANDBOX_MODE=true (or no real credentials), adapter returns
   // realistic stub responses rather than hitting the live API.
   private readonly sandboxMode: boolean;
+  private readonly credentialsConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
     // Sandbox unless BOTH a deliberate opt-in to live AND real credentials are
@@ -95,6 +96,7 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
     const useSandbox = !(liveRequested && credentialsPresent);
 
     this.sandboxMode = useSandbox;
+    this.credentialsConfigured = credentialsPresent;
     this.config = {
       baseUrl: useSandbox
         ? configService.get(
@@ -117,6 +119,11 @@ export class AuHomeAffairsAdapter implements GovernmentAdapter {
 
   isSandbox(): boolean {
     return this.sandboxMode;
+  }
+
+  /** Whether a live credential pair is configured — independent of whether live mode was requested. */
+  hasCredentials(): boolean {
+    return this.credentialsConfigured;
   }
 
   supportsCapability(capability: AdapterCapability): boolean {

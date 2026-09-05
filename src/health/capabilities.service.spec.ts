@@ -38,7 +38,10 @@ describe('CapabilitiesService', () => {
     (await svc.report()).find((c) => c.capability === capability)!;
 
   it('reports unconfigured when the credential is absent', async () => {
-    const svc = build({});
+    // `ai` now also probes the database (zero tenant AI connectors), so this
+    // needs a DataSource to land on `unconfigured` rather than `unknown` —
+    // see the dedicated `describe('ai')` block below for that distinction.
+    const svc = build({}, dbWith(0));
     expect((await find(svc, 'mail')).status).toBe('unconfigured');
     expect((await find(svc, 'storage')).status).toBe('unconfigured');
     expect((await find(svc, 'ai')).status).toBe('unconfigured');
@@ -47,7 +50,7 @@ describe('CapabilitiesService', () => {
   });
 
   it('names the exact env var that fixes it', async () => {
-    const svc = build({});
+    const svc = build({}, dbWith(0));
     expect((await find(svc, 'mail')).reason).toContain('RESEND_API_KEY');
     expect((await find(svc, 'ai')).reason).toContain('OPENAI_API_KEY');
     expect((await find(svc, 'scheduler')).reason).toContain('CRON_SECRET');
@@ -69,9 +72,14 @@ describe('CapabilitiesService', () => {
 
   it('treats whitespace and empty string as absent', async () => {
     // A Vercel env var set to "" is the commonest way a credential looks
-    // present and is not.
-    expect((await find(build({ OPENAI_API_KEY: '' }), 'ai')).status).toBe('unconfigured');
-    expect((await find(build({ OPENAI_API_KEY: '   ' }), 'ai')).status).toBe('unconfigured');
+    // present and is not. Pinned to zero tenant connectors so the result is
+    // `unconfigured`, not `unknown` for want of a DataSource.
+    expect(
+      (await find(build({ OPENAI_API_KEY: '' }, dbWith(0)), 'ai')).status,
+    ).toBe('unconfigured');
+    expect(
+      (await find(build({ OPENAI_API_KEY: '   ' }, dbWith(0)), 'ai')).status,
+    ).toBe('unconfigured');
   });
 
   it('marks every regulator adapter sandbox, credentialed or not', async () => {
@@ -135,6 +143,39 @@ describe('CapabilitiesService', () => {
         'storage',
       );
       expect(c.status).toBe('unconfigured');
+    });
+  });
+
+  /**
+   * `ai` is `live` on the platform key alone — `AiService.clientFor` checks
+   * the tenant's own connector FIRST, so a deployment can be fully live for
+   * every tenant that has connected one even with no platform key. Reporting
+   * `unconfigured` in that state told an operator to spend a credential the
+   * product did not need.
+   */
+  describe('ai', () => {
+    it('is live on the platform key alone, without needing the database', async () => {
+      const c = await find(build({ OPENAI_API_KEY: 'k' }), 'ai');
+      expect(c.status).toBe('live');
+    });
+
+    it('is degraded, not unconfigured, when tenants have connected their own provider', async () => {
+      const c = await find(build({}, dbWith(3)), 'ai');
+      expect(c.status).toBe('degraded');
+      expect(c.reason).toContain('3 tenant');
+      expect(c.reason).not.toContain('Every AI feature is off');
+    });
+
+    it('is unconfigured only when no platform key AND no tenant connector', async () => {
+      const c = await find(build({}, dbWith(0)), 'ai');
+      expect(c.status).toBe('unconfigured');
+    });
+
+    it('is unknown, never unconfigured, when the connector count cannot be read', async () => {
+      expect((await find(build({}), 'ai')).status).toBe('unknown');
+      expect(
+        (await find(build({}, dbWith(new Error('boom'))), 'ai')).status,
+      ).toBe('unknown');
     });
   });
 
