@@ -125,7 +125,7 @@ export class Document {
   versionNumber: number;
 
   @Column({ type: 'uuid', nullable: true })
-  currentVersionId: string;
+  currentVersionId: string | null;
 
   @Column({ type: 'text', nullable: true })
   s3Url: string;
