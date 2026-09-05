@@ -19,7 +19,8 @@ const { ValidationPipe } = require('@nestjs/common');
 const { ExpressAdapter } = require('@nestjs/platform-express');
 const express = require('express');
 const helmet = require('helmet');
-const { randomUUID } = require('node:crypto');
+const rateLimit = require('express-rate-limit');
+const { randomUUID, timingSafeEqual } = require('node:crypto');
 
 // Deliberately NOT required at module scope. `dist/src/app.module` runs
 // ConfigModule's Joi validation at import time, so a bad environment variable
@@ -70,6 +71,100 @@ require.resolve('../dist/src/core/interceptors/response-envelope.interceptor');
 require.resolve('../dist/src/swagger');
 require.resolve('../dist/src/common/cors-origins');
 
+/**
+ * Vertical-aware rate limiting — mirrors src/main.ts's limiter exactly
+ * (same env vars, same key shape, same MER-RATE-0001 envelope), applied as
+ * Express middleware before Nest routing so it covers every route including
+ * /auth/login, /auth/refresh, /auth/forgot-password and
+ * /auth/reset-password. This entrypoint previously omitted it entirely — the
+ * comment that used to sit here said "use the platform WAF or a shared store
+ * instead", and until now nothing did either, so production auth routes were
+ * completely unthrottled. See Anton's security baseline
+ * (scratchpad/reports/anton-security-baseline.md #2).
+ *
+ * HONEST LIMITATION: this is express-rate-limit's default in-memory
+ * MemoryStore, same as main.ts. On Vercel each warm lambda instance keeps its
+ * own counters, so this bounds abuse against ONE warm instance, not the
+ * deployment as a whole — under N concurrently warm instances the effective
+ * ceiling is roughly N times these numbers, not a hard limit. That is a real
+ * gap, not a hidden one: it is still strictly better than no limiter, which
+ * was the state before this change.
+ *
+ * The durable fix is a shared store. docs/adr/0004-upstash-redis-qstash.md
+ * (D1) proposes `@upstash/redis` with atomic INCR/EXPIRE, keyed
+ * rl:auth:{ip} / rl:ai:{tenantId} / rl:global:{ip}::{tenantId}, applied in
+ * both main.ts and api/index.js. That ADR is Proposed, not merged — do not
+ * add the @upstash/redis dependency here until it lands.
+ * TODO(ADR-0004): swap this in-memory limiter for the Upstash-backed one once
+ * docs/adr/0004-upstash-redis-qstash.md D1 is approved and
+ * UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are provisioned (verify
+ * with `vercel env ls`, not `env pull` — workspace CLAUDE.md §12).
+ * [UNVERIFIED: whether Express `trust proxy` is correctly set for Vercel's
+ * sin1 region — ADR 0004 §4 flags the same gap for `req.ip`-keyed limits.]
+ *
+ * Factored out (rather than inlined in `bootstrap()`) so a spec can mount it
+ * on a bare Express app and assert the 429/allow behaviour without booting
+ * Nest — `bootstrap()` needs a live Postgres connection and can't run in a
+ * unit/e2e test here.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {[import('express').RequestHandler, import('express').RequestHandler]}
+ */
+function createRateLimiter(env = process.env) {
+  const globalMax = parseInt(env.RATE_LIMIT_MAX_GLOBAL || '100', 10);
+  const immigrationMax = parseInt(
+    env.RATE_LIMIT_MAX_IMMIGRATION || '100',
+    10,
+  );
+  const bankingMax = parseInt(env.RATE_LIMIT_MAX_BANKING || '50', 10);
+  const ttlMs = parseInt(env.RATE_LIMIT_TTL_MS || '60000', 10);
+
+  const verticalMiddleware = (req, _res, next) => {
+    const vertical = req.headers['x-vertical'] || '';
+    const host = req.hostname || '';
+
+    let max = globalMax;
+    if (vertical === 'immigration' || host.includes('immistack')) {
+      max = immigrationMax;
+    } else if (vertical === 'grc' || host.includes('governancex')) {
+      max = bankingMax;
+    }
+
+    req.rateLimitMax = max;
+    next();
+  };
+
+  const limiterMiddleware = rateLimit({
+    windowMs: ttlMs,
+    max: (req) => req.rateLimitMax || globalMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      data: null,
+      meta: {
+        requestId: 'rate-limited',
+        timestamp: new Date().toISOString(),
+        version: 'v1',
+      },
+      error: {
+        code: 'MER-RATE-0001',
+        message: 'Too many requests. Please try again later.',
+        helpUrl: 'https://docs.meru.dev/errors#mer-rate-0001',
+      },
+    },
+    keyGenerator: (req) => {
+      // Rate limit key: IP + tenant for multi-tenant fairness — same shape
+      // as main.ts, not tenant-only, since an unauthenticated /auth/login
+      // caller has no trustworthy tenant yet.
+      const tenantId = req.headers['x-tenant-id'] || 'anonymous';
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      return `${ip}::${tenantId}`;
+    },
+  });
+
+  return [verticalMiddleware, limiterMiddleware];
+}
+
 async function bootstrap() {
   const { AppModule } = require('../dist/src/app.module');
   const {
@@ -113,9 +208,14 @@ async function bootstrap() {
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-  // Rate limiting is deliberately omitted: express-rate-limit's in-memory store
-  // is per-lambda, so it provides no real limit across instances. Use the
-  // platform WAF or a shared store (Upstash/Vercel KV) instead.
+  // See `createRateLimiter` above for the full rationale (Anton finding #2,
+  // ADR 0004, the in-memory-per-instance caveat). CORS is registered above
+  // this, so a preflight OPTIONS is answered and terminated there and never
+  // reaches — let alone counts against — this limiter.
+  const [rateLimitVerticalMiddleware, rateLimitMiddleware] =
+    createRateLimiter();
+  app.use(rateLimitVerticalMiddleware);
+  app.use(rateLimitMiddleware);
 
   app.setGlobalPrefix('api/v1');
 
@@ -143,11 +243,21 @@ async function bootstrap() {
  * Pre-boot diagnostic. Answers before Nest is constructed, so it still works
  * when the application cannot start — which is the only time anyone needs it.
  *
- * Reports whether a variable is SET and how long its value is. Never the
- * value: this endpoint is unauthenticated by necessity (auth lives inside the
- * app that isn't booting) and a leaked DATABASE_URL is worse than an outage.
+ * Reports only whether a variable is SET, UNSET or EMPTY — never its value
+ * and never its length. Length was previously leaked here (`set(${v.length})`)
+ * and materially narrows a brute-force search for JWT_SECRET /
+ * CREDENTIALS_ENCRYPTION_KEY; a boolean is all an incident actually needs.
+ *
+ * Gated by CRON_SECRET (see `isDiagAuthorized` below) because this cannot run
+ * inside Nest/CronSecretGuard — the whole point is to answer when Nest can't
+ * even boot — so the same bearer-token contract is re-implemented here by
+ * hand against the identical env var. Keep the two in sync if the guard's
+ * contract ever changes (`src/jobs/cron-secret.guard.ts`).
+ *
+ * Pure function of `sourceEnv` (defaults to `process.env`) so a spec can call
+ * it directly with a fake env object — no HTTP round trip, no Nest boot.
  */
-function diagnostics() {
+function diagReport(sourceEnv = process.env) {
   const names = [
     'NODE_ENV', 'VERTICAL', 'PORT',
     'DATABASE_URL', 'DATABASE_APP_URL',
@@ -158,8 +268,8 @@ function diagnostics() {
   ];
   const env = {};
   for (const n of names) {
-    const v = process.env[n];
-    env[n] = v === undefined ? 'UNSET' : v === '' ? 'EMPTY' : `set(${v.length})`;
+    const v = sourceEnv[n];
+    env[n] = v === undefined ? 'UNSET' : v === '' ? 'EMPTY' : 'set';
   }
   let distLoads = 'unknown';
   try {
@@ -171,9 +281,90 @@ function diagnostics() {
   return { node: process.version, env, distLoads, lastFatal };
 }
 
+// Exact paths only — never `req.url.includes('__diag')`, which also matched
+// e.g. `/anything__diagnostics` and, more importantly, made the auth check
+// below trivial to reason about wrong. Vercel's rewrite
+// (`vercel.json`'s `"source": "/(.*)"`) preserves the original request path
+// in `req.url`, so both the un-prefixed and `api/v1`-prefixed forms are
+// listed defensively even though Nest's global prefix is applied later, past
+// this point in the pipeline, and never sees these requests at all.
+const DIAG_PATHS = new Set(['/api/__diag', '/api/v1/__diag']);
+
+function diagPathname(url) {
+  if (!url) return '';
+  const qIdx = url.indexOf('?');
+  return qIdx === -1 ? url : url.slice(0, qIdx);
+}
+
+/**
+ * Mirrors `CronSecretGuard.canActivate` (`src/jobs/cron-secret.guard.ts`)
+ * exactly — same header (`Authorization: Bearer <CRON_SECRET>`), same
+ * constant-time compare — because this diagnostic runs before Nest exists and
+ * so cannot go through the real guard. Fails closed: an unset/blank
+ * CRON_SECRET denies the request, it never falls back to serving the report.
+ *
+ * `expected` defaults to `process.env.CRON_SECRET` but is an explicit
+ * parameter so a spec can assert the gate decision directly against a fake
+ * secret, with no env mutation and no HTTP round trip.
+ */
+function isDiagAuthorized(req, expected = process.env.CRON_SECRET) {
+  if (!expected || expected.trim().length === 0) return false;
+
+  const header = req.headers && req.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+    return false;
+  }
+
+  const provided = header.slice('Bearer '.length);
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function diagNotFound(req, res) {
+  res.statusCode = 404;
+  res.setHeader('content-type', 'application/json');
+  res.end(
+    JSON.stringify({
+      data: null,
+      meta: {
+        requestId: req.headers['x-request-id'] || randomUUID(),
+        timestamp: new Date().toISOString(),
+        version: 'v1',
+      },
+      error: {
+        code: 'MER-RES-0001',
+        message: 'Not found',
+        helpUrl: 'https://docs.meru.dev/errors#merres0001',
+      },
+    }),
+  );
+}
+
 module.exports = async function handler(req, res) {
-  if (req.url && req.url.includes('__diag')) {
-    const payload = diagnostics();
+  const diagPath = diagPathname(req.url);
+  if (DIAG_PATHS.has(diagPath)) {
+    // Anton's security baseline (scratchpad/reports/anton-security-baseline.md
+    // #1): this previously answered ANY request whose URL merely contained
+    // "__diag" with unauthenticated secret lengths, and `?db=1`/`?boot=1`
+    // opened real DB connections and a full bootstrap for anyone. Log every
+    // attempt, authorized or not, so an unauthorized probe is at least
+    // visible in the function logs even though the caller now just gets 404.
+    const authorized = isDiagAuthorized(req);
+    console.warn('[__diag] access attempt', {
+      path: diagPath,
+      method: req.method,
+      ip: (req.socket && req.socket.remoteAddress) || 'unknown',
+      authorized,
+    });
+
+    if (!authorized) {
+      diagNotFound(req, res);
+      return;
+    }
+
+    const payload = diagReport();
 
     // `?boot=1` attempts the real bootstrap inside THIS invocation and reports
     // whatever it throws. Necessary because every Vercel invocation is a fresh
@@ -269,3 +460,14 @@ module.exports = async function handler(req, res) {
   }
   server(req, res);
 };
+
+// Test-only surface, attached to the exported handler function rather than
+// changing the module's shape (Vercel just calls it; extra properties on a
+// function are inert to that). Lets a spec exercise the diag gate and the
+// rate limiter directly — without going through a real request that would
+// fall into `bootstrap()`, and without a live Postgres connection.
+module.exports.diagPathname = diagPathname;
+module.exports.isDiagAuthorized = isDiagAuthorized;
+module.exports.diagReport = diagReport;
+module.exports.DIAG_PATHS = DIAG_PATHS;
+module.exports.createRateLimiter = createRateLimiter;
