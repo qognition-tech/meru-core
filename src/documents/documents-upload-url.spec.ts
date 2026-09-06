@@ -122,7 +122,12 @@ describe('DocumentsService — presigned upload path', () => {
       );
 
       expect(doc.versionNumber).toBe(0);
-      expect(doc.currentVersionId).toBe('');
+      // '' is not a valid uuid — Postgres rejected it at parse time before
+      // the NOT NULL check ever ran, 500ing every POST /documents call
+      // (migration 1756410000000-RelaxDocumentCurrentVersionIdNotNull).
+      // A metadata-only document now gets `null`, which is what the entity's
+      // `nullable: true` column always promised.
+      expect(doc.currentVersionId).toBeNull();
       expect(savedVersions).toHaveLength(0);
     });
 

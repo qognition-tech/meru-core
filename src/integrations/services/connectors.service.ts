@@ -17,7 +17,7 @@ import {
  * adapters themselves are vertical-neutral, and a new vertical extends this
  * map (eventually: the config pack) rather than the adapter code.
  */
-const VERTICAL_ADAPTERS: Record<string, string[]> = {
+export const VERTICAL_ADAPTERS: Record<string, string[]> = {
   grc: ['uae-central-bank', 'sa-sama', 'qa-central-bank', 'bh-central-bank'],
   immigration: ['au-home-affairs', 'ca-ircc', 'uk-home-office', 'nz-immigration'],
 };

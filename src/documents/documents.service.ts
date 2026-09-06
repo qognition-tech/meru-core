@@ -75,31 +75,41 @@ export class DocumentsService {
   ): Promise<UploadResult> {
     this.logger.log(`Uploading document: ${dto.name} for tenant: ${tenantId}`);
 
+    // The user lookup and the storage write happen BEFORE any transaction
+    // opens. The serverless pg pool is `{ max: 1 }` (app.module.ts): once a
+    // transaction has checked out the only connection, any second acquire —
+    // another repository read, or StorageDriverRegistry.forTenant()'s
+    // tenant-pin lookup inside `storage.putObject` — blocks for the full
+    // `connectionTimeoutMillis` (10s) and surfaces as a raw pool-timeout 500
+    // ten seconds after the real answer (success, or a clean 503 when
+    // storage is unconfigured) could have been known in under a second. This
+    // also matches `/documents/upload-url`, which never opens a transaction
+    // and answers in ~0.3s.
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const fileType =
+      dto.fileType ||
+      this.detectFileType(dto.originalFileName || file.originalname);
+    const fileSize = file.size;
+
+    const encryptionLevel = dto.requiredEncryption || DocumentEncryption.NONE;
+    const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
+
+    const documentSlug = this.generateSlug(dto.name, tenantId);
+
+    const s3Key = this.generateObjectKey(tenantId, documentSlug, 1, fileType);
+    const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+      contentType: file.mimetype,
+    });
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
-
-      const fileType =
-        dto.fileType ||
-        this.detectFileType(dto.originalFileName || file.originalname);
-      const fileSize = file.size;
-
-      const encryptionLevel = dto.requiredEncryption || DocumentEncryption.NONE;
-      const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
-
-      const documentSlug = this.generateSlug(dto.name, tenantId);
-
-      const s3Key = this.generateObjectKey(tenantId, documentSlug, 1, fileType);
-      const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
-        contentType: file.mimetype,
-      });
-
       const document = queryRunner.manager.create(Document, {
         id: randomUUID(),
         tenantId,
@@ -283,7 +293,15 @@ export class DocumentsService {
         owner: userId,
       },
       versionNumber: directUpload ? 1 : 0,
-      currentVersionId: '',
+      // No version row exists yet at this insert — even on the directUpload
+      // path, the version below is created and back-filled onto `saved`
+      // only after this row is written. `''` is not a valid uuid; Postgres
+      // rejected it at parse time before the NOT NULL check ever ran
+      // (`invalid input syntax for type uuid: ""`), 500ing every
+      // POST /documents call unconditionally. `null` matches the column's
+      // declared nullable state — see migration 1756410000000, which drops
+      // the NOT NULL the column was created with.
+      currentVersionId: null,
       uploadedById: userId,
       uploadedBy: user,
     });
@@ -343,30 +361,34 @@ export class DocumentsService {
 
     await this.checkAccess(document, actor, 'write');
 
+    // See upload() for why: the user lookup and the storage write happen
+    // before any transaction opens, because the serverless pool is
+    // `{ max: 1 }` and a second acquire while a transaction holds the only
+    // connection blocks for the full connectionTimeoutMillis (10s).
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const newVersionNumber = document.versionNumber + 1;
+    const encryptionLevel = document.requiredEncryption;
+    const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
+
+    const s3Key = this.generateObjectKey(
+      tenantId,
+      document.slug,
+      newVersionNumber,
+      document.fileType,
+    );
+    const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+      contentType: file.mimetype,
+    });
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
-
-      const newVersionNumber = document.versionNumber + 1;
-      const encryptionLevel = document.requiredEncryption;
-      const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
-
-      const s3Key = this.generateObjectKey(
-        tenantId,
-        document.slug,
-        newVersionNumber,
-        document.fileType,
-      );
-      const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
-        contentType: file.mimetype,
-      });
-
       const version = queryRunner.manager.create(DocumentVersion, {
         id: randomUUID(),
         documentId: document.id,
@@ -613,7 +635,7 @@ export class DocumentsService {
       version = await this.versionRepo.findOne({
         where: { id: versionId, documentId },
       });
-    } else {
+    } else if (document.currentVersionId) {
       version = await this.versionRepo.findOne({
         where: { id: document.currentVersionId },
       });

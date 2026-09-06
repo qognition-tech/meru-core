@@ -72,6 +72,12 @@ export enum MeruErrorCode {
   TENANT_INVALID_VERTICAL = 'MER-TENANT-0005',
   /** HTTP 402 — the plan does not include a required module. */
   TENANT_MODULE_NOT_ENTITLED = 'MER-TENANT-0006',
+  /**
+   * HTTP 409 — a `tenant_connectors` row exists for this adapter and is
+   * `enabled: false`. Deliberately not 503/502: this is a configuration
+   * state a retry cannot fix, unlike an adapter that ran and failed.
+   */
+  TENANT_CONNECTOR_NOT_ENABLED = 'MER-TENANT-0007',
 
   // Validation (MER-VAL-xxxx)
   VALIDATION_ERROR = 'MER-VAL-0001',
@@ -186,14 +192,6 @@ export interface AuthenticatedRequest extends Request {
    * against none.
    */
   tenantVertical?: string;
-}
-
-export interface CreateUserInput {
-  tenantSlug: string;
-  email: string;
-  password: string;
-  firstName?: string;
-  lastName?: string;
 }
 
 /**

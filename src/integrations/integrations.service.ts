@@ -97,24 +97,76 @@ export class IntegrationsService {
     }));
   }
 
+  /**
+   * Health for every registered adapter — honestly.
+   *
+   * A sandboxed adapter's `healthCheck()` performs zero I/O (see
+   * `adapters/*.adapter.ts`'s sandbox short-circuit) and used to report
+   * `status: 'healthy'` anyway, with the one field that said otherwise
+   * (`message: 'Sandbox mode — no live API calls'`) and `isSandbox()` itself
+   * both discarded on the way out — `latencyMs: 0` across all eight was the
+   * only surviving tell. This coerces the reported status to `'unknown'`
+   * whenever the adapter did not actually probe anything, and carries
+   * `sandbox` / `hasCredentials` / `message` / `lastCheckedAt` through instead
+   * of dropping them, matching what `/integrations/connectors` already
+   * discloses per tenant.
+   */
   async healthCheckAll(): Promise<
-    Array<{ adapterId: string; status: string; latencyMs: number }>
+    Array<{
+      adapterId: string;
+      status: string;
+      latencyMs: number;
+      sandbox: boolean;
+      probed: boolean;
+      hasCredentials: boolean;
+      message: string | null;
+      lastCheckedAt: string | null;
+    }>
   > {
+    const adapters = Array.from(this.registry.values());
     const results = await Promise.allSettled(
-      Array.from(this.registry.values()).map(async (a) => {
+      adapters.map(async (a) => {
         const result = await a.healthCheck();
-        return { adapterId: a.adapterId, ...result };
+        return { adapter: a, result };
       }),
     );
 
     return results.map((r, i) => {
-      const id = Array.from(this.registry.keys())[i];
-      if (r.status === 'rejected')
-        return { adapterId: id, status: 'down', latencyMs: 0 };
+      const adapter = adapters[i];
+      if (r.status === 'rejected') {
+        const reason =
+          r.reason instanceof Error ? r.reason.message : String(r.reason);
+        return {
+          adapterId: adapter.adapterId,
+          status: 'down',
+          latencyMs: 0,
+          sandbox: adapter.isSandbox(),
+          probed: !adapter.isSandbox(),
+          hasCredentials: adapter.hasCredentials(),
+          message: reason,
+          lastCheckedAt: null,
+        };
+      }
+
+      const { result } = r.value;
+      const sandbox = adapter.isSandbox();
+      // Sandbox adapters short-circuit before any I/O, so their own
+      // `'healthy'`/`'degraded'`/`'down'` is not an observed fact — it is
+      // never anything but the sandbox branch's hardcoded return. Report the
+      // honest state instead of repeating it.
+      const status = sandbox ? 'unknown' : result.status;
+
       return {
-        adapterId: r.value.adapterId,
-        status: r.value.status,
-        latencyMs: r.value.latencyMs,
+        adapterId: adapter.adapterId,
+        status,
+        latencyMs: result.latencyMs,
+        sandbox,
+        probed: !sandbox,
+        hasCredentials: adapter.hasCredentials(),
+        message: result.message ?? null,
+        lastCheckedAt: result.lastCheckedAt
+          ? new Date(result.lastCheckedAt).toISOString()
+          : null,
       };
     });
   }

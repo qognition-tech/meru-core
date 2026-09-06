@@ -317,7 +317,11 @@ export class DocumentHubService {
       // Store analysis in metadata
       const metadata = this.metadataRepo.create({
         documentId: document.id,
-        documentVersionId: document.currentVersionId,
+        // A metadata-only document (no version uploaded yet) has
+        // `currentVersionId: null` — coerce to `undefined` so TypeORM
+        // persists it as NULL rather than failing to compile against the
+        // entity's `documentVersionId: string` column type.
+        documentVersionId: document.currentVersionId ?? undefined,
         type: MetadataType.AI_EXTRACTION,
         data: {
           key: 'analysis',

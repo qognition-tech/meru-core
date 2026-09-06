@@ -4,20 +4,30 @@
 > documentation. Architecture and rules are in [CLAUDE.md](CLAUDE.md); these two
 > files are the entire documentation surface.
 >
-> *Last verified: 2026-08-11 — 299 unit tests green, 785 API contract checks
-> passing across all 297 operations, 31,579 sanctions entries per database, ten
-> config packs, all three databases on 32 migrations.*
+> **Last verified 2026-09-05.** Live production (`meru-core.vercel.app`, `main`)
+> answers **273 paths / 325 operations** on `/api-json`; `GET /health/capabilities`
+> reports **2 live / 12 unconfigured**. `ALL_MIGRATIONS` in
+> `src/config/migrations.ts` counts **39 entries** by direct count of the array,
+> now including `AddInboundWebhooks` (registered 2026-09-05 after being on disk
+> and missing from the array for a fourth time — see below).
 >
-> **DEPLOYED 2026-08-11.** `main` and `production` are at `c05cadc` and live at
-> `meru-core.vercel.app` — 248 paths / 297 operations, 10 config packs seeded,
-> 785 contract checks passing against production, tenant isolation 10/10 over
-> HTTP.
+> **NOT YET DEPLOYED, 2026-09-05.** Ten commits sit locally on
+> `fix/crm-entity-actor-scoping` (diag gate + rate limiter, actor scoping,
+> adapter gating, the webhooks migration registration, document nullability
+> fix — full list below). `npm run check:cjs` is clean on that branch;
+> `npm run build`, `npm test` and `npm run rls:verify` did **not** complete —
+> host memory exhaustion stalled `tsc` four times at under half a second of
+> accumulated CPU each, never producing a compile error either way (see
+> workspace `CLAUDE.md` §14). Owen re-gates once the host has headroom; nothing
+> here has merged, and a merged commit is still not a shipped one — check
+> `/api-json`'s path count after any deploy, not the git log.
 >
-> `npm run rls:verify` cannot be run locally: it needs `DATABASE_APP_URL`, and
+> `npm run rls:verify` cannot be run locally without `DATABASE_APP_URL` set, and
 > `vercel env pull` returns encrypted values **blank**, so a pulled `.env` looks
-> like the variable is unset when it is not. Verify isolation against the
-> deployment with `BASE_URL=… bash scripts/smoke/cross-tenant.sh`, which proves
-> the same property over HTTP with two real tenants.
+> like the variable is unset when it is not (`.env` does carry it locally as of
+> 2026-09-05). Verify isolation against the deployment with
+> `BASE_URL=… bash scripts/smoke/cross-tenant.sh`, which proves the same
+> property over HTTP with two real tenants.
 >
 > **Additional pass, `harden/authz-golive`, 2026-09-02** — a second class of
 > authorisation gap, not a redeploy: the fifth instance of "a service method
@@ -28,10 +38,25 @@
 > findings are recorded there — do not re-discover them as new. Confirmed this
 > session, against the live DB: **RLS covers 63 of 64 public tables** (the
 > `migrations` table is the correct exception — no `tenantId` column); older
-> text below quoting "51 tables" undercounts. `DATABASE_APP_URL` is declared
-> but **empty** in the local `.env`, so `rls:verify` still cannot run locally.
+> text below quoting "51 tables" undercounts.
 > `/api-json` currently reports **272 paths** (not all of the growth since 262
 > is this branch's — query it, do not carry forward either number).
+>
+> **`integrate/2026-09-06`, built from `origin/main` 03e4f04.** The ten commits
+> named above as "NOT YET DEPLOYED" have been replayed onto current `main`:
+> the auth/register removal, adapter vertical/tenant gating, honest adapter
+> health + AI capability reporting, the AI-provider model-precedence fix, the
+> storage-registry test, and the hermetic `__diag` gate + rate-limiter test all
+> cherry-picked cleanly onto files `main` had not touched since this branch was
+> cut. Two of the ten were **superseded, not carried forward**: the
+> orchestration actor-scoping fix and the `AddInboundWebhooks` migration
+> registration were both already closed on `main` (by `739b1c3`/`0309169`) —
+> see that integration branch's own report for the full per-commit decision
+> table. `documents.service.ts`'s `currentVersionId`-nullability fix was
+> cherry-picked and reconciled against `main`'s direct-upload work in the same
+> pass. Re-verify the path/operation counts and `ALL_MIGRATIONS` entry count
+> above once that branch actually deploys — this paragraph records what was
+> integrated, not a new production observation.
 
 ---
 
@@ -96,9 +121,11 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**307 operations across 257 paths.** Ten added on 2026-08-11 after the
-verification pass below; none removed or renamed, so nothing built against the
-previous surface breaks.
+**325 operations across 273 paths, verified 2026-09-05.** The count has moved
+several times this year (248/297 on 2026-08-11, 262 after the 2026-08-22 gap
+closures, 272/324 on 2026-08-25) — re-query `/api-json` rather than quoting a
+number from any document, including this one. Nothing built against an earlier
+surface breaks; additions have been additive throughout.
 
 Added: `POST /crm/entities/:id/convert`, `GET /documents/templates`,
 `POST /documents/generate/:templateKey`, `GET /analytics/trends/:kpiKey`,
@@ -170,6 +197,66 @@ Counts by prefix (pre-deploy figures, for shape rather than precision):
 auth posture on every operation, envelope shape and 5xx on reads, junk-body
 validation on writes, and literal/param route shadowing. It exits non-zero on
 any failure, so it gates a deploy.
+
+### 2.2 The 2026-09-05 validation pass — Anton's security baseline + Owen's CRUD suite
+
+Not yet deployed (see header). Fixed on `fix/crm-entity-actor-scoping`, pending
+Owen's re-gate and merge:
+
+1. **Unauthenticated `GET /api/__diag`** returned exact secret **lengths** with
+   no guard, and `?db=1`/`?boot=1` opened a live DB connection or a full app
+   bootstrap, both unauthenticated, both in production. Gated; see CLAUDE.md §8.6.
+2. **No rate limiting on `/auth/*` in `api/index.js`**, the file Vercel actually
+   serves — `main.ts` had a limiter that never ran in production. Interim
+   in-memory limiter added; durable fix is Upstash per ADR 0004.
+3. **`/tasks` has no `@Roles` and no user-scoping** — a `client`-role JWT reads
+   every task in the tenant. **Not yet fixed** — tracked as Luke E-8 / ADR 0007,
+   the fourth instance of this class after `/crm/entities`, `/payments` and
+   `/communications/threads`.
+4. **`AddInboundWebhooks` migration on disk, missing from `ALL_MIGRATIONS`** —
+   the fourth recurrence of this exact bug in this file. Registered.
+5. **Regulator adapters not gated by vertical/tenant enablement** — fixed, along
+   with honest adapter-health and AI-capability reporting.
+6. **AI-insight reads scoped to tenant only** — orchestration now scopes to the
+   acting user, with a spec.
+7. **`documents.service.ts:535` unguarded `currentVersionId` null** → 500 — fixed
+   with a null guard and a reversible migration relaxing the NOT NULL constraint.
+8. **`POST /auth/register` removed**, not repaired — it was `@Public()`, keyed on
+   a guessable tenant slug, and a "fixed" version would have let anyone
+   self-provision into another firm's or bank's tenant. `POST /tenants/signup`
+   and `POST /iam/users/invite` are the two supported paths; no product app has
+   ever called `/auth/register`.
+
+**Owen's CRUD suite (`tools/sweep/crud.mjs`), 80 checks, 62 PASS / 4 FAIL / 1
+REVIEW / 8 BLOCKED-BY-CREDENTIAL / 3 NO-ROUTE:**
+
+- **No invite/reset token reachable without `RESEND_API_KEY`** — staff and
+  client roles could not be created, so **client-thread cross-client isolation
+  is untested**, not unsound. Top priority once Resend is set.
+- `POST /documents/upload` → **500 after a connection timeout**
+  (`MER-SRV-0001`) in production, not the clean 503 the current source
+  suggests — Luke confirmed the upload-timeout does **not** reproduce from
+  source (drivers require full creds; the registry throws 503 synchronously),
+  so **production is a stale deploy**, not a live defect in this tree.
+- `GET /health/capabilities` answers 200 to `firm_admin`; spec says 403 — the
+  `@Roles()` decorator on that route has no `@UseGuards`, so the check is inert
+  (Kyle, ADR 0007).
+- `/analytics` renders `$0.00` on an aborted `GET /billing/metrics` — confirmed
+  live, matches the safety-rule violation class in `meru-core-fe`.
+- No `DELETE /tenants/:id` — two `sweep-pilot-*` test tenants are stuck
+  `suspended` with no way to remove them.
+  `TenantProvisioningService.deleteTenant` exists, unwired, with an incomplete
+  hard-purge branch; `TenantStatus.DELETED` and a unique slug index already
+  exist, so wiring it needs no new migration.
+- No task reopen/delete route; `PUT /tasks/:id` accepts no `status`.
+- `POST /tenant/settings` 400s with no `fields` sent, though the spec marks
+  nothing required.
+
+**`pnpm audit --prod` (Anton, 2026-09-05):** meru-core 28 high / 31 moderate / 5
+low / 0 critical — `multer@1.4.5-lts.2` (3 DoS advisories, the exact package
+behind upload), `@nestjs/core@11.1.12` (output-injection range), `typeorm@0.3.28`
+(MySQL-specific SQLi advisory, lower practical risk on Postgres). All fixable by
+a version bump; re-run `check:cjs` and the full suite after each.
 
 ---
 
@@ -501,15 +588,27 @@ uses. Until then the workflow is a correct skeleton with manual branching.
 ## 5. Credentials — nothing works without these
 
 **Free, already yours, just unset.** This is the cheapest work available
-anywhere on the list and currently the largest single blocker.
+anywhere on the list and currently the largest single blocker. Golden rule
+(operator decision, 2026-09-05): **Vercel · Neon Postgres · Neon Auth
+(post-pilot) · DeepSeek · Upstash Redis.**
+
+**Vercel Production, full 23-var list, verified `vercel env ls` 2026-09-05:**
+`CREDENTIALS_ENCRYPTION_KEY, IMMISTACK_DB_APP_URL, IMMISTACK_DB_URL,
+GOVX_DB_APP_URL, GOVX_DB_URL, CRON_SECRET, CORS_ALLOWED_ORIGINS,
+DATABASE_APP_URL, RATE_LIMIT_MAX_BANKING, RATE_LIMIT_MAX_IMMIGRATION,
+RATE_LIMIT_MAX_GLOBAL, RATE_LIMIT_TTL_MS, BASE_DOMAIN, MAX_FILE_SIZE,
+DOCUMENT_ENCRYPTION_KEY, AWS_REGION, SKIP_CONFIG_PACK_LOADER, VERTICAL,
+NODE_ENV, JWT_EXPIRATION, JWT_SECRET, DATABASE_NAME, DATABASE_URL`. Every one
+of these is read somewhere in `src`; none is set-but-unread.
 
 | Variable | For | Consequence today |
 |---|---|---|
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
-| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing) | COM | **harder than "invites are delayed": no new user can self-activate.** `POST /iam/users/invite` returns `inviteSent: false`; the invited row is created with an unusable placeholder password (`iam.service.ts` `inviteUser`, "never returned, never sent anywhere") and the acceptance link is otherwise **only in the server log** — not retrievable by a tenant admin on Vercel. There is deliberately no admin set-password route either: `UpdateUserDto` carries no `password` field, precisely so a tenant admin can never take over another user's account (`update-user.dto.ts`'s own doc comment). With this unset, the invite email is the sole path to a first login, and it never arrives. Confirmed 2026-09-02 |
-| `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` (private), `STORAGE_PROVIDER=supabase` | DOC | `POST /documents/upload` → 503 `unavailableReason` (no driver credentialed). The service key bypasses Supabase RLS — CLAUDE.md §5.1b |
-| ~~`CRON_SECRET`~~ **set** (verified `vercel env ls`, 2026-08-22) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `POST /engines/screening` answers **503** `listsLoaded:false` |
+| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing and is read by nothing) | COM | **harder than "invites are delayed": no new user can self-activate.** `POST /iam/users/invite` returns `inviteSent: false`; the invited row is created with an unusable placeholder password (`iam.service.ts` `inviteUser`, "never returned, never sent anywhere") and the acceptance link is otherwise **only in the server log** — not retrievable by a tenant admin on Vercel. There is deliberately no admin set-password route either: `UpdateUserDto` carries no `password` field, precisely so a tenant admin can never take over another user's account (`update-user.dto.ts`'s own doc comment). With this unset, the invite email is the sole path to a first login, and it never arrives — **no customer can be onboarded**. Confirmed 2026-09-02 |
+| `DEEPSEEK_API_KEY` (golden rule; ADR 0003) or `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`, else `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled. **`DEEPSEEK_API_KEY` is not read anywhere in `src` today** (grepped, zero hits) — the platform fallback still reads only `OPENAI_API_KEY`. ADR 0003 is the target, not shipped wiring |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (never the anon key), `SUPABASE_STORAGE_BUCKET` (optional, defaults `meru-documents`, bucket must be **private**) | DOC | `POST /documents/upload` → clean **503** naming the missing vars. **Operator has chosen Supabase over S3** (fewer required vars: 2 vs S3's 3, defaulted bucket name); `StorageDriverRegistry` also has a real S3 driver, registered only when its own 3 vars are present. Today **neither is configured** — only `AWS_REGION` is set. The service-role key bypasses Supabase RLS — CLAUDE.md §5.1b |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (golden rule; ADR 0004) + a QStash token | rate limiting, refresh-token revocation, idempotency, the minute scheduler | none set, none exist in the Vercel var list at all today. An interim in-memory rate limiter runs in `api/index.js` (2026-09-05) as a stopgap — fail-open, cannot share state across concurrent function instances, not a substitute for this |
+| `CRON_SECRET` — **already set** (verified `vercel env ls`, 2026-09-05) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `POST /engines/screening` answers **503** `listsLoaded:false` |
 
 ### 5.1 Loading the sanctions lists — the exact commands
 
@@ -637,6 +736,26 @@ out. A missing credential can only ever mean "not licensed yet"
   deliberately deleted. Do not develop there; the live app is
   `meru-core-fe/immistack`.
 - **Vercel deploys are CLI-only.** Pushing to GitHub does nothing.
+- **`POST /auth/register` was removed 2026-09-04, not repaired.** It 500'd on
+  the RLS `WITH CHECK` for every caller — the write ran outside the
+  `runAsSystem` bypass that wrapped its two reads, back on an unbound
+  connection (`iam.service.ts`, was lines 447-471). Fixing only that scoping
+  bug would have shipped a worse one: the route was `@Public()`, keyed on
+  nothing but a tenant slug, and `POST /tenants/check-slug` is also public and
+  anonymously confirms which slugs exist — so a "fixed" version would let
+  anyone self-provision into an existing tenant they can guess the slug of,
+  including another firm's or a bank's, with no invite and no role gate. No
+  product app has ever called it (all three portals' `(auth)` route groups are
+  login/forgot/reset only). The two supported paths — `POST /tenants/signup`
+  (new workspace) and `POST /iam/users/invite` (authenticated, into your own
+  tenant) — are untouched. `scripts/smoke/cross-tenant.sh`'s intra-tenant
+  document-isolation block used `/auth/register` to mint cheap same-tenant test
+  users and now SKIPs with a stated reason instead of failing; the scoping
+  logic it exercised is still covered by
+  `src/documents/document-access.service.spec.ts`. **Still true separately:**
+  no new user can obtain a login by any route today — invites need
+  `RESEND_API_KEY`, and there is no admin "set initial password" route. That
+  gap is not this one; do not resurrect register to paper over it.
 
 ---
 

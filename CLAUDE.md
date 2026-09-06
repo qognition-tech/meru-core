@@ -4,7 +4,7 @@
 > **Read this before any file edit.** Current state, gaps and what to build next
 > live in [AGENTS.md](AGENTS.md) — the only other document in this project.
 >
-> *Last updated: 2026-08-22.*
+> *Last verified 2026-09-05.*
 
 ---
 
@@ -366,13 +366,14 @@ So, before changing anything in `src/`:
 3. **Verify against a tenant of a vertical you were not working on.** Not the
    one you are building for — the other one.
 
-**The worked example — the entitlement vocabulary.** This is a change *not yet
-made*: `ModuleCode` and `@RequiresModule` do not exist in `src/` today, and
-entitlement codes are plain strings in `tenant-provisioning.service.ts:48-75`.
-Read this as the template for making it safely, not as a description of shipped
-machinery.
+**The worked example — the entitlement vocabulary.** **Shipped 2026-08-22, GRC
+routes only.** `src/iam/entitlements/` now holds `ModuleCode`, `@RequiresModule`
+and `ModuleEntitlementGuard` (→ HTTP 402 `MER-TENANT-0006`), applied to
+`/integrations/trade*`, `/integrations/vessel*` and `/engines/vessel/*` —
+deliberately **not** to `/engines/screening`, which ImmiStack calls. Read what
+follows as the template this change followed, not as hypothetical machinery.
 
-Replacing the module codes with a GRC price book looks like a rename. It is not.
+Replacing the module codes with a GRC price book looked like a rename. It was not.
 Every tenant carries six `CORE_MODULES` — `crm, cases, tasks, documents,
 payments, communications` — and the plan tiers add `forms, ai_automation,
 advanced_analytics, marketing, branding, api_access, sso` on top. ImmiStack
@@ -413,7 +414,7 @@ with a natural-language command bar. Navigation renders from
 | Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
 | Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
 | Storage | **Supabase Storage** or S3, per-tenant prefix (§5.1b) | `STORAGE_PROVIDER=supabase\|s3`; GCS / Azure not built |
-| AI | `openai` SDK directly — `langchain` is **not** a dependency | needs `OPENAI_API_KEY` |
+| AI | `openai` SDK directly against any OpenAI-compatible endpoint — `langchain` is **not** a dependency | golden-rule default is **DeepSeek** (ADR 0003); platform fallback reads `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`; `DEEPSEEK_API_KEY` is not yet read by any code path — the ADR precedes the wiring |
 | Auth | JWT + Passport, TOTP MFA, SAML | sessions revocable within 60s |
 | Host | Vercel `sin1`, CLI-deployed | `vercel --prod`; no git integration |
 
@@ -543,12 +544,17 @@ reports the rest as `deferred`, so a slow job cannot exceed the function
 timeout.
 
 **Vercel Hobby allows two daily crons**, which cannot drain a queue. Point a
-free external scheduler (cron-job.org, 1-minute granularity) at
-`/api/v1/jobs/tick?scope=fast` with `Authorization: Bearer <CRON_SECRET>`.
-**With `CRON_SECRET` unset — which is the state today — every job runs zero
-times**, not twice a day: `CronSecretGuard` fails closed and the two Vercel
-crons 401 like everyone else. Once the secret exists and nothing else calls
-the tick, minute-level work runs twice a day.
+free external scheduler (cron-job.org, or Upstash QStash per ADR 0004,
+1-minute granularity) at `/api/v1/jobs/tick?scope=fast` with
+`Authorization: Bearer <CRON_SECRET>`.
+
+**`CRON_SECRET` IS SET on Vercel Production** (verified `vercel env ls`,
+2026-09-05) — the two Vercel crons are authorised and both run. But both are
+**daily**, so until an external minute-level scheduler exists, queue drain,
+notification dispatch, the SLA watchdog and alert rules only fire once a day
+instead of every minute. Whether the daily jobs have actually *succeeded* is a
+separate question — check `GET /jobs/status` and, for screening specifically,
+`GET /engines/screening/watchlist-status` before trusting a result (§16).
 
 ### 8.5 Serverless constraints
 
@@ -561,6 +567,47 @@ the tick, minute-level work runs twice a day.
 - **No held-open connections.** Functions terminate per invocation, so
   WebSockets, presence and collaborative editing are impossible here. They need
   a separate always-on service or a hosted realtime provider.
+
+### 8.6 `api/index.js` is a second bootstrap, and it can drift from `src/main.ts`
+
+Vercel serves every route through `api/index.js`, which loads the compiled `dist/`
+output and hand-mirrors `main.ts`'s middleware stack (§10). Two things live only
+there, not in `main.ts`, and both have needed a fix:
+
+- **`GET /api/__diag`** — a diagnostic route that returned secret **lengths**
+  unauthenticated in production (`env: {JWT_SECRET: "set(40)", ...}`), and whose
+  `?db=1`/`?boot=1` query params opened a live DB connection or a full app
+  bootstrap inside the request, also unauthenticated. **Fixed 2026-09-05**: the
+  handler is gated behind a hermetic bearer check before the `req.url.includes`
+  branch does anything, and reports "set/unset" rather than exact lengths.
+  `test/api-diag.e2e-spec.ts` (8/8) covers it.
+- **Rate limiting** — `src/main.ts` runs `express-rate-limit`; `api/index.js` did
+  not, so **production had zero brute-force protection on any `/auth/*` route**.
+  An interim in-memory limiter now runs directly in `api/index.js`'s bootstrap
+  (`test/api-ratelimit.e2e-spec.ts`, 3/3), fail-open by design until Upstash
+  lands per **ADR 0004** — a per-invocation in-memory limiter cannot share state
+  across Vercel's concurrent function instances, so treat it as a speed bump, not
+  a durable control, until `@upstash/ratelimit` replaces it.
+
+**When touching either file, touch both, or run the compiled app locally**
+(`SKIP_CONFIG_PACK_LOADER=true JWT_SECRET=x node dist/src/main.js`) and grep for
+`Nest application successfully started` — unit tests do not exercise `api/index.js`
+at all.
+
+### 8.7 AI provider — DeepSeek is the golden-rule default, not yet wired
+
+`ai.service.ts`'s `clientFor()` already resolves a **per-tenant** OpenAI-compatible
+provider (`baseUrl`, `apiKey`, `model`) via `ConnectorsService.resolveAiProvider` /
+`PUT /integrations/connectors/openai`. What is missing is the **platform fallback**:
+today it reads only `OPENAI_API_KEY`, and `DEEPSEEK_API_KEY` is read by nothing in
+`src` — grepped, zero hits. **ADR 0003** (`docs/adr/0003-*.md`, Proposed) is the
+contract: a `platform_ai_settings` table (encrypted, DeepSeek default,
+`PUT /platform/ai-provider`, configured from `meru-dashboard`), `doc-intel.engine.ts`
+routed through `clientFor` (it currently bypasses it), and embeddings split out as
+their own capability — **DeepSeek has no embeddings API**, so `createEmbedding`
+keeps calling `text-embedding-3-small` regardless of which chat model is active.
+Until the ADR is implemented, every AI surface answers "not connected" with no
+platform credential set, and packs still pin `gpt-4o-mini` as the default model.
 
 ---
 
@@ -649,19 +696,26 @@ Two gates need environment rather than code:
 - [ ] Write `../meru-core-fe/BACKEND-CHANGES-<date>.md`, leading with whether it
       has shipped. A merged commit is not a shipped one.
 
-### Storage — done, one decision left
+### Storage — decision made, credentials not yet set
 
-`src/storage/providers/` holds `s3.provider.ts` and `supabase.provider.ts`;
-`documents.service.ts` goes through `StorageService` and imports no SDK. The
-security model is §5.1b. Inventory on 2026-08-22, by `count(*)` against all
-three databases: **0 `document_versions`, 0 `storage_files`** — uploads had
-been 500ing, so nothing is stored anywhere and there is nothing to migrate.
+`src/storage/providers/` holds `s3.provider.ts` and `supabase.provider.ts`, both
+real; `StorageDriverRegistry` registers only the one(s) with credentials present
+and `documents.service.ts` goes through `StorageService` and imports no SDK
+directly. Security model is §5.1b. **The operator has chosen Supabase Storage**
+(2026-09-05) — fewer required vars (2 vs S3's 3, plus a defaulted bucket name).
+Inventory on 2026-08-22: **0 `document_versions`, 0 `storage_files`** across all
+three databases — uploads had been 500ing, so nothing is stored anywhere and
+there is nothing to migrate.
 
-- [ ] Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`
-      (create the bucket **private**) and `STORAGE_PROVIDER=supabase`.
-- [ ] Then drop `aws-sdk` and `s3.provider.ts` in one commit, once the business
-      confirms S3 is not wanted. Kept until then because removing a driver is a
-      decision, not a cleanup.
+- [ ] Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (never the anon key),
+      `SUPABASE_STORAGE_BUCKET` optional, defaults to `meru-documents` (create the
+      bucket **private**). `STORAGE_PROVIDER` is not needed with exactly one
+      driver configured. **Verified 2026-09-05: neither driver is configured on
+      Production today** — only `AWS_REGION` is set — so every upload still
+      answers a clean 503 naming the missing vars.
+- [ ] Once Supabase is confirmed as the permanent answer, drop `aws-sdk` and
+      `s3.provider.ts` in one commit. Kept until then because removing a driver
+      is a decision, not a cleanup, and S3 is not yet formally ruled out.
 
 ### Doc drift found by audit
 

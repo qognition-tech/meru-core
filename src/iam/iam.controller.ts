@@ -30,7 +30,6 @@ import { PolicyGuard } from './guards/policy.guard';
 import { Public } from './decorators/public.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { sessionContextFrom } from './session-context.util';
@@ -78,30 +77,22 @@ export class IamController {
     return req.user;
   }
 
-  @Post('register')
-  @Public()
-  @ApiOperation({ summary: 'Register a new user' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        tenantSlug: { type: 'string', example: 'acme-immigration' },
-        email: { type: 'string', example: 'user@example.com' },
-        password: { type: 'string', example: 'password123' },
-      },
-      required: ['tenantSlug', 'email', 'password'],
-    },
-  })
-  @ApiResponse({ status: 201, description: 'User registered successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  // Typed against the DTO class, not the CreateUserInput interface. Interfaces
-  // are erased at runtime, so ValidationPipe had no metadata to validate and an
-  // empty body passed straight through to the service — where TypeORM silently
-  // drops `where: { email: undefined }` and matched the first user in the table,
-  // reporting "Email already registered" for a request containing nothing.
-  async register(@Body() createUserDto: CreateUserDto) {
-    return this.iamService.register(createUserDto);
-  }
+  // POST /auth/register was removed 2026-09-04. It was @Public(), keyed only
+  // on an anonymously-enumerable tenant slug (POST /tenants/check-slug has no
+  // guard), and the write ran outside the runAsSystem bypass that wrapped its
+  // two reads — so on this deployment it 500'd on the RLS WITH CHECK for every
+  // caller ("new row violates row-level security policy for table users").
+  // Repairing the RLS scoping alone would have made a worse bug live: a fixed
+  // version self-provisions a caller into ANY existing tenant they can guess
+  // the slug of, including another firm's or bank's, with no role or tenant
+  // gate. No product app has ever shipped a signup page against this route —
+  // grep of all three portals' (auth) route groups turns up login/forgot/reset
+  // only — and the two supported ways to get a user into a tenant already
+  // exist and are correctly scoped: POST /tenants/signup (new workspace + its
+  // first firm_admin) and POST /iam/users/invite (firm_admin/platform_admin
+  // inviting into their own tenant, authenticated, audited). Do not re-add
+  // self-registration into an existing tenant without a per-tenant opt-in gate
+  // — that is a new contract decision, not a bug fix.
 
   // ── Session lifecycle ─────────────────────────────────────────────────────
 
