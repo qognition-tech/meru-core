@@ -22,6 +22,13 @@ export class UpdateUserDto {
   @MaxLength(100)
   lastName?: string;
 
+  // `@IsEnum` only rejects a garbage string — it still admits `platform_admin`
+  // for the same reason as `InviteUserDto.role`: this DTO cannot see who the
+  // caller is, so it cannot enforce a ceiling. `IamService.updateUser` does
+  // two things this cannot: caps the requested role at the caller's own
+  // privilege via `canGrantRole` (a `firm_admin` PATCHing their own row to
+  // `platform_admin` fails there), and refuses `role`/`status` outright when
+  // a non-admin caller is updating their own row.
   @ApiPropertyOptional({ enum: PlatformRole })
   @IsOptional()
   @IsEnum(PlatformRole, {

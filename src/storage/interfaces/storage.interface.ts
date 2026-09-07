@@ -1,3 +1,5 @@
+import { Actor } from '../../common/access';
+
 export enum StorageProvider {
   S3 = 's3',
   AZURE = 'azure',
@@ -219,6 +221,17 @@ export interface StorageMetrics {
 
 export interface FileSearchFilters {
   tenantId: string;
+  /**
+   * Required, not optional, deliberately. `GET /storage/files` reached
+   * `StorageService.searchFiles` with no actor at all and no narrowing beyond
+   * `tenantId` — the by-id routes all call `checkAccess()` (owner or tenant
+   * staff only), but the LIST path was missed, so any authenticated caller of
+   * any role could enumerate every filename, folder, tag and mimeType in the
+   * firm. Filenames alone are sensitive here (`passport_<name>.pdf`).
+   * `StorageService.searchFiles` uses this the same way `checkAccess` does —
+   * see that method's own doc comment.
+   */
+  actor: Actor;
   query?: string;
   mimeTypes?: string[];
   tags?: string[];

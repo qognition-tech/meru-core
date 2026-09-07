@@ -324,5 +324,65 @@ describe('SearchService', () => {
       const out = await service.search('t1', 'applicant', 20);
       expect(out.map((r) => r.searchableId)).toEqual(['e1', 'e2']);
     });
+
+    /**
+     * `scopeResults` used to compare `metadata.assignedTo` alone —
+     * `assignedTo` is the *staff* owner of a case, and an applicant is never
+     * the assignee of their own case. So every real client search matched
+     * zero rows, always: not a leak, but indistinguishable from "no
+     * matches", which reads as a broken product. This is the regression
+     * guard: a client must find the record they are the SUBJECT of.
+     */
+    describe('subject-email ownership — a client is the subject, not the assignee', () => {
+      const rowsBySubject = () => [
+        {
+          id: 'r1',
+          searchableType: SearchableType.ENTITY,
+          searchableId: 'e1',
+          title: 'Applicant One',
+          content: 'applicant one',
+          // Staff-assigned, and the client is the SUBJECT — never the
+          // assignee of their own case.
+          metadata: { assignedTo: 'staff-1', subjectEmail: 'client-a@example.com' },
+        },
+        {
+          id: 'r2',
+          searchableType: SearchableType.ENTITY,
+          searchableId: 'e2',
+          title: 'Applicant Two',
+          content: 'applicant two',
+          metadata: { assignedTo: 'staff-1', subjectEmail: 'client-b@example.com' },
+        },
+      ];
+
+      it("a client's search returns their own record by subjectEmail, not zero results", async () => {
+        repo.find.mockResolvedValue(rowsBySubject());
+        const out = await service.search('t1', 'applicant', 20, {
+          id: 'client-a',
+          roles: ['client'],
+          email: 'Client-A@Example.com ',
+        });
+        expect(out.map((r) => r.searchableId)).toEqual(['e1']);
+      });
+
+      it("a client does not see another client's record", async () => {
+        repo.find.mockResolvedValue(rowsBySubject());
+        const out = await service.search('t1', 'applicant', 20, {
+          id: 'client-a',
+          roles: ['client'],
+          email: 'client-a@example.com',
+        });
+        expect(out.map((r) => r.searchableId)).not.toContain('e2');
+      });
+
+      it('an actor with no email matches nothing — fails closed, not open', async () => {
+        repo.find.mockResolvedValue(rowsBySubject());
+        const out = await service.search('t1', 'applicant', 20, {
+          id: 'client-a',
+          roles: ['client'],
+        });
+        expect(out).toEqual([]);
+      });
+    });
   });
 });

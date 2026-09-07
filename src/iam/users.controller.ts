@@ -113,10 +113,16 @@ export class UsersController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: InviteUserDto,
   ) {
-    return this.iamService.inviteUser(req.user.tenantId, dto, {
-      id: req.user.id,
-      name: req.user.email,
-    });
+    return this.iamService.inviteUser(
+      req.user.tenantId,
+      dto,
+      { id: req.user.id, name: req.user.email },
+      // Ceiling for the requested role — see `canGrantRole` in
+      // `platform-role.enum.ts`. Without this a `firm_admin` (admitted by
+      // the `@Roles` guard above) could invite themselves a `platform_admin`
+      // colleague and inherit God View through them.
+      req.user.roles,
+    );
   }
 
   @Post(':id/resend-invite')
@@ -144,23 +150,45 @@ export class UsersController {
     });
   }
 
+  // Deliberately no `@Roles` here. `IamService.updateUser` admits two shapes
+  // of caller: a `platform_admin`/`firm_admin` managing anyone in the tenant,
+  // and ANY authenticated user updating their own row (every portal's
+  // `ProfileView` calls this route against the caller's own id, and a plain
+  // `staff` or `client` used to get a flat 403 editing their own name). "Is
+  // this my own row" is not expressible as a role, so the check lives in the
+  // service, not a guard — same pattern as `own` scope elsewhere in this
+  // codebase (see `common/access.ts`).
   @Patch(':id')
-  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiOperation({
     summary: 'Update a directory user (partial)',
     description:
       'Cannot change email, password, tenant or MFA state — those fields are ' +
-      'rejected outright, so this route can never be used for account takeover.',
+      'rejected outright, so this route can never be used for account takeover. ' +
+      'A `platform_admin`/`firm_admin` may update anyone in the tenant. Anyone ' +
+      'else may update only their OWN row, and only `firstName`/`lastName`/' +
+      '`department` — `role` and `status` are refused even on their own id. ' +
+      '`role` is additionally capped at the caller’s own privilege for every ' +
+      'caller: a `firm_admin` cannot grant `platform_admin`, including to ' +
+      'themselves.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'User updated' })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Not your own row and not a tenant admin, or a non-admin tried to ' +
+      'change role/status, or the requested role outranks the caller',
+  })
   @ApiResponse({ status: 404, description: 'No such user on this tenant' })
   async update(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
   ) {
-    return this.iamService.updateUser(req.user.tenantId, id, dto);
+    return this.iamService.updateUser(req.user.tenantId, id, dto, {
+      id: req.user.id,
+      roles: req.user.roles,
+    });
   }
 
   // PATCH is the canonical verb — omitted fields are left alone. PUT is kept as
@@ -172,8 +200,11 @@ export class UsersController {
   // metadata key, so the second silently overwrites the first and only one verb
   // is ever routed — `PATCH` returned "Cannot PATCH /iam/users/:id" until this
   // was split.
+  // Same self-or-admin split as PATCH above — no `@Roles` here either, and
+  // deliberately: this is a straight alias (`return this.update(...)`), so
+  // gating it more tightly than PATCH would just be a second, inconsistent
+  // route to the same behaviour.
   @Put(':id')
-  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Update a directory user (alias of PATCH)' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'User updated' })

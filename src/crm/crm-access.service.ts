@@ -145,10 +145,23 @@ export class CrmAccessService {
   /**
    * Narrow a list query to what the caller may see.
    *
-   * Applied in the service so every route built on the query inherits it. The
-   * controller's own `clientScoped()` does this for the list and export routes
-   * by rewriting the query DTO; this is the same rule expressed where it cannot
-   * be forgotten.
+   * **Not currently wired to any route** — `/crm/entities` is protected by
+   * `CrmController.clientScoped()`, which rewrites the query DTO's
+   * `subjectEmail` before it ever reaches `CrmService`, not by this method.
+   * The comment that used to stand here claimed "applied in the service so
+   * every route built on the query inherits it", which was false, and it was
+   * hiding a live landmine: this filtered by `assignedTo` alone — the exact
+   * defect the rest of this file exists to fix (see the class doc comment).
+   * An applicant is never the assignee of their own case, so the moment
+   * something was wired to call this, a client would see zero records again,
+   * silently, and it would look like correct authorisation rather than a bug.
+   *
+   * Kept rather than deleted, as the `SelectQueryBuilder`-shaped sibling of
+   * {@link ownsEntity} for a future caller that builds a query directly
+   * instead of going through `CrmService.listEntities`'s filter object — and
+   * corrected now, to the same OR-in-`subjectEmail` rule `ownsEntity` uses,
+   * so wiring it later does not reintroduce the bug this class was written to
+   * close.
    */
   applyScope(
     qb: SelectQueryBuilder<UniversalEntity>,
@@ -156,7 +169,23 @@ export class CrmAccessService {
     alias = 'entity',
   ): void {
     if (this.scopeOf(actor) !== 'own') return;
-    qb.andWhere(`${alias}."assignedTo" = :crmActorId`, { crmActorId: actor.id });
+
+    // Same two-condition rule as `ownsEntity`: staff own by assignment, an
+    // applicant owns by being the SUBJECT. Compared lower-cased and trimmed,
+    // matching how `subjectEmail` is normalised on write. An actor with no
+    // email contributes nothing beyond `assignedTo`, which fails closed for a
+    // client (they are never their own assignee) rather than open.
+    const actorEmail = actor.email?.trim().toLowerCase();
+    if (actorEmail) {
+      qb.andWhere(
+        `(${alias}."assignedTo" = :crmActorId OR LOWER(TRIM(${alias}."subjectEmail")) = :crmActorEmail)`,
+        { crmActorId: actor.id, crmActorEmail: actorEmail },
+      );
+    } else {
+      qb.andWhere(`${alias}."assignedTo" = :crmActorId`, {
+        crmActorId: actor.id,
+      });
+    }
   }
 
   /**

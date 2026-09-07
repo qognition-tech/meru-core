@@ -62,6 +62,17 @@ export class Payment {
    * Nullable only for `outbound` rows: a firm-level expense has no client, and
    * forcing one would attribute the firm's own costs to whichever applicant
    * happened to be handy.
+   *
+   * **Always a real `users.id` once stored — never a CRM `universal_entities.id`,**
+   * even though that is the only id most callers actually have to hand (a
+   * client is a CRM person entity before they are ever a `users` row).
+   * `PaymentsService.resolveClientUserId` does that translation, by email, at
+   * write time, and refuses the write rather than store an id that could
+   * never match a real client login. Read paths trust that this column is
+   * always resolvable and do not re-derive it — do not add a second write
+   * path. (`FeeScheduleService.expand` currently bypasses
+   * `PaymentsService.create` and writes `clientId` unresolved — a known,
+   * not-yet-fixed instance of the exact defect this comment describes.)
    */
   @Column({ type: 'uuid', nullable: true })
   clientId: string | null;

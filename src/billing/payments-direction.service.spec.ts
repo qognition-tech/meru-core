@@ -53,7 +53,18 @@ describe('PaymentsService — disbursements', () => {
       },
     };
 
-    const service = new PaymentsService(paymentRepo as any);
+    // These tests are about direction, not id resolution — that gets its own
+    // spec (payments-client-resolution.service.spec.ts). Stub the resolver's
+    // fast path (clientId already names a `users` row) to always hit, so
+    // `create()` behaves exactly as it did before resolution existed.
+    const dataSource = {
+      getRepository: () => ({
+        findOne: ({ where }: { where: { id: string; tenantId: string } }) =>
+          Promise.resolve({ id: where.id, tenantId: where.tenantId, email: 'stub@test.example' }),
+      }),
+    };
+
+    const service = new PaymentsService(paymentRepo as any, dataSource as any);
     return { service, captured, saved, paymentRepo };
   };
 

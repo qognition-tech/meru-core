@@ -224,10 +224,24 @@ export class PaymentsController {
     description:
       'Staff only — a client cannot invoice themselves. Amount is in MINOR ' +
       'units (cents/fils/pence) and must be a positive integer; a decimal is ' +
-      'rejected rather than rounded.',
+      'rejected rather than rounded.\n\n' +
+      '`clientId` accepts either a `users.id` or a CRM person entity id — the ' +
+      'client-detail page only ever has the latter. It is resolved to a real ' +
+      "`users.id` by email before the row is saved; if the person hasn't been " +
+      'invited yet, the write is refused rather than silently recorded under ' +
+      'an id no client login could ever match.',
   })
   @ApiResponse({ status: 201, description: 'Payment created' })
-  @ApiResponse({ status: 400, description: 'Invalid amount or currency' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Invalid amount or currency, or the named client has no linked user ' +
+      'account yet (invite them first)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'clientId matches neither a user nor a person record',
+  })
   @ApiResponse({ status: 403, description: 'Requires a staff role' })
   async create(
     @Request() req: AuthenticatedRequest,

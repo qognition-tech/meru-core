@@ -1,5 +1,19 @@
 # 0006 — Operator invite-link retrieval and regeneration
 
+> **Trigger fired (Jonas, 2026-09-08): `RESEND_API_KEY` and `RESEND_FROM` are now set on
+> `meru-core` Production**, confirmed via `vercel env ls`. This is exactly the trigger §5 of
+> this ADR names for D3 ("`RESEND_API_KEY` becomes reliably configured across all
+> environments") — the ADR itself already anticipated this and said what to do: *"consider
+> whether the route should be disabled (feature-flagged off) rather than merely unused, to
+> shrink the standing attack surface once it is no longer needed day-to-day."* This ADR is
+> **not implemented** (still Proposed, per the Status line below, and this repo's search of
+> `src/iam/` found no operator invite-link retrieval route), so there is nothing to disable yet
+> — but whoever picks this up next should re-read §5 before building it as originally scoped:
+> the "Resend is unset" branch of the escape hatch is now the less common case, not the
+> default one, and delivery-failure-with-Resend-configured is a narrower, different scenario
+> than the one D3's prose was written against. The technical design below is otherwise
+> unchanged.
+
 **Status:** Proposed — 2026-09-05. Not merged. Requires `quality` (Owen) review, and `secops`
 (Anton) review — this ADR exposes a credential-equivalent secret through a new route, which is
 squarely inside `definition-of-done.md`'s "auth, tenancy" gate.

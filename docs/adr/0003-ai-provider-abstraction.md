@@ -178,7 +178,7 @@ change only the `model` field without re-entering a live key.
 which writes the `CRITICAL` audit entry **before** the write and rethrows if the audit write
 fails (workspace `CLAUDE.md` §7.7) — there is no separate audit call to add; `runAsGod` is the
 mechanism. `context` on that entry records `{adapterCode, model, baseUrl, keyRotated: boolean}`
-— **never the key itself**, matching D4 of ADR 0001's "never log the matched text" principle
+— **never the key itself**, matching D4 of ADR 0008's "never log the matched text" principle
 applied to secrets generally.
 
 **Error codes.** `400 MER-VAL-0012` — unknown `adapterCode`, or `custom-openai-compatible`
@@ -194,7 +194,7 @@ module dependency between `AiModule` and wherever `DocIntelEngine` is provided) 
 per-request, the same way `executeOpenAI` does. This is a **pure refactor** of an existing call
 site — no new route, no schema change — and it is the one item in this ADR most likely to have
 a non-obvious blast radius, because every document-analysis call today silently assumed the
-platform key. **Ship it behind the same reasoning as ADR 0001's D4a/D4b split**: land the
+platform key. **Ship it behind the same reasoning as ADR 0008's D4a/D4b split**: land the
 resolver change first, verify a tenant with a DeepSeek connector and no platform key can now
 successfully analyze a document (today, per F1, it cannot), then treat the platform-key-only
 path as the regression case to check, not the happy path.
@@ -258,7 +258,7 @@ existing contract; these three features do not get an exception.
 **Why vertical-neutral in core.** All three are "narrate this generic record" capabilities —
 none of them knows what a visa or a breach is; the pack's `prompts[]` entry supplies the
 vocabulary exactly as `vac_not_verified_after_lodgement` supplies immigration vocabulary to a
-generic rule evaluator in ADR 0001. **Neither pack ships these prompt entries yet** — this ADR
+generic rule evaluator in ADR 0008. **Neither pack ships these prompt entries yet** — this ADR
 defines the contract; authoring `prompts[]` entries for `au-immigration.json` and `grc.json` is
 pack work, in a separate commit, per workspace `CLAUDE.md` §6 rule 4 (bump the `version`).
 

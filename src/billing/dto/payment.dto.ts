@@ -34,9 +34,15 @@ export class CreatePaymentDto {
 
   @ApiPropertyOptional({
     description:
-      'users.id of the client who owes this. **Required for `inbound`.** ' +
-      'Optional for `outbound`: a firm-level expense has no client, and ' +
-      "attributing one would put the firm's own costs on an applicant.",
+      'The client who owes this — accepts EITHER their users.id OR the ' +
+      'universal_entities.id (type=person) of their CRM record, since a ' +
+      "client is a CRM person before they are ever invited as a user. " +
+      'Resolved to a real users.id server-side, by matching email; if the ' +
+      "person hasn't been invited yet the write is refused (400) rather " +
+      "than silently stored under an id no client login can ever match. " +
+      '**Required for `inbound`.** Optional for `outbound`: a firm-level ' +
+      "expense has no client, and attributing one would put the firm's " +
+      'own costs on an applicant.',
   })
   @IsOptional()
   @IsUUID()

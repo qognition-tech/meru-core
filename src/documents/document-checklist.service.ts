@@ -5,6 +5,8 @@ import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Document } from './entities/document.entity';
+import { DocumentAccessService } from './document-access.service';
+import type { Actor } from '../common/access';
 
 /** The `documentTypes` shape as authored in a pack. */
 interface PackDocumentType {
@@ -54,11 +56,13 @@ export class DocumentChecklistService {
     @InjectRepository(UniversalEntity)
     private readonly entityRepo: Repository<UniversalEntity>,
     private readonly rules: RuleEvaluatorService,
+    private readonly access: DocumentAccessService,
   ) {}
 
   async forEntity(
     tenantId: string,
     vertical: string | null,
+    actor: Actor,
     entityId?: string,
   ): Promise<{
     vertical: string | null;
@@ -94,6 +98,17 @@ export class DocumentChecklistService {
     }
 
     const allTypes = Array.isArray(section) ? section : [];
+
+    // This route took no actor at all and filtered the entity lookup below
+    // on `{ id: entityId, tenantId }` only — any client could pass another
+    // applicant's case id and read that applicant's checklist, including
+    // document names, ids and upload status. `tenant`/`god` scope is
+    // unrestricted, matching `DocumentAccessService` everywhere else; `own`
+    // scope must own the named record, checked before it is ever loaded.
+    // 404, not 403 — a real-but-foreign entity id is itself a disclosure.
+    if (entityId) {
+      await this.access.assertOwnsEntity(tenantId, entityId, actor);
+    }
 
     // No entity named → report the requirements without pretending to know
     // what has been supplied. `uploaded: null` is deliberately not `false`:

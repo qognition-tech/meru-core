@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { PaymentsService } from './payments.service';
 
 /** One `fees[]` entry, as the pack declares it. */
 export interface FeeDefinition {
@@ -63,6 +64,16 @@ export class FeeScheduleService {
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
     private readonly packs: VerticalPackService,
+    // `Payment.clientId` is `users.id` and is load-bearing for authorisation:
+    // it is the only thing confining one applicant's ledger from another's.
+    // This service writes `Payment` rows directly rather than through
+    // `PaymentsService.create`, so without resolving here it would keep
+    // storing whatever id the caller happened to hold — which for the only UI
+    // that calls it is the CRM `universal_entities.id`, an id no client's
+    // `req.user.id` can ever equal. The charge then renders as an honest
+    // "nothing recorded" in the client portal, which is the §5.2 failure mode
+    // reached by omission.
+    private readonly payments: PaymentsService,
   ) {}
 
   /**
@@ -127,6 +138,17 @@ export class FeeScheduleService {
     const rows: Payment[] = [];
     const start = request.startDate ?? new Date();
 
+    // Resolved once for the whole expansion rather than per row: every row in
+    // a schedule bills the same client, and the resolver refuses (400) when a
+    // person record has no invited user yet, so failing before any row is
+    // built keeps a schedule all-or-nothing.
+    const clientUserId = request.clientId
+      ? await this.payments.resolveClientUserId(
+          request.tenantId,
+          request.clientId,
+        )
+      : request.clientId;
+
     for (const fee of fees) {
       const amount = this.amountFor(fee, request);
       if (amount <= 0) continue;
@@ -135,7 +157,7 @@ export class FeeScheduleService {
         rows.push(
           this.paymentRepo.create({
             tenantId: request.tenantId,
-            clientId: request.clientId,
+            clientId: clientUserId,
             entityId: request.entityId,
             amountMinor: String(portion.amountMinor),
             currency: fee.currency.toUpperCase(),

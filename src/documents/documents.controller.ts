@@ -79,7 +79,7 @@ export class DocumentsController {
       file,
       dto,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return result;
@@ -125,7 +125,7 @@ export class DocumentsController {
     const document = await this.documentsService.create(
       dto,
       req.user.tenantId,
-      req.user.id,
+      req.user,
     );
 
     return document;
@@ -186,7 +186,10 @@ export class DocumentsController {
   })
   @ApiResponse({
     status: 404,
-    description: 'No active config pack for this vertical',
+    description:
+      'No active config pack for this vertical, OR entityId names a case ' +
+      'the caller may not read — a client gets the same 404 for a foreign ' +
+      'entityId as for one that does not exist, on purpose.',
   })
   async checklist(
     @Request() req: AuthenticatedRequest & { tenantVertical?: string | null },
@@ -195,6 +198,7 @@ export class DocumentsController {
     return this.documentChecklistService.forEntity(
       req.user.tenantId,
       req.tenantVertical ?? null,
+      req.user,
       entityId,
     );
   }
@@ -264,7 +268,7 @@ export class DocumentsController {
     );
 
     if (store === 'true') {
-      await this.generation.store(result, req.user.tenantId, req.user.id, entityId);
+      await this.generation.store(result, req.user.tenantId, req.user, entityId);
     }
 
     res.setHeader('Content-Type', result.mimeType);

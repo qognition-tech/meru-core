@@ -3,8 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   Payment,
   PaymentDirection,
@@ -15,6 +15,11 @@ import {
   ListPaymentsQueryDto,
   SettlePaymentDto,
 } from './dto/payment.dto';
+import { User } from '../iam/entities/user.entity';
+import {
+  EntityType,
+  UniversalEntity,
+} from '../crm/entities/universal-entity.entity';
 
 /**
  * The firm's receivables ledger — what its clients owe it for services.
@@ -38,12 +43,26 @@ import {
  *    else, so every read path takes an explicit `clientId` restriction — the
  *    same defect class as the CRM leak fixed in 32147ed, where a client token
  *    received every case in the firm.
+ * 3. **`clientId` is written, not merely read, as a real `users.id`.** The UI
+ *    that raises a charge knows a client only as a CRM entity id, so every
+ *    write resolves that to the matching `users` row first — see
+ *    {@link resolveClientUserId}. Without it, rule 2 enforces an id nothing
+ *    could ever satisfy: the client's ledger was correctly restricted to an
+ *    id that never matched, which read as "no charges" rather than "broken".
  */
 @Injectable()
 export class PaymentsService {
   constructor(
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
+    // Not `@InjectRepository(User)` / `@InjectRepository(UniversalEntity)`:
+    // both entities are already in the global `ALL_ENTITIES` catalogue
+    // (src/config/entities.ts), so a plain `DataSource.getRepository` reaches
+    // them without wiring `BillingModule` into `IamModule` and `CrmModule` —
+    // same pattern as `TenantProvisioningService` (tenant-provisioning.service.ts:429).
+    // Used only by {@link resolveClientUserId}.
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   /** `bigint` arrives as a string. Expose a number, and never compute on it. */
@@ -52,6 +71,101 @@ export class PaymentsService {
       ...p,
       amountMinor: Number(p.amountMinor),
     };
+  }
+
+  /**
+   * Resolve whatever id staff supplied as `clientId` to a real `users.id`.
+   *
+   * `Payment.clientId` is documented as `users.id` because it is the
+   * authorisation key that keeps one client's ledger from another's — see the
+   * doc comment on the column. But the only UI that raises a charge
+   * (ImmiStack's `RequestPaymentDialog`, via the `/clients/:id` page) knows a
+   * client only as a CRM `universal_entities.id`: a client is a Universal
+   * Entity of `type: 'person'`, and their IAM `users` row — created later, by
+   * `IamService.inviteUser`, once someone gets around to inviting them — carries
+   * no column linking back to it. Email is the only attribute both sides share.
+   *
+   * Left unresolved, every charge staff raised stored an id that could never
+   * equal any real client's `req.user.id`, so `GET /payments` and
+   * `/payments/summary` returned empty for every client login — forever, and
+   * silently: an honest-looking "nothing here" hiding a broken join
+   * (CLAUDE.md §5.2, "unknown is never clear").
+   *
+   * Resolution order, cheapest and most certain first:
+   *
+   * 1. `clientId` already names a `users` row in this tenant — the documented,
+   *    correct shape. Used as-is, so a caller that already gets this right
+   *    (or a future one that does) pays no extra query and changes no
+   *    behaviour.
+   * 2. `clientId` names a CRM person entity in this tenant. Resolve to the
+   *    `users` row sharing its email, compared case-insensitively: neither
+   *    `users.email` nor `universal_entities.email` is normalised on write
+   *    anywhere in this codebase (checked `IamService.inviteUser` and
+   *    `CrmService.createEntity`), so the comparison has to be, not the
+   *    storage — the same reasoning `CrmAccessService.ownsEntity` uses for
+   *    the equivalent `subjectEmail` comparison.
+   * 3. The person exists but nobody has invited them — there is no `users`
+   *    row to authorise against. Storing `clientId: null` would make the
+   *    charge invisible to *every* client, which is this exact bug, only
+   *    earlier. **Refused (400)** with a message that says what to do,
+   *    rather than silently recording a charge nobody can ever be shown.
+   * 4. Neither a user nor a person record exists with this id in this tenant —
+   *    a bad id, not a timing issue. **404**, matching how every other id
+   *    lookup in this controller treats "does not exist here".
+   */
+  /**
+   * Public because `FeeScheduleService.expand` writes `Payment` rows on a
+   * second path and must resolve the same way — see the note on
+   * `Payment.clientId`. Two writers storing two different id spaces into one
+   * authorisation column is how this defect existed at all.
+   */
+  async resolveClientUserId(
+    tenantId: string,
+    clientId: string,
+  ): Promise<string> {
+    const userRepo = this.dataSource.getRepository(User);
+
+    const directUser = await userRepo.findOne({
+      where: { id: clientId, tenantId },
+    });
+    if (directUser) return directUser.id;
+
+    const person = await this.dataSource.getRepository(UniversalEntity).findOne({
+      where: { id: clientId, tenantId, type: EntityType.PERSON },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        'No client with that id in this tenant — not a users.id, and not a ' +
+          'person record either',
+      );
+    }
+
+    if (!person.email) {
+      throw new BadRequestException(
+        `${person.firstName ?? 'This client'}'s record has no email on file, ` +
+          'so there is no way to find — or ever notify — the account this ' +
+          'charge would belong to. Add an email to the client record first.',
+      );
+    }
+
+    // Case-insensitive by comparison, not by index: see the method doc for why.
+    const user = await userRepo
+      .createQueryBuilder('u')
+      .where('u."tenantId" = :tenantId', { tenantId })
+      .andWhere('LOWER(u.email) = LOWER(:email)', { email: person.email })
+      .getOne();
+
+    if (!user) {
+      throw new BadRequestException(
+        `${person.firstName ?? 'This client'} has not been invited yet, so ` +
+          'there is no account for this charge to belong to. Invite them ' +
+          '(POST /iam/users/invite) before raising a charge — otherwise the ' +
+          "charge would be recorded but could never appear in anyone's portal.",
+      );
+    }
+
+    return user.id;
   }
 
   async list(
@@ -212,9 +326,18 @@ export class PaymentsService {
       );
     }
 
+    // `dto.clientId` may name a real `users.id` or the CRM person entity the
+    // caller actually has to hand — see resolveClientUserId's doc comment.
+    // Resolved once, here, so every row this method ever writes stores a real
+    // `users.id` or nothing; there is no path that stores an id that can
+    // never match a real login.
+    const clientId = dto.clientId
+      ? await this.resolveClientUserId(tenantId, dto.clientId)
+      : null;
+
     const payment = this.paymentRepo.create({
       tenantId,
-      clientId: dto.clientId ?? null,
+      clientId,
       entityId: dto.entityId ?? null,
       direction,
       payee: dto.payee ?? null,

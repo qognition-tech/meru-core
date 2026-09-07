@@ -153,10 +153,16 @@ export class TenantProvisioningController {
       `Provision tenant ${dto.slug} (God View)`,
       () =>
         this.tenantProvisioningService.provisionTenant(dto, (tenantId, invite) =>
-          this.iamService.inviteUser(tenantId, invite, {
-            id: req.user.id,
-            name: 'Meru Platform',
-          }),
+          this.iamService.inviteUser(
+            tenantId,
+            invite,
+            { id: req.user.id, name: 'Meru Platform' },
+            // This route is `@Roles(PLATFORM_ADMIN)`-gated above, so the
+            // caller's own roles always clear the ceiling for the
+            // `firm_admin` this always provisions with (see
+            // `tenant-provisioning.service.ts`).
+            req.user.roles,
+          ),
         ),
     );
   }

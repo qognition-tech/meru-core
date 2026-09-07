@@ -7,6 +7,7 @@ import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Payment } from '../billing/entities/payment.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
 import { DocumentsService } from './documents.service';
+import type { Actor } from '../common/access';
 
 /** One block of a pack-authored document. Mirrors DocumentBlockSchema. */
 export interface DocumentBlock {
@@ -202,7 +203,11 @@ export class DocumentGenerationService {
   async store(
     generated: GeneratedDocument,
     tenantId: string,
-    userId: string,
+    // The acting caller, not their id: `DocumentsService.upload` needs an
+    // `Actor` to check that `entityId` is a matter this caller may write to.
+    // Generating a document is not a way around that — storing one onto
+    // another applicant's matter is the same write hole as uploading to it.
+    actor: Actor,
     entityId?: string,
   ): Promise<{ documentId: string }> {
     const template = generated.templateKey;
@@ -235,7 +240,7 @@ export class DocumentGenerationService {
         },
       } as never,
       tenantId,
-      userId,
+      actor,
     );
 
     return { documentId: (result as { document?: { id: string } }).document?.id ?? '' };

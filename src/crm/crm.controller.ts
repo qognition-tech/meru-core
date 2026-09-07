@@ -34,6 +34,7 @@ import {
   UpdateEntityDto,
 } from './dto/update-entity.dto';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { UserPayload, type AuthenticatedRequest } from '../common/types';
 import { EntityRelationService } from './entity-relation.service';
@@ -182,12 +183,25 @@ export class CrmController {
 
   @Post('entities')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  // Staff only, matching `POST /payments` — a client cannot invoice
+  // themselves and cannot open a case on themselves either. Every other
+  // route on `own` scope in this controller is read-only by design (see
+  // `CrmAccessService`'s own doc comment); creation was the door left open.
+  // `CreateEntityDto` accepts `subjectEmail` (whose email confines a
+  // `client`-role caller to a record) and `assignedTo` (a staff user id): an
+  // unrestricted `client` token could plant a fabricated case into another
+  // applicant's portal by naming their email, or assign work to an
+  // arbitrary staff id.
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN, PlatformRole.STAFF)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Create a new CRM entity' })
+  @ApiOperation({
+    summary: 'Create a new CRM entity',
+    description: 'Staff only — a client cannot open a case on themselves.',
+  })
   @ApiBody({ type: CreateEntityDto })
   @ApiResponse({ status: 201, description: 'Entity created successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 403, description: 'Requires a staff role' })
   createEntity(@Request() req: ExpressRequest, @Body() dto: CreateEntityDto) {
     // req.user comes from JWT (has tenantId and vertical)
     const user = req.user as UserPayload;

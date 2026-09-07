@@ -123,9 +123,17 @@ export class SearchService {
         // (`crm.service.ts` passes the real entity) — used to scope
         // `GET /search` to a client's own records in `scopeResults` below.
         // Callers that wrap their payload (tasks, workflow, documents, forms)
-        // do not carry this field on the outer object, so their rows are
+        // do not carry these fields on the outer object, so their rows are
         // simply excluded from a client's results rather than mis-scoped.
+        //
+        // Both `assignedTo` (staff) and `subjectEmail` (the record's SUBJECT)
+        // are carried, because `scopeResults` needs both senses of ownership
+        // — see `CrmAccessService.ownsEntity`. An applicant is never the
+        // assignee of their own case, so `assignedTo` alone matched nothing
+        // for a client and `GET /search` answered zero results for every
+        // client, indistinguishable from "no matches".
         assignedTo: entity.assignedTo ?? null,
+        subjectEmail: entity.subjectEmail ?? null,
       },
     };
 
@@ -199,10 +207,20 @@ export class SearchService {
    * record in the tenant — full-text search has no natural query-level
    * tenant-user scope the way `/crm/entities?assignedTo=` does, so this
    * filters the answer down to what `indexEntityData` tagged as the caller's
-   * own (`metadata.assignedTo`, present on CRM-entity rows). Internal callers
-   * (tasks, workflow, documents, forms, orchestration) do not pass `actor`
-   * and keep the unrestricted tenant-wide answer they always got — this is
-   * the *client route's* scoping, not a change to what indexing means.
+   * own. Internal callers (tasks, workflow, documents, forms, orchestration)
+   * do not pass `actor` and keep the unrestricted tenant-wide answer they
+   * always got — this is the *client route's* scoping, not a change to what
+   * indexing means.
+   *
+   * Two senses of ownership, matching `CrmAccessService.ownsEntity`: staff
+   * own by assignment (`metadata.assignedTo`), an applicant owns by being the
+   * record's SUBJECT (`metadata.subjectEmail`) — they are never the assignee
+   * of their own case, a staff member is. This used to compare `assignedTo`
+   * alone, which is the *staff* field, so every client search matched zero
+   * rows: not a leak, but indistinguishable from "no matches", which reads as
+   * a broken product. Email compared lower-cased and trimmed, matching how
+   * `subjectEmail` is normalised on write; an actor with no email matches
+   * nothing, which fails closed.
    *
    * Narrowing happens after the page is fetched, so a scoped caller can see
    * fewer than `limit` hits even when more of their own records exist further
@@ -238,7 +256,15 @@ export class SearchService {
     actor?: Actor,
   ): SearchResultDto[] {
     if (!actor || scopeOf(actor) !== 'own') return results;
-    return results.filter((r) => r.metadata?.assignedTo === actor.id);
+
+    const actorEmail = actor.email?.trim().toLowerCase();
+    return results.filter((r) => {
+      if (r.metadata?.assignedTo === actor.id) return true;
+      const subject = r.metadata?.subjectEmail;
+      const subjectEmail =
+        typeof subject === 'string' ? subject.trim().toLowerCase() : undefined;
+      return !!actorEmail && !!subjectEmail && actorEmail === subjectEmail;
+    });
   }
 
   private async searchElasticsearch(

@@ -206,13 +206,35 @@ describe('CrmAccessService', () => {
   });
 
   describe('applyScope', () => {
-    it('narrows to assignedTo for own scope', () => {
+    // Dead code today (see the method's own doc comment) — nothing calls
+    // this yet. Tested anyway, because the bug it once had (`assignedTo`
+    // alone) is exactly the one this whole file exists to close, and a
+    // future caller wiring it must not reintroduce it silently.
+    it('narrows to assignedTo alone when the actor has no email', () => {
       const s = service();
       const qb = { andWhere: jest.fn() };
-      s.applyScope(qb as any, clientA, 'entity');
+      const noEmail = { id: 'client-a', roles: [PlatformRole.CLIENT] };
+      s.applyScope(qb as any, noEmail, 'entity');
       expect(qb.andWhere).toHaveBeenCalledWith('entity."assignedTo" = :crmActorId', {
         crmActorId: 'client-a',
       });
+    });
+
+    it('ORs in subjectEmail for own scope, matching ownsEntity', () => {
+      const s = service();
+      const qb = { andWhere: jest.fn() };
+      const withEmail = {
+        id: 'client-a',
+        roles: [PlatformRole.CLIENT],
+        email: 'Applicant@Example.com ',
+      };
+      s.applyScope(qb as any, withEmail, 'entity');
+      // Lower-cased and trimmed, matching how `subjectEmail` is normalised
+      // on write and how `ownsEntity` compares it.
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        '(entity."assignedTo" = :crmActorId OR LOWER(TRIM(entity."subjectEmail")) = :crmActorEmail)',
+        { crmActorId: 'client-a', crmActorEmail: 'applicant@example.com' },
+      );
     });
 
     it('does not narrow the query for tenant or god scope', async () => {

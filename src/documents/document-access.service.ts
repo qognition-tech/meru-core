@@ -91,6 +91,38 @@ export class DocumentAccessService {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * Does this caller own the CRM record named by `entityId` — the same
+   * predicate `canAccess` applies via a document's `linkedEntityId`, exposed
+   * directly for the two callers that need to gate on a record before any
+   * `Document` row exists to check:
+   *
+   *  - `DocumentChecklistService.forEntity`, so `GET /documents/checklist
+   *    ?entityId=` cannot be pointed at another applicant's case to read
+   *    their document names, ids and upload status — it took no actor at
+   *    all and filtered only on `{ id: entityId, tenantId }`.
+   *  - `DocumentsService.upload` / `.create`, so a client cannot plant a
+   *    document onto another applicant's case by naming its id in
+   *    `dto.linkedEntityId`, which used to be written verbatim.
+   *
+   * `tenant`/`god` scope always passes — staff have full reach, matching
+   * every other check in this file. 404, not 403, on refusal: the same
+   * reasoning as `assert` — confirming a real-but-foreign entity id exists
+   * is itself a disclosure.
+   */
+  async assertOwnsEntity(
+    tenantId: string,
+    entityId: string,
+    actor: Actor,
+  ): Promise<void> {
+    if (this.scopeOf(actor) !== 'own') return;
+
+    const owned = await this.ownedEntityIds(tenantId, actor);
+    if (!owned.includes(entityId)) {
+      throw new NotFoundException('Entity not found');
+    }
+  }
+
   /** Does this caller reach this document at all? */
   async canAccess(
     document: Document,

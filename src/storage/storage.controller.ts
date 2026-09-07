@@ -174,6 +174,11 @@ export class StorageController {
   ): Promise<{ files: StorageFile[]; total: number }> {
     return this.storageService.searchFiles({
       tenantId,
+      // `actor` narrows an `own`-scope caller to their own files — see the
+      // doc comment on `FileSearchFilters.actor` and `searchFiles`. `actor`
+      // is `UserPayload`, which satisfies the `Actor` shape (`id`, `roles`,
+      // `email`) structurally.
+      actor,
       query: query.query,
       folder: query.folder,
       page: query.page,

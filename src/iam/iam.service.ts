@@ -5,6 +5,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 // IsNull() is mandatory for "column IS NULL" in find options. A bare
@@ -24,7 +25,12 @@ import { ApiKey } from './entities/api-key.entity';
 import { AuthToken, AuthTokenType } from './entities/auth-token.entity';
 import { UserPayload, DirectoryUser } from '../common/types';
 import { TenantContext } from '../core/tenancy/tenant-context';
-import { PlatformRole, ROLE_PRECEDENCE } from './enums/platform-role.enum';
+import {
+  PlatformRole,
+  ROLE_PRECEDENCE,
+  canGrantRole,
+} from './enums/platform-role.enum';
+import type { Actor } from '../common/access';
 import { MailService } from '../core/mail/mail.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -714,6 +720,14 @@ export class IamService {
    * tenant, because `validateUser()` resolves a login by email alone with no
    * tenant hint. Scoping this check per tenant would make logins ambiguous, so
    * the global check stays — only the error message is clearer.
+   *
+   * `actorRoles` is required, not optional, on purpose: `POST
+   * /iam/users/invite` is reachable by `firm_admin`, and `InviteUserDto.role`
+   * validates only `@IsEnum(PlatformRole)` — which accepts `platform_admin`.
+   * Without a ceiling check here, any `firm_admin` could invite themselves a
+   * `platform_admin` colleague and hand them God View. Checked before the
+   * uniqueness lookup so a caller cannot even discover whether a
+   * `platform_admin` email is taken.
    */
   async inviteUser(
     tenantId: string,
@@ -724,8 +738,16 @@ export class IamService {
       lastName?: string;
       department?: string;
     },
-    invitedBy?: { id: string; name: string },
+    invitedBy: { id: string; name: string } | undefined,
+    actorRoles: string[],
   ): Promise<DirectoryUser & { inviteSent: boolean }> {
+    const requestedRole = dto.role ?? PlatformRole.STAFF;
+    if (!canGrantRole(actorRoles, requestedRole)) {
+      throw new ForbiddenException(
+        `Cannot invite a user as '${requestedRole}': outranks the caller`,
+      );
+    }
+
     const existing = await TenantContext.runAsSystem(
       'check global email uniqueness before invite',
       () => this.userRepo.findOne({ where: { email: dto.email } }),
@@ -754,7 +776,7 @@ export class IamService {
       lastName: dto.lastName,
       status: UserStatus.INVITED,
       provider: AuthProvider.LOCAL,
-      roles: [dto.role ?? PlatformRole.STAFF],
+      roles: [requestedRole],
       attributes: dto.department ? { department: dto.department } : {},
     });
 
@@ -843,6 +865,27 @@ export class IamService {
   /**
    * Update a directory user. Deliberately narrow — this cannot touch password,
    * email, tenantId or MFA state, so it can never be used for takeover.
+   *
+   * Two callers reach this, with different rights:
+   *
+   * - `platform_admin` / `firm_admin` managing someone else's row (or their
+   *   own) — full directory management, including `role` and `status`.
+   * - anyone else, but ONLY on their own `userId`. `PATCH /iam/users/:id` has
+   *   no `@Roles` guard at all, on purpose — every portal's `ProfileView`
+   *   calls this route against the caller's own id, and a plain `staff` or
+   *   `client` user previously got a flat 403 editing their own name. That
+   *   authorisation decision ("is this my own row") belongs here, not on the
+   *   controller, the same as `own` scope elsewhere in this codebase. A
+   *   non-admin self-caller may change `firstName` / `lastName` /
+   *   `department` only: `role` and `status` are refused even on their own
+   *   row, because those are privilege and account-standing fields, not
+   *   profile fields.
+   *
+   * `role` is additionally ceiling-checked for EVERY caller via
+   * `canGrantRole`, admin or not, self or not — this is what stops a
+   * `firm_admin` from PATCHing their own id to `platform_admin`. The old
+   * `@Roles(PLATFORM_ADMIN, FIRM_ADMIN)` guard admitted `firm_admin`, and
+   * nothing before this checked the requested role against the caller's own.
    */
   async updateUser(
     tenantId: string,
@@ -854,11 +897,41 @@ export class IamService {
       department?: string;
       status?: UserStatus;
     },
+    actor: Actor,
   ): Promise<DirectoryUser> {
+    const isSelf = actor.id === userId;
+    const isAdmin = actor.roles.some(
+      (r) =>
+        r === PlatformRole.PLATFORM_ADMIN || r === PlatformRole.FIRM_ADMIN,
+    );
+
+    if (!isAdmin && !isSelf) {
+      // Stands in for the removed `@Roles(PLATFORM_ADMIN, FIRM_ADMIN)` guard
+      // for every case except "editing my own row" — a plain staff or client
+      // caller still cannot reach anyone else's user record through here.
+      throw new ForbiddenException('You can only update your own profile');
+    }
+
+    if (
+      !isAdmin &&
+      (updates.role !== undefined || updates.status !== undefined)
+    ) {
+      throw new ForbiddenException('You cannot change your own role or status');
+    }
+
     const user = await this.userRepo.findOne({
       where: { id: userId, tenantId },
     });
     if (!user) throw new NotFoundException('User not found');
+
+    if (
+      updates.role !== undefined &&
+      !canGrantRole(actor.roles, updates.role)
+    ) {
+      throw new ForbiddenException(
+        `Cannot grant role '${updates.role}': outranks the caller`,
+      );
+    }
 
     if (updates.firstName !== undefined) user.firstName = updates.firstName;
     if (updates.lastName !== undefined) user.lastName = updates.lastName;

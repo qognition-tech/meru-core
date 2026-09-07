@@ -409,12 +409,12 @@ with a natural-language command bar. Navigation renders from
 | Layer | Choice | Note |
 |---|---|---|
 | API | **NestJS 11**, REST + OpenAPI | Swagger `/api` |
-| ORM | **TypeORM 0.3**, 36 migrations | staying — a Drizzle port buys nothing here |
+| ORM | **TypeORM 0.3**, 41 migrations | staying — a Drizzle port buys nothing here |
 | DB | **Neon Postgres**, 3 databases | `meru` (control plane), `govx`, `immistack` |
 | Search | Postgres facade; Elasticsearch + pgvector available | ES optional, unwired |
 | Queue | **Postgres-backed** (`queue_jobs`) | Redis is *not* required |
 | Storage | **Supabase Storage** or S3, per-tenant prefix (§5.1b) | `STORAGE_PROVIDER=supabase\|s3`; GCS / Azure not built |
-| AI | `openai` SDK directly against any OpenAI-compatible endpoint — `langchain` is **not** a dependency | golden-rule default is **DeepSeek** (ADR 0003); platform fallback reads `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`; `DEEPSEEK_API_KEY` is not yet read by any code path — the ADR precedes the wiring |
+| AI | `openai` SDK directly against any OpenAI-compatible endpoint — `langchain` is **not** a dependency | golden-rule default is **DeepSeek** (ADR 0003, still Proposed); **correction, 2026-09-08: the platform fallback reads only `OPENAI_API_KEY`** (`ai.service.ts:131`) — `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL` and `DEEPSEEK_API_KEY` are read by no code path at all, individually re-grepped this session with zero hits each. This row previously said the fallback reads `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`, which contradicted §8.7 below and was wrong; §8.7 was the accurate one |
 | Auth | JWT + Passport, TOTP MFA, SAML | sessions revocable within 60s |
 | Host | Vercel `sin1`, CLI-deployed | `vercel --prod`; no git integration |
 
@@ -430,7 +430,7 @@ meru-core/
 │   ├── audit/ integrations/ rules/ queue/ jobs/ orchestration/
 │   ├── core/          # tenancy, filters, interceptors, policies
 │   ├── common/        # shared types, Actor/scopeOf (access.ts)
-│   ├── migrations/    # 36 TypeORM migrations
+│   ├── migrations/    # 41 TypeORM migrations (re-counted 2026-09-08: `ls src/migrations/*.ts | grep -v spec | wc -l` = `ALL_MIGRATIONS` array length)
 │   └── main.ts, app.module.ts, swagger.ts
 ├── packages/config-packs/
 │   ├── _schema/       # pack.schema.ts (Zod) + config-pack.schema.json

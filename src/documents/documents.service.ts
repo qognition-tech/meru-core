@@ -71,9 +71,20 @@ export class DocumentsService {
     file: Express.Multer.File,
     dto: UploadDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<UploadResult> {
+    const userId = actor.id;
     this.logger.log(`Uploading document: ${dto.name} for tenant: ${tenantId}`);
+
+    // `dto.linkedEntityId` used to be written into the row unchecked, so a
+    // client could plant a document onto another applicant's case simply by
+    // naming its id — `DocumentAccessService` only ever gated EXISTING
+    // documents, it had no hook on creation. `tenant`/`god` scope is
+    // unrestricted, matching every other write on this service; `own` scope
+    // must own the record it is attaching to.
+    if (dto.linkedEntityId) {
+      await this.access.assertOwnsEntity(tenantId, dto.linkedEntityId, actor);
+    }
 
     // The user lookup and the storage write happen BEFORE any transaction
     // opens. The serverless pg pool is `{ max: 1 }` (app.module.ts): once a
@@ -236,9 +247,17 @@ export class DocumentsService {
   async create(
     dto: CreateDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Document> {
+    const userId = actor.id;
     this.logger.log(`Creating document: ${dto.name} for tenant: ${tenantId}`);
+
+    // Same hole as `upload()`, on the metadata-only and direct-to-bucket
+    // finalise paths: `dto.linkedEntityId` written verbatim let a client
+    // attach a record to a case that was not theirs.
+    if (dto.linkedEntityId) {
+      await this.access.assertOwnsEntity(tenantId, dto.linkedEntityId, actor);
+    }
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {

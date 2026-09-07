@@ -29,7 +29,7 @@ import { AuditService } from '../audit/audit.service';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { ConnectorsService } from '../integrations/services/connectors.service';
 import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
-import { Actor, SYSTEM_ACTOR } from '../common/access';
+import { Actor, SYSTEM_ACTOR, scopeOf } from '../common/access';
 
 /**
  * A prompt the gateway can execute, whichever layer it came from.
@@ -366,9 +366,26 @@ export class AiService {
     packCode?: string;
   }> {
     // ── Layer 1: tenant override ────────────────────────────────────────
+    //
+    // `tenantId` used to be an `else if` — applied only when `key` was
+    // absent — so any lookup that supplied a `key` (every real call:
+    // `POST /ai/execute` always sets both) skipped the tenant filter
+    // entirely and could resolve a *different* tenant's override row, since
+    // `key` alone is unique across the whole table. `ai_prompts` carries
+    // `rls=true, force=true` on the live database, so this was never a live
+    // cross-tenant read — RLS already refuses the row — but it is the wrong
+    // query to be running regardless, and RLS is the last line of defence,
+    // not the first (CLAUDE.md §5.1). AND, not OR: both conditions apply
+    // whenever both are supplied.
+    //
+    // Internal callers that resolve by `key` alone with no `tenantId`
+    // (`OrchestrationService`'s categorisation and search-enrichment calls)
+    // are unaffected — `key`'s own DB-level uniqueness already scoped them to
+    // one row; no `tenantId IS NULL` / "global prompt" convention exists
+    // anywhere in this codebase today, so this does not invent one.
     const where: FindOptionsWhere<AiPrompt> = { category: request.category };
     if (request.key) where.key = request.key;
-    else if (request.tenantId) where.tenantId = request.tenantId;
+    if (request.tenantId) where.tenantId = request.tenantId;
 
     const row = await this.promptRepo.findOne({ where });
     if (row) {
@@ -936,8 +953,27 @@ export class AiService {
     // Search each module
     if (searchModules.includes('crm')) {
       try {
-        // Get CRM entities (simplified)
-        const entities = await this.crmService.getEntitiesByTenant(tenantId);
+        // `actor`, not an unscoped tenant-wide fetch — see this method's own
+        // doc comment. `own` scope (a client) is narrowed by SUBJECT
+        // (`subjectEmail`), matching `CrmController.clientScoped` and
+        // `CrmAccessService.ownsEntity`: an applicant is never the assignee
+        // of their own case, so filtering by `assignedTo` would match
+        // nothing. An actor with no email gets nothing rather than
+        // everything — fails closed, same as `CrmAccessService.ownsEntity`.
+        let entities;
+        if (scopeOf(actor) === 'own') {
+          const email = actor.email?.trim();
+          entities = email
+            ? (
+                await this.crmService.listEntities(tenantId, {
+                  subjectEmail: email,
+                  limit: 200,
+                })
+              ).items
+            : [];
+        } else {
+          entities = await this.crmService.getEntitiesByTenant(tenantId);
+        }
         results.crm = entities.filter((e) =>
           JSON.stringify(e).toLowerCase().includes(query.toLowerCase()),
         );
@@ -962,13 +998,20 @@ export class AiService {
 
     if (searchModules.includes('tasks')) {
       try {
-        // Tenant-wide smart search is an internal aggregation with no
-        // narrower user scope to apply — SYSTEM_ACTOR, same as the workflow
-        // and CRM branches above it (which are not user-scoped either).
+        // `actor`, not `SYSTEM_ACTOR` — same reasoning as the workflow branch
+        // above. `TaskService.listTasks` already narrows `own` scope to
+        // `assignedTo = actor.id` internally (unlike CRM, a task's owner IS
+        // its assignee, so this needs no subjectEmail equivalent). The stale
+        // comment that stood here claimed the CRM and workflow branches were
+        // "not user-scoped either", which was true of CRM until this same
+        // change and had already stopped being true of workflow — a second
+        // instance of exactly the trap CLAUDE.md §16 warns about: a stale
+        // "still open" note costing a future reader time re-verifying a
+        // closed finding.
         const { items: tasks } = await this.taskService.listTasks(
           tenantId,
           { limit: 200 },
-          SYSTEM_ACTOR,
+          actor,
         );
         results.tasks = tasks.filter((t) =>
           JSON.stringify(t).toLowerCase().includes(query.toLowerCase()),

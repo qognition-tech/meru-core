@@ -4,12 +4,18 @@
 > documentation. Architecture and rules are in [CLAUDE.md](CLAUDE.md); these two
 > files are the entire documentation surface.
 >
-> **Last verified 2026-09-05.** Live production (`meru-core.vercel.app`, `main`)
-> answers **273 paths / 325 operations** on `/api-json`; `GET /health/capabilities`
-> reports **2 live / 12 unconfigured**. `ALL_MIGRATIONS` in
-> `src/config/migrations.ts` counts **39 entries** by direct count of the array,
-> now including `AddInboundWebhooks` (registered 2026-09-05 after being on disk
-> and missing from the array for a fourth time — see below).
+> **Last verified 2026-09-08 (Jonas).** Live production (`meru-core.vercel.app`, `main`)
+> answers **274 paths / 326 operations** on `/api-json` (`curl` this session; was
+> 273/325 on 2026-09-05 — `auth` -1 for the removed `/auth/register`, a new `alerts`
+> prefix +2). `GET /health/capabilities` reports **2 live / 12 unconfigured**,
+> `[UNVERIFIED: recount]` — that route now requires an operator token (§16 of
+> workspace `CLAUDE.md`) and this pass had none. `ALL_MIGRATIONS` in
+> `src/config/migrations.ts` counts **41 entries**, matching **41 files** in
+> `src/migrations/` 1:1 (`ls src/migrations/*.ts | grep -v spec | wc -l`) — up
+> from 39 on 2026-09-05, now including `AddInboundWebhooks` (registered 2026-09-05
+> after being on disk and missing from the array for a fourth time — see below).
+> Per the operator, all 41 have been applied to production; not independently
+> checkable from this repo without a DB connection.
 >
 > **DEPLOYED 2026-09-06.** The paragraph that stood here said "NOT YET
 > DEPLOYED… nothing here has merged". That is false and was false for a day:
@@ -129,9 +135,12 @@ running system is large, and the frontend is where a customer sees it.
 
 ## 2. The API surface
 
-**325 operations across 273 paths, verified 2026-09-05.** The count has moved
-several times this year (248/297 on 2026-08-11, 262 after the 2026-08-22 gap
-closures, 272/324 on 2026-08-25) — re-query `/api-json` rather than quoting a
+**326 operations across 274 paths, re-verified 2026-09-08** (`curl /api-json`
+this session). Was 325/273 on 2026-09-05 — `auth` dropped one path (`POST
+/auth/register` removed) and a new `alerts` prefix appeared (+2 paths), not yet
+traced to a controller in this pass. The count has moved several times this
+year (248/297 on 2026-08-11, 262 after the 2026-08-22 gap closures, 272/324 on
+2026-08-25, 325/273 on 2026-09-05) — re-query `/api-json` rather than quoting a
 number from any document, including this one. Nothing built against an earlier
 surface breaks; additions have been additive throughout.
 
@@ -238,9 +247,10 @@ Owen's re-gate and merge:
 **Owen's CRUD suite (`tools/sweep/crud.mjs`), 80 checks, 62 PASS / 4 FAIL / 1
 REVIEW / 8 BLOCKED-BY-CREDENTIAL / 3 NO-ROUTE:**
 
-- **No invite/reset token reachable without `RESEND_API_KEY`** — staff and
-  client roles could not be created, so **client-thread cross-client isolation
-  is untested**, not unsound. Top priority once Resend is set.
+- ~~No invite/reset token reachable without `RESEND_API_KEY`~~ — **`RESEND_API_KEY` and
+  `RESEND_FROM` are now set on Production** (confirmed 2026-09-08). Staff and client roles can
+  now be created via the invite flow, so **client-thread cross-client isolation** is no longer
+  blocked on a credential — it is simply **not yet re-run**. Top priority.
 - `POST /documents/upload` → **500 after a connection timeout**
   (`MER-SRV-0001`) in production, not the clean 503 the current source
   suggests — Luke confirmed the upload-timeout does **not** reproduce from
@@ -596,27 +606,41 @@ uses. Until then the workflow is a correct skeleton with manual branching.
 ## 5. Credentials — nothing works without these
 
 **Free, already yours, just unset.** This is the cheapest work available
-anywhere on the list and currently the largest single blocker. Golden rule
-(operator decision, 2026-09-05): **Vercel · Neon Postgres · Neon Auth
-(post-pilot) · DeepSeek · Upstash Redis.**
+anywhere on the list. Golden rule (operator decision, 2026-09-05): **Vercel ·
+Neon Postgres · Neon Auth (post-pilot) · DeepSeek · Upstash Redis.**
 
-**Vercel Production, full 23-var list, verified `vercel env ls` 2026-09-05:**
-`CREDENTIALS_ENCRYPTION_KEY, IMMISTACK_DB_APP_URL, IMMISTACK_DB_URL,
-GOVX_DB_APP_URL, GOVX_DB_URL, CRON_SECRET, CORS_ALLOWED_ORIGINS,
+> **Correction (Jonas, 2026-09-08): `RESEND_API_KEY` and `RESEND_FROM` are now set on
+> Production**, confirmed by running `vercel env ls production --scope
+> qognitionagencys-projects` myself this session — both show `1d ago`. **This was "the
+> largest single blocker" as of 2026-09-05; it no longer is.** Invites can now be sent, so
+> `POST /iam/users/invite` no longer dead-ends at a log-only link. The row below is corrected
+> and moved out of the blocking set. **Nothing in this section's remaining rows has changed** —
+> `STRIPE_SECRET_KEY`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` are still
+> genuinely unset, re-confirmed in the same `vercel env ls` run.
+
+**Vercel Production, full 25-var list, `vercel env ls production` re-run 2026-09-08:**
+`RESEND_FROM, RESEND_API_KEY, CREDENTIALS_ENCRYPTION_KEY, IMMISTACK_DB_APP_URL,
+IMMISTACK_DB_URL, GOVX_DB_APP_URL, GOVX_DB_URL, CRON_SECRET, CORS_ALLOWED_ORIGINS,
 DATABASE_APP_URL, RATE_LIMIT_MAX_BANKING, RATE_LIMIT_MAX_IMMIGRATION,
 RATE_LIMIT_MAX_GLOBAL, RATE_LIMIT_TTL_MS, BASE_DOMAIN, MAX_FILE_SIZE,
 DOCUMENT_ENCRYPTION_KEY, AWS_REGION, SKIP_CONFIG_PACK_LOADER, VERTICAL,
 NODE_ENV, JWT_EXPIRATION, JWT_SECRET, DATABASE_NAME, DATABASE_URL`. Every one
-of these is read somewhere in `src`; none is set-but-unread.
+of these is read somewhere in `src`; none is set-but-unread. (23 on 2026-09-05
++ the 2 Resend vars added since = 25.)
+
+**Set, no longer a blocker:** `RESEND_API_KEY`, `RESEND_FROM` (the code reads `RESEND_FROM`;
+`MAIL_FROM` does nothing and is read by nothing). `POST /iam/users/invite` can now deliver.
+Whether delivery is actually succeeding end-to-end (a real inbox receiving the mail, not just
+the API accepting the send) is `[UNVERIFIED: end-to-end invite delivery]` — not checked this
+session, no test inbox available here.
 
 | Variable | For | Consequence today |
 |---|---|---|
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, three price IDs | BILL | `/billing/checkout` → clean 503. **Test mode first** |
-| `RESEND_API_KEY`, `RESEND_FROM` (verified sender — the code reads `RESEND_FROM`; `MAIL_FROM` does nothing and is read by nothing) | COM | **harder than "invites are delayed": no new user can self-activate.** `POST /iam/users/invite` returns `inviteSent: false`; the invited row is created with an unusable placeholder password (`iam.service.ts` `inviteUser`, "never returned, never sent anywhere") and the acceptance link is otherwise **only in the server log** — not retrievable by a tenant admin on Vercel. There is deliberately no admin set-password route either: `UpdateUserDto` carries no `password` field, precisely so a tenant admin can never take over another user's account (`update-user.dto.ts`'s own doc comment). With this unset, the invite email is the sole path to a first login, and it never arrives — **no customer can be onboarded**. Confirmed 2026-09-02 |
-| `DEEPSEEK_API_KEY` (golden rule; ADR 0003) or `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`, else `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled. **`DEEPSEEK_API_KEY` is not read anywhere in `src` today** (grepped, zero hits) — the platform fallback still reads only `OPENAI_API_KEY`. ADR 0003 is the target, not shipped wiring |
+| `DEEPSEEK_API_KEY` (golden rule; ADR 0003) or `AI_BASE_URL`/`AI_API_KEY`/`AI_DEFAULT_MODEL`, else `OPENAI_API_KEY` | AI, OCR, radar | every AI feature disabled. **None of `DEEPSEEK_API_KEY`, `AI_BASE_URL`, `AI_API_KEY`, `AI_DEFAULT_MODEL` is read anywhere in `src` today** — re-grepped each name individually 2026-09-08 (word-boundary, to avoid `AI_API_KEY` false-matching as a substring of `OPENAI_API_KEY`): zero hits, full stop, not even in a comment. Setting any of them has **zero effect**. The platform fallback reads only `OPENAI_API_KEY` (`ai.service.ts:131`), which is also unset. ADR 0003 is the target, not shipped wiring |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (never the anon key), `SUPABASE_STORAGE_BUCKET` (optional, defaults `meru-documents`, bucket must be **private**) | DOC | `POST /documents/upload` → clean **503** naming the missing vars. **Operator has chosen Supabase over S3** (fewer required vars: 2 vs S3's 3, defaulted bucket name); `StorageDriverRegistry` also has a real S3 driver, registered only when its own 3 vars are present. Today **neither is configured** — only `AWS_REGION` is set. The service-role key bypasses Supabase RLS — CLAUDE.md §5.1b |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (golden rule; ADR 0004) + a QStash token | rate limiting, refresh-token revocation, idempotency, the minute scheduler | none set, none exist in the Vercel var list at all today. An interim in-memory rate limiter runs in `api/index.js` (2026-09-05) as a stopgap — fail-open, cannot share state across concurrent function instances, not a substitute for this |
-| `CRON_SECRET` — **already set** (verified `vercel env ls`, 2026-09-05) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `POST /engines/screening` answers **503** `listsLoaded:false` |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (golden rule; ADR 0004) + a QStash token | rate limiting, refresh-token revocation, idempotency, the minute scheduler | none set, none exist in the Vercel var list at all today, and **`UPSTASH_*` is read by nothing in `src`** (re-grepped 2026-09-08: `grep -rn "UPSTASH" src` — zero hits, anywhere) — setting these today has zero effect until ADR 0004 ships. The queue/rate-limit code reads `REDIS_HOST` (`src/config/configuration.ts:137-138`), not an Upstash var. An interim in-memory rate limiter runs in `api/index.js` (2026-09-05) as a stopgap — fail-open, cannot share state across concurrent function instances, not a substitute for this |
+| `CRON_SECRET` — **already set** (verified `vercel env ls`, re-confirmed 2026-09-08) + an external minute-scheduler URL | queue, ingestion, **sanctions screening** | The two Vercel crons are authorised and both run **daily**. Minute-level jobs (queue drain, dispatch, SLA watchdog, alert rules) still fire once a day until QStash / cron-job.org pings `/api/v1/jobs/tick?scope=fast`. Whether the ingest has *succeeded* is a separate question — check `GET /engines/screening/watchlist-status`; until `entries > 0`, `screening.engine.ts:203-216` throws `ScreeningListsUnavailableException`, HTTP **503** `listsLoaded:false` — it fails closed, it does not report a false "clean" |
 
 ### 5.1 Loading the sanctions lists — the exact commands
 
@@ -760,10 +784,13 @@ out. A missing credential can only ever mean "not licensed yet"
   document-isolation block used `/auth/register` to mint cheap same-tenant test
   users and now SKIPs with a stated reason instead of failing; the scoping
   logic it exercised is still covered by
-  `src/documents/document-access.service.spec.ts`. **Still true separately:**
-  no new user can obtain a login by any route today — invites need
-  `RESEND_API_KEY`, and there is no admin "set initial password" route. That
-  gap is not this one; do not resurrect register to paper over it.
+  `src/documents/document-access.service.spec.ts`. **Correction (Jonas, 2026-09-08):**
+  the sentence that stood here said invites need `RESEND_API_KEY` and it is unset — that is
+  now wrong. `RESEND_API_KEY` and `RESEND_FROM` are set on Production (confirmed via `vercel
+  env ls` this session), so `POST /iam/users/invite` can send. There is still no admin
+  "set initial password" route by design (§5, `UpdateUserDto` carries no `password` field) —
+  that part of the sentence still holds. Do not resurrect `/auth/register` to paper over
+  either gap.
 
 ---
 

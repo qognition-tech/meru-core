@@ -3,6 +3,7 @@ import { DocumentsService } from './documents.service';
 import { DocumentType } from './entities/document.entity';
 import { VersionStatus } from './entities/document-version.entity';
 import { StorageProvider } from '../storage/interfaces/storage.interface';
+import type { Actor } from '../common/access';
 
 /**
  * `POST /documents/upload` routes through the single Vercel function
@@ -19,6 +20,12 @@ import { StorageProvider } from '../storage/interfaces/storage.interface';
 describe('DocumentsService — presigned upload path', () => {
   const TENANT = 't1';
   const USER_ID = 'user-1';
+  // `create` now takes an Actor, not a bare id, so it can decide whether the
+  // caller owns `dto.linkedEntityId` (see documents-linked-entity-authz.spec.ts).
+  // None of the payloads below set `linkedEntityId`, so that check never
+  // fires here; this exists only to keep this suite compiling against the
+  // corrected signature.
+  const ACTOR: Actor = { id: USER_ID, roles: ['staff'] };
 
   function build() {
     const savedDocuments: Record<string, any>[] = [];
@@ -63,7 +70,10 @@ describe('DocumentsService — presigned upload path', () => {
       {} as any, // configService
       {} as any, // dataSource
       {} as any, // orchestrationService
-      {} as any, // access — not exercised by these two methods
+      // access — `create()` only calls into this when `dto.linkedEntityId`
+      // is set, which none of the payloads in this file do; the ownership
+      // check itself is covered in documents-linked-entity-authz.spec.ts.
+      {} as any,
       storage as any,
     );
 
@@ -118,7 +128,7 @@ describe('DocumentsService — presigned upload path', () => {
           fileSize: 1234,
         } as any,
         TENANT,
-        USER_ID,
+        ACTOR,
       );
 
       expect(doc.versionNumber).toBe(0);
@@ -143,7 +153,7 @@ describe('DocumentsService — presigned upload path', () => {
           ...uploadUrlFields,
         } as any,
         TENANT,
-        USER_ID,
+        ACTOR,
       );
 
       expect(doc.versionNumber).toBe(1);
@@ -176,7 +186,7 @@ describe('DocumentsService — presigned upload path', () => {
             storageBucket: 'docs-bucket',
           } as any,
           TENANT,
-          USER_ID,
+          ACTOR,
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
 
@@ -199,7 +209,7 @@ describe('DocumentsService — presigned upload path', () => {
             // storageProvider and storageBucket omitted
           } as any,
           TENANT,
-          USER_ID,
+          ACTOR,
         ),
       ).rejects.toBeInstanceOf(BadRequestException);
     });

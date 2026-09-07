@@ -307,6 +307,22 @@ export class TenantProvisioningService {
       throw new NotFoundException('Tenant not found');
     }
 
+    // A deleted tenant must not be suspendable. `deleted` is the terminal
+    // state, and this method writes `status` unconditionally — so suspending
+    // one would move it `deleted` -> `suspended` and silently RESURRECT it,
+    // putting a tenant nobody believes exists back into every operator list
+    // and every status-filtered query. The operator console offered exactly
+    // this: its row action is a binary (`suspended` -> Reactivate, anything
+    // else -> Suspend), so a deleted tenant was shown a Suspend button.
+    // Fixed there too, but the guard belongs here — the UI is not the
+    // access control (CLAUDE.md §7.6).
+    if (tenant.status === TenantStatus.DELETED) {
+      throw new BadRequestException(
+        'A deleted tenant cannot be suspended. Deletion is terminal; ' +
+          'reinstating a tenant is a provisioning decision, not a status flip.',
+      );
+    }
+
     tenant.status = TenantStatus.SUSPENDED;
     tenant.metadata = {
       ...tenant.metadata,

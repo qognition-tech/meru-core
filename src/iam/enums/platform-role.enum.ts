@@ -39,3 +39,39 @@ export const ROLE_PRECEDENCE: readonly string[] = [
   PlatformRole.STAFF,
   PlatformRole.CLIENT,
 ];
+
+/**
+ * Whether a caller holding `actorRoles` may grant `targetRole` to someone
+ * else — including to themselves, via a self-update.
+ *
+ * A caller may only grant a role at or below their own most-privileged
+ * position in `ROLE_PRECEDENCE`. This is the fix for a real defect:
+ * `POST /iam/users/invite` and `PATCH /iam/users/:id` are both reachable by
+ * `firm_admin` (tenant-scoped), but `InviteUserDto.role` and
+ * `UpdateUserDto.role` validate only `@IsEnum(PlatformRole)`, which includes
+ * `platform_admin` — nothing stopped a `firm_admin` from inviting a
+ * `platform_admin`, or PATCHing their own user row to become one. Once the
+ * JWT carries `platform_admin` it passes every `@Roles(PLATFORM_ADMIN)` route
+ * — God View, tenant provisioning, `TenancyService.runAsGod` cross-tenant
+ * reads — none of which RLS defends against, because `runAsGod` bypasses
+ * tenancy by design. `platform_admin` must never be grantable from a
+ * tenant-scoped route; only a caller who already holds it may hand it out.
+ *
+ * Fails closed on both sides: an actor holding no ranked role, or a target
+ * role that is not in `ROLE_PRECEDENCE` at all, is refused rather than
+ * treated as the least-privileged case.
+ */
+export function canGrantRole(
+  actorRoles: readonly string[],
+  targetRole: string,
+): boolean {
+  const targetRank = ROLE_PRECEDENCE.indexOf(targetRole);
+  if (targetRank === -1) return false;
+
+  const actorRank = ROLE_PRECEDENCE.findIndex((r) => actorRoles.includes(r));
+  if (actorRank === -1) return false;
+
+  // Lower index = more privileged, so "at or below the caller's own rank"
+  // is "the target's rank is numerically >= the caller's".
+  return actorRank <= targetRank;
+}

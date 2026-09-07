@@ -760,6 +760,21 @@ export class StorageService {
       deletedStatus: FileStatus.DELETED,
     });
 
+    // `GET /storage/files` was tenant-scoped but not user-scoped: any
+    // authenticated caller in the tenant, of any role, could list every file
+    // in the firm — filenames, folders, tags, mimetypes — even though every
+    // by-id route (`getFile`, `getDownloadUrl`, ...) already refuses the same
+    // caller via `checkAccess()` below. Same two-condition answer as
+    // `checkAccess`, so LIST and GET agree: an `own`-scope caller sees what
+    // they uploaded, plus anything marked `access: public`. Tenant staff and
+    // god-context see everything, same as today.
+    if (scopeOf(filters.actor) === 'own') {
+      queryBuilder.andWhere(
+        '(file.createdById = :actorId OR file.access = :publicAccess)',
+        { actorId: filters.actor.id, publicAccess: FileAccess.PUBLIC },
+      );
+    }
+
     if (filters.query) {
       queryBuilder.andWhere(
         new Brackets((qb) => {

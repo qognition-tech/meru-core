@@ -57,7 +57,7 @@ placeholder rather than wire to what it believed was still a tenant-wide leak.
 `metadata.customData.sentByUserId` (`:346-349`) and logs to the application logger
 (`:357-359`) — **neither is `audit_logs`.** `grep -n "AuditService\|auditService" src/notifications/thread.service.ts
 src/notifications/communications.controller.ts` returns zero matches. This is the same shape
-of gap ADR 0001 found on `CrmService.update` (F4 there): a regulated correspondence record with
+of gap ADR 0008 found on `CrmService.update` (F4 there): a regulated correspondence record with
 no entry in the append-only, hash-chained audit trail workspace `CLAUDE.md` §7.7 requires for
 "every state-changing action." A firm's record of what it told a client is, today, the
 `notifications` table alone — durable, but not the audited record a dispute (ImmiStack
@@ -69,7 +69,7 @@ The core has two separate mechanisms that happen to serve this distinction today
 states that they are the boundary:
 
 - `POST /crm/entities/:id/comments` (`src/crm/comment.service.ts`) — internal file notes,
-  never delivered externally, referenced in ADR 0001 D2's dismissal design and flagged there as
+  never delivered externally, referenced in ADR 0008 D2's dismissal design and flagged there as
   `[UNVERIFIED: whether CommentService writes an audit_logs entry]`.
 - `/communications/threads` (`ThreadService`) — external correspondence, one thread per
   `channel:counterparty`, delivered (or recorded-pending) via `NotificationDispatchService`.
@@ -134,7 +134,7 @@ correct:**
 
 **Why not a single "message" resource with a `visibility: internal | external` flag.** A
 shared resource means a single toggle stands between a staff note and a message the client
-reads — exactly the failure mode ADR 0001's D3 rejected for the card-authority DTO ("an open
+reads — exactly the failure mode ADR 0008's D3 rejected for the card-authority DTO ("an open
 bag on it is precisely where a PAN would eventually be written, by exactly the well-meaning
 code path §4.3 exists to prevent," applied here to visibility instead of PII). A staff member
 who fat-fingers `visibility: external` on what they meant as an internal note has just sent a
@@ -146,7 +146,7 @@ resources make the external boundary structural, not a checkbox.
 
 **Decision.** `ThreadService.send` gains an `AuditService.logEvent` call, `action:
 AuditAction.CREATE`, `entityType: 'communication_thread'`, `entityId: threadKey`, `severity:
-AuditSeverity.INFO` for an ordinary send. This closes F1 and matches the pattern ADR 0001's D6
+AuditSeverity.INFO` for an ordinary send. This closes F1 and matches the pattern ADR 0008's D6
 uses for `entityTypes[].fields[].audited` — a state-changing write on a regulated
 correspondence record gets an audit row, full stop, not conditionally.
 
@@ -178,7 +178,7 @@ is exactly the kind of check that a second call site forgets.
 **Decision.** This ADR does **not** add a role finer than `staff` vs `client` to either
 comments or threads. If a real product need emerges for "this note is visible to `firm_admin`
 only, not `staff`", that is Layer-4 vocabulary (which roles see what) and belongs in a pack's
-`roles[]`/`entityTypes[]` extension, evaluated the same way ADR 0001's D6 `lockedWhen` pattern
+`roles[]`/`entityTypes[]` extension, evaluated the same way ADR 0008's D6 `lockedWhen` pattern
 works — a generic, pack-declared visibility predicate core evaluates without knowing what a
 "paralegal" is. Not built here because no concrete need has been named yet (see §5).
 
@@ -219,7 +219,7 @@ and uses the standard `RES` family.
    `no-slop.md`, per `definition-of-done.md`'s UI section).
 2. **Every thread send after D3 ships writes one more audit row.** At firm-scale correspondence
    volume this is a real, if modest, increase in `audit_logs` write volume — the same
-   trade-off ADR 0001 §9 named for `CrmService.update` and left as a wider, separate question.
+   trade-off ADR 0008 §9 named for `CrmService.update` and left as a wider, separate question.
    This ADR accepts the cost for threads specifically because correspondence is exactly what an
    evidence pack (ImmiStack `CLAUDE.md` §4.7) needs to reconstruct.
 3. **The workspace doc correction (D1 action 2) changes a widely-cited "three known instances"
@@ -232,10 +232,10 @@ and uses the standard `RES` family.
 
 | Trigger | Which decision it invalidates | What to do |
 |---|---|---|
-| A concrete product need for role-scoped internal visibility (e.g. a note only `firm_admin` should see) is named | D4 | Design a pack-declared visibility predicate on comments, evaluated the same generic way as ADR 0001's `lockedWhen` — do not hardcode a role check in `CommentService` |
+| A concrete product need for role-scoped internal visibility (e.g. a note only `firm_admin` should see) is named | D4 | Design a pack-declared visibility predicate on comments, evaluated the same generic way as ADR 0008's `lockedWhen` — do not hardcode a role check in `CommentService` |
 | Audit write volume from D3 becomes a measurable cost concern | D3's unconditional audit | Consider sampling or batching audit writes for `INFO`-severity thread sends specifically — but only after measuring, not speculatively |
 | A vertical needs a message visible to more than two parties (e.g. cc'ing a co-applicant) | The `channel:counterparty` two-party thread key itself | This is a larger redesign of `ThreadService`'s keying and is out of scope for this ADR — flag it as its own ADR rather than patching the key format |
-| `CommentService` is confirmed to write no audit entry (the `[UNVERIFIED]` item ADR 0001 left open) | D2's assumption that comments are already a safe, separate mechanism | Comments need the same D3 treatment threads are getting here — file as a follow-up, do not assume audit parity |
+| `CommentService` is confirmed to write no audit entry (the `[UNVERIFIED]` item ADR 0008 left open) | D2's assumption that comments are already a safe, separate mechanism | Comments need the same D3 treatment threads are getting here — file as a follow-up, do not assume audit parity |
 
 ---
 
@@ -262,4 +262,4 @@ regress.
 | 2 | Wire `immistack/app/client/messages/page.tsx` to the live routes; five-state UI (empty/loading/error/populated/overflowing) per `definition-of-done.md` | Mira |
 | 3 | Correct workspace `CLAUDE.md` §8's "three known instances" framing in the same commit as this ADR merges | Jonas |
 | 4 | Add the `AuditService.logEvent` call to `ThreadService.send`, confirm it does not fire for a `PENDING` row that later fails dispatch differently than one that succeeds (i.e. audit the *send attempt*, not the delivery outcome) | Luke |
-| 5 | Resolve ADR 0001's open `[UNVERIFIED]` on `CommentService` audit writes — this ADR's D2 assumes an answer it does not yet have | Luke |
+| 5 | Resolve ADR 0008's open `[UNVERIFIED]` on `CommentService` audit writes — this ADR's D2 assumes an answer it does not yet have | Luke |

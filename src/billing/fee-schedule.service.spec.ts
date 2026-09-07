@@ -94,9 +94,19 @@ describe('FeeScheduleService', () => {
         Promise.resolve(key === 'fees' ? fees : plans),
       ),
     };
-    const service = new FeeScheduleService(repo as never, packs as never);
+    const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
     return { service, repo, saved };
   }
+
+  /**
+   * `expand` now resolves `clientId` through `PaymentsService` so both write
+   * paths store `users.id` (see the note on `Payment.clientId`). These tests
+   * are about fee arithmetic, not id resolution, so the stub is the identity
+   * function — every existing expectation on `clientId` holds unchanged.
+   */
+  const paymentsStub = {
+    resolveClientUserId: jest.fn(async (_tenantId: string, clientId: string) => clientId),
+  };
 
   const base = {
     tenantId: TENANT,
@@ -272,7 +282,7 @@ describe('FeeScheduleService', () => {
       const packs = {
         section: jest.fn(() => Promise.resolve(plans)),
       };
-      const service = new FeeScheduleService(repo as never, packs as never);
+      const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
 
       // `three_monthly` does not set blockProgressOnArrears. A firm that never
       // asked for frozen cases must not have its workflows stopped because
@@ -301,7 +311,7 @@ describe('FeeScheduleService', () => {
         save: jest.fn(),
       };
       const packs = { section: jest.fn(() => Promise.resolve(plans)) };
-      const service = new FeeScheduleService(repo as never, packs as never);
+      const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
 
       const blocking = await service.arrearsBlocking(
         TENANT,
