@@ -33,6 +33,18 @@ export class UpdateEntityDto {
   @MaxLength(200)
   firstName?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Email of the person this record is ABOUT. Setting it is what makes ' +
+      'the record visible to that person in the client portal; clearing it ' +
+      'hides the record from them.',
+    example: 'applicant@example.com',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(320)
+  subjectEmail?: string;
+
   @ApiPropertyOptional({ example: 'Rashid' })
   @IsOptional()
   @IsString()
@@ -105,6 +117,16 @@ export class ListEntitiesQueryDto {
   @IsOptional()
   @IsUUID()
   assignedTo?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter to records ABOUT this person. A `client`-role caller has this ' +
+      'forced to their own address by the controller and cannot widen it.',
+    example: 'applicant@example.com',
+  })
+  @IsOptional()
+  @IsString()
+  subjectEmail?: string;
 
   @ApiPropertyOptional({
     description: 'Only records due on or after this instant.',

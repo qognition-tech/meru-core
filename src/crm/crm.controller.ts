@@ -80,8 +80,22 @@ export class CrmController {
         PlatformRole.STAFF,
       ].includes(r as PlatformRole),
     );
+    // Scoped by SUBJECT, not by assignee.
+    //
+    // This forced `assignedTo: user.id`, and `assignedTo` is the *staff*
+    // owner of a record — so a client's query matched nothing, always, and
+    // the entire client portal rendered "no case yet" to every real
+    // applicant. It read as correct because the intent was right and the only
+    // filter the DTO offered was the wrong one; `subjectEmail` exists now to
+    // give it a correct one.
+    //
+    // Spreading `query` first is deliberate: the client's own `subjectEmail`
+    // is overwritten, never merged, so a client cannot widen their own scope
+    // by supplying one. Email rather than user id because a record is created
+    // by staff against an applicant's address, often before that applicant
+    // has a login at all.
     return roles.includes(PlatformRole.CLIENT) && !isStaff
-      ? { ...query, assignedTo: user.id }
+      ? { ...query, subjectEmail: user.email }
       : query;
   }
 

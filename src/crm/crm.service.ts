@@ -154,6 +154,11 @@ export class CrmService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         email: dto.email,
+        // Normalised on write so the client-portal filter is a plain indexed
+        // comparison and not a per-row function. A record saved without this
+        // is invisible to the person it is about — see the column's own
+        // comment on `UniversalEntity`.
+        subjectEmail: dto.subjectEmail?.trim().toLowerCase() || null,
         phoneNumber: dto.phoneNumber,
         verticalAttributes: dto.verticalAttributes,
         // Workable types (case, obligation, breach) start OPEN unless the
@@ -236,6 +241,7 @@ export class CrmService {
       type?: EntityType;
       status?: EntityStatus;
       assignedTo?: string;
+      subjectEmail?: string;
       dueBefore?: string;
       dueAfter?: string;
     },
@@ -254,6 +260,14 @@ export class CrmService {
     if (filters.assignedTo)
       qb.andWhere('e."assignedTo" = :assignedTo', {
         assignedTo: filters.assignedTo,
+      });
+    // Compared lower-cased and trimmed on both sides: the stored value comes
+    // from a form and the filter value from a JWT, and "A@x.com" and
+    // "a@x.com " are the same applicant. The migration normalises what it
+    // backfills for the same reason.
+    if (filters.subjectEmail)
+      qb.andWhere('LOWER(TRIM(e."subjectEmail")) = :subjectEmail', {
+        subjectEmail: filters.subjectEmail.trim().toLowerCase(),
       });
     if (filters.dueAfter)
       qb.andWhere('e."dueDate" >= :dueAfter', { dueAfter: filters.dueAfter });
@@ -282,6 +296,7 @@ export class CrmService {
       type?: EntityType;
       status?: EntityStatus;
       assignedTo?: string;
+      subjectEmail?: string;
       dueBefore?: string;
       dueAfter?: string;
       page?: number;
@@ -452,6 +467,14 @@ export class CrmService {
 
     const { verticalAttributes, ...rest } = updates;
     Object.assign(entity, rest);
+
+    // Normalised on write, matching `createEntity` and the backfill migration,
+    // so the client-portal filter stays an indexed comparison. An explicit
+    // empty string clears it — which HIDES the record from its subject, so it
+    // is only ever what the caller literally sent.
+    if (rest.subjectEmail !== undefined) {
+      entity.subjectEmail = rest.subjectEmail?.trim().toLowerCase() || null;
+    }
 
     // `verticalAttributes` merges rather than replaces, at every depth.
     //
