@@ -647,19 +647,35 @@ platform credential set, and packs still pin `gpt-4o-mini` as the default model.
 Full cross-repo list lives in `../meru-core-fe/CLAUDE.md` §10. This is the
 backend half. State as of **2026-08-21**.
 
-### RESOLVED — the toolchain works; it was a broken install
+### RESOLVED — the toolchain works; the repo had to leave iCloud
 
 `npm run build`, `npm test` and even `check:cjs` were dying with
-`ETIMEDOUT (errno -60)` reading a `node_modules` file. That was **misdiagnosed
-as iCloud sync** — `~/Documents/GitHub` is not cloud-managed. The real cause was
-a **corrupt, partial `node_modules`**. Fix: `rm -rf node_modules && pnpm install
---frozen-lockfile`, which completed in under 4s and turned every gate green.
+`ETIMEDOUT (errno -60)` reading a `node_modules` file, and later stopped
+producing any output at all.
 
-**Verified 2026-08-21:** `pnpm build` clean · `pnpm check:cjs` clean (50
-packages, no ESM-only deps) · `pnpm test` **29 suites / 467 tests, all pass**,
-including `capabilities.service.spec.ts` · DI graph assembles with **308 routes
-mapped**, one more than the previously published 307 because
-`GET /api/v1/health/capabilities` is now among them.
+Two causes, and only the second is durable. A **corrupt, partial `node_modules`**
+was real and is fixed by `rm -rf node_modules && pnpm install --frozen-lockfile`.
+But the recurring one was **iCloud**: this repo lived under `~/Documents`, which
+Desktop & Documents Folders syncs, and with the account out of space the `bird`
+daemon serialised every filesystem operation behind itself. An earlier revision
+of this paragraph asserted "`~/Documents/GitHub` is not cloud-managed" on the
+strength of `mdls` returning `(null)` — that inference is wrong, because `mdls`
+only marks *evicted* files and these were materialised. **The workspace now lives
+at `~/dev/meru`. Do not move it back.** Detection and the full ordering are in the
+workspace `CLAUDE.md` §14; the one-line check is
+`ps -eo pid,time,%cpu,comm | grep '[b]ird'`.
+
+**Verified 2026-09-07, from `~/dev/meru`, on `main` after the merge:**
+`pnpm install --frozen-lockfile` **3.6 s** · `npm run build` (`nest build`)
+**clean, 8.7 s** · `npm run check:cjs` **clean, 52 packages, no ESM-only deps** ·
+`npm test` **56 suites / 789 tests, all pass, 4 s**.
+
+Ten of those tests were failing when `main` was first merged, and had been
+invisible because Jest could not be scheduled on this host at all: both
+`document-access.service.spec.ts` and `workflow-list-scoping.spec.ts` still
+mocked the CRM repository as `find({ where: { assignedTo } })` after
+`ownedEntityIds` was rewritten to build a query. The mocks are now query-builder
+stubs and cover subject ownership directly.
 
 Two gates need environment rather than code:
 
