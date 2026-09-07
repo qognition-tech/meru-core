@@ -49,20 +49,44 @@ export class DocumentAccessService {
   }
 
   /**
-   * The CRM records a client owns, as ids.
+   * The CRM records a caller owns, as ids.
    *
-   * Ownership is `assignedTo`, the same column `/crm/entities` confines a
-   * client to. If the two ever disagree a client sees a case in one place and
-   * not the other, so they must keep reading the same field.
+   * Two senses of ownership, and both are needed — the same pair
+   * `CrmAccessService.ownsEntity` uses. Staff own by assignment. An applicant
+   * owns by being the record's SUBJECT: they are never the assignee of their
+   * own case, a staff member is.
+   *
+   * This read `assignedTo` alone, and the comment that stood here said it must
+   * keep reading the same field as `/crm/entities` "or a client sees a case in
+   * one place and not the other". That was right, and it is why this changed:
+   * `/crm/entities` now confines a client by `subjectEmail`, so a client could
+   * list their case and still be refused every document attached to it.
+   *
+   * Email compared lower-cased and trimmed, matching how `subjectEmail` is
+   * normalised on write. An actor with no email contributes nothing, so the
+   * check fails closed.
    */
   private async ownedEntityIds(
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<string[]> {
-    const rows = await this.entities.find({
-      where: { tenantId, assignedTo: userId },
-      select: ['id'],
-    });
+    const email = actor.email?.trim().toLowerCase();
+
+    const qb = this.entities
+      .createQueryBuilder('e')
+      .select('e.id', 'id')
+      .where('e."tenantId" = :tenantId', { tenantId });
+
+    if (email) {
+      qb.andWhere(
+        '(e."assignedTo" = :userId OR LOWER(TRIM(e."subjectEmail")) = :email)',
+        { userId: actor.id, email },
+      );
+    } else {
+      qb.andWhere('e."assignedTo" = :userId', { userId: actor.id });
+    }
+
+    const rows = await qb.getRawMany<{ id: string }>();
     return rows.map((r) => r.id);
   }
 
@@ -86,7 +110,7 @@ export class DocumentAccessService {
     if (action !== 'read') return false;
 
     if (!document.linkedEntityId) return false;
-    const owned = await this.ownedEntityIds(document.tenantId, actor.id);
+    const owned = await this.ownedEntityIds(document.tenantId, actor);
     return owned.includes(document.linkedEntityId);
   }
 
@@ -133,7 +157,7 @@ export class DocumentAccessService {
   ): Promise<void> {
     if (this.scopeOf(actor) !== 'own') return;
 
-    const owned = await this.ownedEntityIds(tenantId, actor.id);
+    const owned = await this.ownedEntityIds(tenantId, actor);
 
     if (owned.length === 0) {
       qb.andWhere(`${alias}.uploadedById = :actorId`, { actorId: actor.id });

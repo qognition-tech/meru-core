@@ -313,12 +313,34 @@ export class WorkflowEngineService {
    */
   private async ownedEntityIds(
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<string[]> {
-    const rows = await this.entityRepo.find({
-      where: { tenantId, assignedTo: userId },
-      select: ['id'],
-    });
+    // Two senses of ownership, matching `CrmAccessService.ownsEntity` and
+    // `DocumentAccessService.ownedEntityIds`. Staff own by assignment; an
+    // applicant owns by being the record's SUBJECT, because they are never
+    // the assignee of their own case.
+    //
+    // This read `assignedTo` alone, so the "client is tracking their own
+    // matter's stage" case the comment above describes returned nothing at
+    // all for every client — the same defect as `/crm/entities` and document
+    // access, in the third of four places it appeared.
+    const email = actor.email?.trim().toLowerCase();
+
+    const qb = this.entityRepo
+      .createQueryBuilder('e')
+      .select('e.id', 'id')
+      .where('e."tenantId" = :tenantId', { tenantId });
+
+    if (email) {
+      qb.andWhere(
+        '(e."assignedTo" = :userId OR LOWER(TRIM(e."subjectEmail")) = :email)',
+        { userId: actor.id, email },
+      );
+    } else {
+      qb.andWhere('e."assignedTo" = :userId', { userId: actor.id });
+    }
+
+    const rows = await qb.getRawMany<{ id: string }>();
     return rows.map((r) => r.id);
   }
 
@@ -345,7 +367,7 @@ export class WorkflowEngineService {
     if (instance.startedBy === actor.id) return;
 
     if (instance.entityId) {
-      const owned = await this.ownedEntityIds(tenantId, actor.id);
+      const owned = await this.ownedEntityIds(tenantId, actor);
       if (owned.includes(instance.entityId)) return;
     }
 
@@ -388,7 +410,7 @@ export class WorkflowEngineService {
     if (entityId) base.entityId = entityId;
 
     if (scopeOf(actor) === 'own') {
-      const owned = await this.ownedEntityIds(tenantId, actor.id);
+      const owned = await this.ownedEntityIds(tenantId, actor);
       // If the caller asked for a specific `entityId`, the ownership branch
       // may only match when that id is actually theirs — never the full
       // `owned` set, which would ignore the filter the moment it is combined
