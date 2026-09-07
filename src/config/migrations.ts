@@ -38,6 +38,7 @@ import { AddInboundWebhooks1756300000000 } from '../migrations/1756300000000-Add
 import { AddSearchableTaskTypes1756400000000 } from '../migrations/1756400000000-AddSearchableTaskTypes';
 import { RelaxDocumentCurrentVersionIdNotNull1756410000000 } from '../migrations/1756410000000-RelaxDocumentCurrentVersionIdNotNull';
 import { AddSubjectEmailToEntities1756500000000 } from '../migrations/1756500000000-AddSubjectEmailToEntities';
+import { BackfillVacStatus1756600000000 } from '../migrations/1756600000000-BackfillVacStatus';
 
 /**
  * Every migration, bundled. The Vercel serverless bundle cannot glob the
@@ -96,4 +97,5 @@ export const ALL_MIGRATIONS = [
   AddSearchableTaskTypes1756400000000,
   RelaxDocumentCurrentVersionIdNotNull1756410000000,
   AddSubjectEmailToEntities1756500000000,
+  BackfillVacStatus1756600000000,
 ];

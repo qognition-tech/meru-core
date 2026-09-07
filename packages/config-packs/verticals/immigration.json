@@ -2,7 +2,7 @@
   "code": "immigration",
   "name": "Immigration Practice Management",
   "description": "Shared immigration vocabulary — every country overlay inherits this.",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -1452,6 +1452,38 @@
       "cooldownHours": 72,
       "escalateAfterHours": null,
       "escalateToRoles": []
+    },
+    {
+      "key": "vac_unverified_after_lodgement",
+      "label": "Government charge not verified on a lodged matter",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          },
+          {
+            "!=": [
+              {
+                "var": "vacStatus"
+              },
+              "verified"
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "createTask": true
     }
   ],
   "fees": [
@@ -2744,6 +2776,38 @@
       },
       "message": "This case has no assigned staff member.",
       "severity": "warning"
+    },
+    {
+      "key": "vac_unverified_at_or_beyond_lodgement",
+      "label": "Lodged without verified payment of the government charge",
+      "description": "An application is not validly made unless the Visa Application Charge has been paid. A matter that believes it is lodged when the charge was never paid is the single most damaging state this product can create. `vacStatus` must be `verified` — meaning a staff member opened the receipt or the TRN and confirmed it — before the case sits at or beyond lodgement. `evidence_pending` is NOT payment: it means an artifact exists that nobody has checked. Scoped to the kanban `stage` vocabulary because that is the one every case row carries. The matter lifecycle keeps its own stage under `matter.stage`, and a rule naming both would be skipped entirely on any case missing either — `missingVariables` skips on ANY absent variable. Unifying the two vocabularies is tracked separately; until then this rule does not see matters tracked only in the lifecycle.",
+      "when": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          },
+          {
+            "!=": [
+              {
+                "var": "vacStatus"
+              },
+              "verified"
+            ]
+          }
+        ]
+      },
+      "message": "This case is at stage {{stage}} but the government charge is recorded as {{vacStatus}}, not verified. Confirm the ImmiAccount receipt or the TRN before relying on this application being validly made.",
+      "severity": "error"
     }
   ]
 }

@@ -2,7 +2,7 @@
   "code": "ca-immigration",
   "name": "Canadian Immigration",
   "description": "Canadian Immigration — country overlay on the immigration vertical.",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "vertical": "immigration",
   "country": "CA",
   "extends": "immigration",
