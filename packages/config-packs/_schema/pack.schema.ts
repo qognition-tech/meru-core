@@ -861,10 +861,34 @@ export const ConfigPackSchema = z.object({
     termsUrl: HttpUrl.optional(),
     helpUrl: HttpUrl.optional(),
   }).optional(),
+  /**
+   * Pack provenance and, critically, its unresolved caveats.
+   *
+   * This object used to allow three keys, and Zod strips what it does not
+   * declare. All four immigration country packs carry
+   * `metadata.alertRulesReview` — the warning that no firm may rely on a
+   * deadline this product computes until a registered practitioner has signed
+   * the rules off for that jurisdiction (dependency D-6, risk R-10). Every one
+   * of them was being **silently deleted at load**, so the caveat existed in
+   * the source file and was invisible to every runtime reader: the API, the
+   * UI, and anyone querying the stored pack.
+   *
+   * A caveat that does not survive validation is decorative. `alertRulesReview`
+   * and `workflowConditions` are declared here so they reach storage and can be
+   * rendered next to the alerts they qualify.
+   */
   metadata: z.object({
     author: z.string().optional(),
     lastReviewedAt: z.string().datetime().optional(),
     regulatoryReference: z.string().optional(),
+    /**
+     * Free prose. Present ⇒ the pack's `alertRules[]` are NOT signed off by a
+     * practitioner for this jurisdiction, and any deadline derived from them
+     * must be rendered as unverified. Remove the key when it is signed.
+     */
+    alertRulesReview: z.string().optional(),
+    /** Free prose on transition conditions the loader cannot yet evaluate. */
+    workflowConditions: z.string().optional(),
   }).optional(),
 });
 
