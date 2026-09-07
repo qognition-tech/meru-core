@@ -11,16 +11,24 @@
 > now including `AddInboundWebhooks` (registered 2026-09-05 after being on disk
 > and missing from the array for a fourth time — see below).
 >
-> **NOT YET DEPLOYED, 2026-09-05.** Ten commits sit locally on
-> `fix/crm-entity-actor-scoping` (diag gate + rate limiter, actor scoping,
-> adapter gating, the webhooks migration registration, document nullability
-> fix — full list below). `npm run check:cjs` is clean on that branch;
-> `npm run build`, `npm test` and `npm run rls:verify` did **not** complete —
-> host memory exhaustion stalled `tsc` four times at under half a second of
-> accumulated CPU each, never producing a compile error either way (see
-> workspace `CLAUDE.md` §14). Owen re-gates once the host has headroom; nothing
-> here has merged, and a merged commit is still not a shipped one — check
-> `/api-json`'s path count after any deploy, not the git log.
+> **DEPLOYED 2026-09-06.** The paragraph that stood here said "NOT YET
+> DEPLOYED… nothing here has merged". That is false and was false for a day:
+> the ten commits landed via `integrate/2026-09-06`, `main` is `1841789`,
+> `main == origin/main`, and it is live (smoke sweep 856 passed / 1 warn).
+> `fix/crm-entity-actor-scoping` still exists locally with 12 unique commits
+> whose content is already on `main` — it is **superseded, delete it** rather
+> than carrying it as pending work.
+>
+> **Still not run against `1841789`:** `npm test` and `npm run rls:verify`.
+> `npm run check:cjs` passes. Jest cannot run on this host — it forks a worker
+> pool and gets starved (measured 2026-09-07: 0.44s of CPU across 14 minutes at
+> 0.0%, and `--runInBand` fared no better). That is the workspace `CLAUDE.md`
+> §14 memory pathology, not a code fault, but it means the unit suite is
+> **unverified on what is deployed**. Vercel's remote build is the only gate
+> that currently works; it compiles, it does not run tests.
+>
+> A merged commit is still not a shipped one — check `/api-json`'s path count
+> after any deploy, not the git log.
 >
 > `npm run rls:verify` cannot be run locally without `DATABASE_APP_URL` set, and
 > `vercel env pull` returns encrypted values **blank**, so a pulled `.env` looks
