@@ -454,6 +454,28 @@ API `/api/v1` · Swagger `/api` · spec `/api-json` · health `/api/v1/health`.
 Deploys are **CLI-driven** (`vercel --prod`); pushing to GitHub does *not*
 deploy. There is one remote, `origin` → `qognitionagency/meru-core`.
 
+> ### Git integration IS active on some projects — verified 2026-09-07
+>
+> The line above ("pushing to GitHub does not deploy") was **wrong, and acting on
+> it broke production.** Three `git push origin main` on `meru-core` each shipped
+> a Production deployment; the alias
+> `meru-core-git-main-qognitionagencys-projects.vercel.app` is the tell. Because
+> the migration was expected to be run by hand *after* a deliberate CLI deploy, the
+> code went live querying a `subjectEmail` column that did not exist yet, and every
+> read of `universal_entities` answered 42703 until the migration was applied.
+>
+> | Repo | Push to `main` | Effect |
+> |---|---|---|
+> | `meru-core` | **deploys to Production** | migrations must be applied *first*, or in the same minute |
+> | `immistack-` (marketing) | **builds Production** for the `immistack` **and** `immistack-marketing` projects | a failing gate leaves the previous build serving, which is what saved `www.immistack.com` here |
+> | `meru-core-fe` | no deployment | the three product apps deploy by CLI only |
+>
+> **So the rule is per-project, and the safe order for `meru-core` is: apply
+> migrations, then push.** `npm run migration:run` needs `DATABASE_URL` (the owner
+> role) from `meru-core/.env`; `vercel env pull` returns it blank. Confirm what a
+> push will do with `vercel ls <project>` before pushing, not after.
+
+
 ### 8.2 Before every deploy
 
 ```bash
