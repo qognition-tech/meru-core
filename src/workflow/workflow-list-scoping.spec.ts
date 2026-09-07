@@ -10,7 +10,8 @@ import { Actor } from '../common/access';
  * `assertInstanceOwnership` in a prior pass, but the list route was left querying
  * `where: { tenantId }` only — a `client` token got every matter in the tenant,
  * `context` included. This suite pins the list route's actor scoping directly, the
- * same two-source ownership (`startedBy`, or the linked CRM entity's `assignedTo`)
+ * same two-source ownership (`startedBy`, or the linked CRM entity — owned by
+ * `assignedTo` for staff and by `subjectEmail` for the applicant it is about)
  * `assertInstanceOwnership` already checks per-row.
  *
  * Deliberately not a full Nest DI harness: `listInstances` and the `ownedEntityIds`
@@ -30,11 +31,20 @@ describe('WorkflowEngineService.listInstances — list-route actor scoping', () 
   };
 
   const OWNED_ENTITY_ID = 'e-owned-by-client-a';
+  const SUBJECT_ENTITY_ID = 'e-subject-of-client-a';
 
   function buildService() {
     const entities = [
       { id: OWNED_ENTITY_ID, tenantId: T, assignedTo: 'client-a' },
       { id: 'e-owned-by-someone-else', tenantId: T, assignedTo: 'client-c' },
+      // An applicant is never the assignee of their own matter — a staff member
+      // is. They own it by being its subject, which is the path that was broken.
+      {
+        id: SUBJECT_ENTITY_ID,
+        tenantId: T,
+        assignedTo: 'staff-9',
+        subjectEmail: 'a@example.test',
+      },
     ];
 
     const instances = [
@@ -66,6 +76,17 @@ describe('WorkflowEngineService.listInstances — list-route actor scoping', () 
         entityId: 'e-owned-by-someone-else',
         startedBy: 'staff-2',
         createdAt: new Date('2026-01-03'),
+      },
+      // Staff started it and staff is the assignee, but the applicant is the
+      // record's SUBJECT. Before subject-ownership this matter was invisible to
+      // the very person it is about.
+      {
+        id: 'inst-linked-to-subject-entity',
+        tenantId: T,
+        status: InstanceStatus.ACTIVE,
+        entityId: SUBJECT_ENTITY_ID,
+        startedBy: 'staff-2',
+        createdAt: new Date('2026-01-05'),
       },
       // A different tenant entirely — must never surface for any T actor.
       {
@@ -104,13 +125,34 @@ describe('WorkflowEngineService.listInstances — list-route actor scoping', () 
       },
     };
 
+    // `ownedEntityIds` builds a query rather than calling `find`, because it has
+    // to OR assignment against subject email. The stub records the bound
+    // parameters and resolves rows the way the SQL would.
     const entityRepo = {
-      find: async ({ where }: any) =>
-        entities
-          .filter(
-            (e) => e.tenantId === where.tenantId && e.assignedTo === where.assignedTo,
-          )
-          .map((e) => ({ id: e.id })),
+      createQueryBuilder: () => {
+        const params: Record<string, any> = {};
+        const bind = (_sql: string, p: Record<string, any> = {}) => {
+          Object.assign(params, p);
+          return qb;
+        };
+        const qb: any = {
+          select: () => qb,
+          where: bind,
+          andWhere: bind,
+          getRawMany: async () =>
+            entities
+              .filter(
+                (e: any) =>
+                  e.tenantId === params.tenantId &&
+                  (e.assignedTo === params.userId ||
+                    (!!params.email &&
+                      (e.subjectEmail ?? '').trim().toLowerCase() ===
+                        params.email)),
+              )
+              .map((e: any) => ({ id: e.id })),
+        };
+        return qb;
+      },
     };
 
     const unused = {} as any;
@@ -139,7 +181,12 @@ describe('WorkflowEngineService.listInstances — list-route actor scoping', () 
     for (const key of ['firm_admin', 'staff'] as const) {
       const result = await service.listInstances(T, ACTORS[key]);
       expect(result.map((r) => r.id).sort()).toEqual(
-        ['inst-linked-to-clients-entity', 'inst-not-clients', 'inst-started-by-client'].sort(),
+        [
+          'inst-linked-to-clients-entity',
+          'inst-linked-to-subject-entity',
+          'inst-not-clients',
+          'inst-started-by-client',
+        ].sort(),
       );
     }
   });
@@ -151,6 +198,27 @@ describe('WorkflowEngineService.listInstances — list-route actor scoping', () 
     expect(result.map((r) => r.id).sort()).toEqual(
       ['inst-linked-to-clients-entity', 'inst-started-by-client'].sort(),
     );
+  });
+
+  it('a client sees the matter they are the SUBJECT of, though staff is its assignee', async () => {
+    const service = buildService();
+
+    const withEmail = { ...ACTORS['client-own'], email: 'a@example.test' };
+    const result = await service.listInstances(T, withEmail);
+    expect(result.map((r) => r.id).sort()).toEqual(
+      [
+        'inst-linked-to-clients-entity',
+        'inst-linked-to-subject-entity',
+        'inst-started-by-client',
+      ].sort(),
+    );
+  });
+
+  it('an actor with no email falls back to assignment only — fails closed', async () => {
+    const service = buildService();
+
+    const result = await service.listInstances(T, ACTORS['client-own']);
+    expect(result.map((r) => r.id)).not.toContain('inst-linked-to-subject-entity');
   });
 
   it('a client with no matters of their own sees an empty list, not an error', async () => {

@@ -25,6 +25,14 @@ describe('DocumentAccessService', () => {
     'client-b': ['case-b'],
   };
 
+  // Which CRM records each client is the SUBJECT of. This is how an applicant
+  // actually owns their own matter — they are never its assignee, a staff
+  // member is — so a mock that only knows `assignedTo` cannot see the bug this
+  // service was changed to fix.
+  const subjects: Record<string, string[]> = {
+    'a@example.test': ['case-a-subject'],
+  };
+
   const doc = (over: Record<string, any> = {}) => ({
     id: 'doc-1',
     tenantId: T,
@@ -35,9 +43,29 @@ describe('DocumentAccessService', () => {
   });
 
   const build = () => {
+    // `ownedEntityIds` builds a query rather than calling `find`, because it
+    // has to OR assignment against subject email. The stub records the bound
+    // parameters and resolves ids the same way the SQL would.
     const entities = {
-      find: jest.fn(async ({ where }: any) => {
-        return (assignments[where.assignedTo] ?? []).map((id) => ({ id }));
+      createQueryBuilder: jest.fn(() => {
+        const params: Record<string, any> = {};
+        const bind = (_sql: string, p: Record<string, any> = {}) => {
+          Object.assign(params, p);
+          return qb;
+        };
+        const qb: any = {
+          select: () => qb,
+          where: bind,
+          andWhere: bind,
+          getRawMany: async () => {
+            const ids = new Set<string>(assignments[params.userId] ?? []);
+            if (params.email) {
+              for (const id of subjects[params.email] ?? []) ids.add(id);
+            }
+            return [...ids].map((id) => ({ id }));
+          },
+        };
+        return qb;
       }),
     };
     return { service: new DocumentAccessService(entities as any), entities };
@@ -62,7 +90,7 @@ describe('DocumentAccessService', () => {
       const qb = { andWhere: jest.fn() };
       await service.applyScope(qb as any, T, staff);
       expect(qb.andWhere).not.toHaveBeenCalled();
-      expect(entities.find).not.toHaveBeenCalled();
+      expect(entities.createQueryBuilder).not.toHaveBeenCalled();
     });
   });
 
@@ -125,6 +153,26 @@ describe('DocumentAccessService', () => {
       const [sql, params] = qb.andWhere.mock.calls[0];
       expect(sql).not.toContain('linkedEntityId');
       expect(params).toEqual({ actorId: 'nobody' });
+    });
+
+    it('reads a document linked to a case they are the SUBJECT of', async () => {
+      const { service } = build();
+      const withEmail = { ...clientA, email: 'a@example.test' };
+      const d = doc({ uploadedById: 'staff-1', linkedEntityId: 'case-a-subject' }) as any;
+      expect(await service.canAccess(d, withEmail)).toBe(true);
+    });
+
+    it('matches the subject case-insensitively and ignoring whitespace', async () => {
+      const { service } = build();
+      const messy = { ...clientA, email: '  A@Example.Test  ' };
+      const d = doc({ uploadedById: 'staff-1', linkedEntityId: 'case-a-subject' }) as any;
+      expect(await service.canAccess(d, messy)).toBe(true);
+    });
+
+    it('an actor with no email falls back to assignment only — fails closed', async () => {
+      const { service } = build();
+      const d = doc({ uploadedById: 'staff-1', linkedEntityId: 'case-a-subject' }) as any;
+      expect(await service.canAccess(d, clientA)).toBe(false);
     });
 
     it('a client who also holds staff is staff', async () => {
