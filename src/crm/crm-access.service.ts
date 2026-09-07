@@ -70,7 +70,23 @@ export class CrmAccessService {
    * call sites that drifted apart.
    */
   ownsEntity(entity: UniversalEntity, actor: Actor): boolean {
-    return !!entity.assignedTo && entity.assignedTo === actor.id;
+    // Two different senses of "owns", and both are needed.
+    //
+    // Staff own by assignment. An applicant owns by being the SUBJECT: they
+    // are never the assignee of their own case — a staff member is — so
+    // comparing user ids answered "no" for every client on every record. That
+    // is the same defect that made `CrmController.clientScoped` return an
+    // empty list, and fixing only the list would have left the by-id read
+    // 404ing on a case the client can see in their own portal.
+    //
+    // Compared lower-cased and trimmed, matching how `subjectEmail` is
+    // normalised on write and filtered on read. An actor with no email never
+    // matches, which fails closed.
+    if (entity.assignedTo && entity.assignedTo === actor.id) return true;
+
+    const actorEmail = actor.email?.trim().toLowerCase();
+    const subject = entity.subjectEmail?.trim().toLowerCase();
+    return !!actorEmail && !!subject && actorEmail === subject;
   }
 
   /** Does this caller reach this record at all? */

@@ -11,6 +11,16 @@ import { TenantContext } from '../core/tenancy/tenant-context';
 export interface Actor {
   id: string;
   roles: string[];
+  /**
+   * The caller's own email, when there is a caller.
+   *
+   * `own` scope needs it because an applicant is not the *assignee* of their
+   * case — staff are — so identity-by-user-id cannot answer "is this record
+   * mine". Records carry `subjectEmail` for exactly this comparison. Optional
+   * so `SYSTEM_ACTOR` and any call site that predates it still compile; an
+   * absent email simply never matches, which fails closed.
+   */
+  email?: string;
 }
 
 /**
