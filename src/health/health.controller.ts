@@ -1,10 +1,11 @@
-import { Controller, ForbiddenException, Get, Req } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Public } from '../iam/decorators/public.decorator';
 import { Roles } from '../iam/decorators/roles.decorator';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
+import { PolicyGuard } from '../iam/guards/policy.guard';
 import { CapabilitiesService } from './capabilities.service';
 
 @Controller('health')
@@ -55,35 +56,27 @@ export class HealthController {
    * controller applied it nowhere — so the restriction was inert and any
    * authenticated caller of any role, `client` included, got the report.
    *
-   * The role is therefore checked inline rather than through
-   * `@UseGuards(PolicyGuard)`. That guard needs `VerticalPolicyService`, which
-   * `HealthModule` does not provide, so using it means importing `IamModule`
-   * here. That import looks safe — only `app.module.ts` imports
-   * `HealthModule`, and nothing outside `src/health/` consumes
-   * `CapabilitiesService`, so there is no cycle — but "looks safe" is settled
-   * at *runtime*: a Nest wiring fault surfaces as an undefined injected
-   * provider, not a build error, and this repo has already shipped a commit
-   * that mapped every route and then failed to boot for exactly that reason.
-   * An inline check cannot fail that way at all. Move it to the guard
-   * (ADR 0007 D4) once someone can boot locally and read the route table.
+   * Fixed with the guard, per ADR 0007 D4.
    *
-   * Class-level guards are not an option regardless: `GET /health` above is
-   * `@Public()` and must stay anonymous.
+   * An earlier pass checked the role inline instead, on the assumption that
+   * `@UseGuards(PolicyGuard)` would need `HealthModule` to import `IamModule`
+   * and risk a wiring fault that only shows at runtime. That assumption was
+   * wrong: `PolicyGuard`'s three dependencies are all globally available —
+   * `Reflector` and `DataSource` inherently, and `VerticalPolicyService`
+   * through `CoreModule`, which is `@Global()`. `TasksModule` proves it
+   * empirically, using this guard while importing neither.
+   *
+   * Class-level rather than method-level is still not an option: `GET /health`
+   * above is `@Public()` and must stay anonymous, and `PolicyGuard` throws
+   * when there is no user.
    */
   @Get('capabilities')
+  @UseGuards(PolicyGuard)
   @Roles(PlatformRole.PLATFORM_ADMIN)
   @ApiOperation({ summary: 'Per-capability configuration report' })
   @ApiResponse({ status: 200, description: 'Capability report' })
   @ApiResponse({ status: 403, description: 'Not a platform admin' })
-  async capabilityReport(@Req() req: { user?: { roles?: string[] } }) {
-    const roles = req.user?.roles ?? [];
-    if (!roles.includes(PlatformRole.PLATFORM_ADMIN)) {
-      // 403, not 404: the caller is authenticated and the route's existence is
-      // already public knowledge from the OpenAPI spec. What must not leak is
-      // the body — it names which credentials are missing, which is why the
-      // public `/health` above deliberately returns counts only.
-      throw new ForbiddenException('Insufficient Role Privileges');
-    }
+  async capabilityReport() {
     return {
       capabilities: await this.capabilities.report(),
       summary: await this.capabilities.summary(),
