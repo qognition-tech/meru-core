@@ -2,7 +2,7 @@
   "code": "immigration",
   "name": "Immigration Practice Management",
   "description": "Shared immigration vocabulary — every country overlay inherits this.",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -2248,6 +2248,30 @@
           "key": "governmentRef",
           "label": "Government Reference",
           "type": "text"
+        },
+        {
+          "key": "vacSettlementMode",
+          "label": "Who pays the government charge",
+          "type": "select",
+          "options": [
+            "firm_pays_on_behalf",
+            "client_pays_direct",
+            "client_card_agent_enters",
+            "third_party_payer"
+          ],
+          "lockedWhen": {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          }
         }
       ]
     },

@@ -850,6 +850,24 @@ export const ConfigPackSchema = z.object({
       multiple: z.boolean().optional(),
       default: z.unknown().optional(),
       formula: z.string().optional(),
+      /**
+       * JsonLogic over the record. While it evaluates true the field is
+       * IMMUTABLE — `CrmService.updateEntity` refuses a change with 409.
+       *
+       * This is the only genuine server-side field lock in the platform. A
+       * settlement mode that may be edited after lodgement is not a record of
+       * what was agreed, it is a record of what somebody last typed, and the
+       * distinction is what a fee dispute turns on.
+       *
+       * Evaluated against the same flattened view rules see —
+       * `verticalAttributes` promoted one level, top-level columns winning.
+       * A field with no `lockedWhen` is never locked, so a pack that omits it
+       * behaves exactly as before.
+       *
+       * NOTE: `audited` is deliberately NOT declared alongside this. Declaring
+       * a key nothing enforces is how `rules[]` sat inert for months.
+       */
+      lockedWhen: z.unknown().optional(),
     })).default([]),
   })).optional(),
 

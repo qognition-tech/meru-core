@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { Document } from '../documents/entities/document.entity';
 import { EntityRelationService } from './entity-relation.service';
 import { CrmAccessService } from './crm-access.service';
 import { Actor } from '../common/access';
+import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 
 /**
  * Statuses that mean the record is finished. Transitioning *into* one of these
@@ -102,7 +105,84 @@ export class CrmService {
     private documentHubService: DocumentHubService,
     private relations: EntityRelationService,
     private readonly access: CrmAccessService,
+    private readonly packs: VerticalPackService,
+    private readonly evaluator: RuleEvaluatorService,
   ) {}
+
+  /**
+   * Refuse a change to a field the pack has declared immutable.
+   *
+   * The only genuine server-side field lock in the platform. A settlement mode
+   * that stays editable after lodgement is not a record of what was agreed, it
+   * is a record of what somebody last typed — and that distinction is what a
+   * fee dispute turns on.
+   *
+   * Three things keep this from becoming cross-vertical breakage (§7.2):
+   *
+   * - It is opt-in per field. A pack with no `lockedWhen` anywhere — which is
+   *   every GRC pack — reaches the `return` on the first line and nothing
+   *   changes.
+   * - It only ever refuses a change to the ONE field whose condition holds.
+   *   It never blocks an unrelated edit on the same PATCH.
+   * - A condition that does not compile is logged and IGNORED, not treated as
+   *   locked. A malformed pack must not be able to freeze a tenant's records;
+   *   the failure direction is "not enforced and said so", never "everything
+   *   is read-only and nobody knows why".
+   *
+   * Evaluated against the same flattened view rules see: `verticalAttributes`
+   * promoted one level, top-level columns winning.
+   */
+  private async assertNoLockedFieldChanged(
+    entity: UniversalEntity,
+    updates: { verticalAttributes?: Record<string, unknown> },
+    vertical: string | null,
+  ): Promise<void> {
+    const incoming = updates.verticalAttributes;
+    if (!incoming || Object.keys(incoming).length === 0) return;
+
+    const entityTypes = await this.packs.section<
+      Array<{
+        type: string;
+        fields?: Array<{ key: string; label?: string; lockedWhen?: unknown }>;
+      }>
+    >(vertical, 'entityTypes');
+    if (!entityTypes?.length) return;
+
+    const forType = entityTypes.find((e) => e.type === entity.type);
+    const locked = (forType?.fields ?? []).filter((f) => f.lockedWhen != null);
+    if (!locked.length) return;
+
+    const attrs =
+      (entity.verticalAttributes as Record<string, unknown> | undefined) ?? {};
+    const data: Record<string, unknown> = { ...attrs, ...entity };
+
+    for (const field of locked) {
+      // Only a field this PATCH actually mentions can be refused. `undefined`
+      // means "not sent", which is not a change.
+      if (!(field.key in incoming)) continue;
+
+      const next = incoming[field.key];
+      const current = attrs[field.key];
+      if (next === current) continue;
+
+      const check = this.evaluator.validate(field.lockedWhen);
+      if (!check.valid) {
+        this.logger.error(
+          `Pack field lock '${entity.type}.${field.key}' does not compile and ` +
+            `is NOT being enforced: ${check.reason}`,
+        );
+        continue;
+      }
+
+      if (this.evaluator.matches(field.lockedWhen, data)) {
+        throw new ConflictException(
+          `${field.label ?? field.key} cannot be changed on this record any ` +
+            `more. The pack locks it at this stage, and the value on file is ` +
+            `what the parties agreed to.`,
+        );
+      }
+    }
+  }
 
   async createEntity(
     tenantId: string,
@@ -464,6 +544,11 @@ export class CrmService {
         id,
       );
     }
+
+    // Before anything is applied: a field the pack has frozen at this stage
+    // may not move. Checked against the record as it stands, not as it would
+    // stand after the merge.
+    await this.assertNoLockedFieldChanged(entity, updates, vertical ?? null);
 
     const { verticalAttributes, ...rest } = updates;
     Object.assign(entity, rest);

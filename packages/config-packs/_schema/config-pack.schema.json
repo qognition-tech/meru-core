@@ -1544,7 +1544,8 @@
                 "default": {},
                 "formula": {
                   "type": "string"
-                }
+                },
+                "lockedWhen": {}
               },
               "required": [
                 "key",
