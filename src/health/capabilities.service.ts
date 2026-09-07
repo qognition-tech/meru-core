@@ -56,22 +56,67 @@ interface CapabilitySpec {
 }
 
 /**
- * The eight regulator adapters, with the credential each needs.
+ * The eight regulator adapters, with the credentials each actually reads.
  *
- * Named from the adapter files in `src/integrations/adapters/` rather than from
- * memory, because a list that drifts from the adapters is worse than no list:
- * it reports a connector as configured that does not exist.
+ * These MUST match the `credentialsPresent` predicate in the matching
+ * `src/integrations/adapters/<adapter>.adapter.ts`, and
+ * `capabilities-regulators.spec.ts` parses those files and fails if they
+ * diverge — because writing the discipline down was not enough. This list was
+ * authored with that instruction in its own comment and still drifted in SEVEN
+ * of eight rows: three named a `*_API_KEY` no adapter reads, three checked only
+ * the client id and not the secret, and the UK row named
+ * `UK_HOMEOFFICE_CLIENT_ID` where the adapter reads `UKVI_*`.
+ *
+ * Both halves of a credential pair are required, because an adapter goes live
+ * only when it has both. Reporting `live` on the id alone says a regulator
+ * connector is configured while it is in fact still sandboxed — the exact
+ * "unknown rendered as a positive result" failure §5.2 exists to prevent.
  */
-const REGULATORS: Array<{ code: string; requires: string[] }> = [
-  { code: 'regulator:ae-cbuae', requires: ['CBUAE_API_KEY'] },
-  { code: 'regulator:sa-sama', requires: ['SAMA_API_KEY'] },
-  { code: 'regulator:qa-central-bank', requires: ['QCB_API_KEY'] },
-  { code: 'regulator:bh-central-bank', requires: ['CBB_API_KEY'] },
-  { code: 'regulator:au-home-affairs', requires: ['AU_HOMEAFFAIRS_CLIENT_ID'] },
-  { code: 'regulator:ca-ircc', requires: ['IRCC_CLIENT_ID'] },
-  { code: 'regulator:uk-home-office', requires: ['UK_HOMEOFFICE_CLIENT_ID'] },
-  { code: 'regulator:nz-immigration', requires: ['INZ_CLIENT_ID'] },
+const REGULATORS: Array<{ code: string; adapter: string; requires: string[] }> = [
+  {
+    code: 'regulator:ae-cbuae',
+    adapter: 'uae-central-bank',
+    requires: ['CBUAE_API_KEY'],
+  },
+  {
+    code: 'regulator:sa-sama',
+    adapter: 'sa-sama',
+    requires: ['SAMA_CLIENT_ID', 'SAMA_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:qa-central-bank',
+    adapter: 'qa-central-bank',
+    requires: ['QCB_CLIENT_ID', 'QCB_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:bh-central-bank',
+    adapter: 'bh-central-bank',
+    requires: ['CBB_CLIENT_ID', 'CBB_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:au-home-affairs',
+    adapter: 'au-home-affairs',
+    requires: ['AU_HOMEAFFAIRS_CLIENT_ID', 'AU_HOMEAFFAIRS_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:ca-ircc',
+    adapter: 'ca-ircc',
+    requires: ['IRCC_CLIENT_ID', 'IRCC_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:uk-home-office',
+    adapter: 'uk-home-office',
+    requires: ['UKVI_CLIENT_ID', 'UKVI_CLIENT_SECRET'],
+  },
+  {
+    code: 'regulator:nz-immigration',
+    adapter: 'nz-immigration',
+    requires: ['INZ_CLIENT_ID', 'INZ_CLIENT_SECRET'],
+  },
 ];
+
+/** Exported only so the spec can hold this list against the adapter sources. */
+export const REGULATOR_CREDENTIALS = REGULATORS;
 
 const SPECS: CapabilitySpec[] = [
   {
