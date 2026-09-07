@@ -44,6 +44,13 @@ const DEFAULT_ORIGINS = [
   'https://immistack-plum.vercel.app',
   'https://immistack-qognitionagencys-projects.vercel.app',
   'https://immistack-git-main-qognitionagencys-projects.vercel.app',
+  // Staging alias for the product app. A Vercel preview URL is regenerated on
+  // every deploy, so it can never be allowlisted; a stable alias pinned to the
+  // latest preview can. This is what lets a redesign be exercised against the
+  // live API without promoting it to `app.immistack.com` first — previously the
+  // only connected origin, which made "test it before shipping" and "ship it"
+  // the same action.
+  'https://immistack-staging.vercel.app',
   // governancex
   'https://govx-app.vercel.app',
   'https://app-govx.vercel.app',

@@ -20,12 +20,22 @@ export type CrmAction = 'read' | 'write' | 'delete';
  *
  * RLS does not help. It isolates tenants, not users inside one.
  *
+ * **Ownership has two senses and both are load-bearing.** Staff own by
+ * assignment. An applicant owns by being the record's SUBJECT — they are never
+ * the assignee of their own case, a staff member is. This class read
+ * `assignedTo` alone, and the row below used to say "records assigned to them",
+ * which meant a client matched nothing at all: the client portal rendered "no
+ * case yet" to every applicant. The same wrong test appeared in four places
+ * (here, `CrmController.clientScoped`, `DocumentAccessService` and
+ * `WorkflowService`) and all four now compare `subjectEmail` as well.
+ *
  * | Caller                 | May read                    | May write / delete   |
  * |------------------------|-----------------------------|----------------------|
  * | inside `runAsGod`      | anything (already audited)  | anything             |
  * | `firm_admin` / `staff` | anything in their tenant    | anything in tenant   |
- * | `client`               | records assigned to them    | **nothing**          |
- * | bare `platform_admin`  | records assigned to them    | nothing — god path   |
+ * | `client`               | records they are the SUBJECT of, or that are |
+ * |                        | assigned to them            | **nothing**          |
+ * | bare `platform_admin`  | as above                    | nothing — god path   |
  *
  * ## Why `own` scope is read-only
  *
@@ -70,7 +80,23 @@ export class CrmAccessService {
    * call sites that drifted apart.
    */
   ownsEntity(entity: UniversalEntity, actor: Actor): boolean {
-    return !!entity.assignedTo && entity.assignedTo === actor.id;
+    // Two different senses of "owns", and both are needed.
+    //
+    // Staff own by assignment. An applicant owns by being the SUBJECT: they
+    // are never the assignee of their own case — a staff member is — so
+    // comparing user ids answered "no" for every client on every record. That
+    // is the same defect that made `CrmController.clientScoped` return an
+    // empty list, and fixing only the list would have left the by-id read
+    // 404ing on a case the client can see in their own portal.
+    //
+    // Compared lower-cased and trimmed, matching how `subjectEmail` is
+    // normalised on write and filtered on read. An actor with no email never
+    // matches, which fails closed.
+    if (entity.assignedTo && entity.assignedTo === actor.id) return true;
+
+    const actorEmail = actor.email?.trim().toLowerCase();
+    const subject = entity.subjectEmail?.trim().toLowerCase();
+    return !!actorEmail && !!subject && actorEmail === subject;
   }
 
   /** Does this caller reach this record at all? */

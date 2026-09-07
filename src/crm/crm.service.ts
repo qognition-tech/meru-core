@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { Document } from '../documents/entities/document.entity';
 import { EntityRelationService } from './entity-relation.service';
 import { CrmAccessService } from './crm-access.service';
 import { Actor } from '../common/access';
+import { VerticalPackService } from '../tenant/services/vertical-pack.service';
+import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 
 /**
  * Statuses that mean the record is finished. Transitioning *into* one of these
@@ -102,7 +105,84 @@ export class CrmService {
     private documentHubService: DocumentHubService,
     private relations: EntityRelationService,
     private readonly access: CrmAccessService,
+    private readonly packs: VerticalPackService,
+    private readonly evaluator: RuleEvaluatorService,
   ) {}
+
+  /**
+   * Refuse a change to a field the pack has declared immutable.
+   *
+   * The only genuine server-side field lock in the platform. A settlement mode
+   * that stays editable after lodgement is not a record of what was agreed, it
+   * is a record of what somebody last typed — and that distinction is what a
+   * fee dispute turns on.
+   *
+   * Three things keep this from becoming cross-vertical breakage (§7.2):
+   *
+   * - It is opt-in per field. A pack with no `lockedWhen` anywhere — which is
+   *   every GRC pack — reaches the `return` on the first line and nothing
+   *   changes.
+   * - It only ever refuses a change to the ONE field whose condition holds.
+   *   It never blocks an unrelated edit on the same PATCH.
+   * - A condition that does not compile is logged and IGNORED, not treated as
+   *   locked. A malformed pack must not be able to freeze a tenant's records;
+   *   the failure direction is "not enforced and said so", never "everything
+   *   is read-only and nobody knows why".
+   *
+   * Evaluated against the same flattened view rules see: `verticalAttributes`
+   * promoted one level, top-level columns winning.
+   */
+  private async assertNoLockedFieldChanged(
+    entity: UniversalEntity,
+    updates: { verticalAttributes?: Record<string, unknown> },
+    vertical: string | null,
+  ): Promise<void> {
+    const incoming = updates.verticalAttributes;
+    if (!incoming || Object.keys(incoming).length === 0) return;
+
+    const entityTypes = await this.packs.section<
+      Array<{
+        type: string;
+        fields?: Array<{ key: string; label?: string; lockedWhen?: unknown }>;
+      }>
+    >(vertical, 'entityTypes');
+    if (!entityTypes?.length) return;
+
+    const forType = entityTypes.find((e) => e.type === entity.type);
+    const locked = (forType?.fields ?? []).filter((f) => f.lockedWhen != null);
+    if (!locked.length) return;
+
+    const attrs =
+      (entity.verticalAttributes as Record<string, unknown> | undefined) ?? {};
+    const data: Record<string, unknown> = { ...attrs, ...entity };
+
+    for (const field of locked) {
+      // Only a field this PATCH actually mentions can be refused. `undefined`
+      // means "not sent", which is not a change.
+      if (!(field.key in incoming)) continue;
+
+      const next = incoming[field.key];
+      const current = attrs[field.key];
+      if (next === current) continue;
+
+      const check = this.evaluator.validate(field.lockedWhen);
+      if (!check.valid) {
+        this.logger.error(
+          `Pack field lock '${entity.type}.${field.key}' does not compile and ` +
+            `is NOT being enforced: ${check.reason}`,
+        );
+        continue;
+      }
+
+      if (this.evaluator.matches(field.lockedWhen, data)) {
+        throw new ConflictException(
+          `${field.label ?? field.key} cannot be changed on this record any ` +
+            `more. The pack locks it at this stage, and the value on file is ` +
+            `what the parties agreed to.`,
+        );
+      }
+    }
+  }
 
   async createEntity(
     tenantId: string,
@@ -154,6 +234,21 @@ export class CrmService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         email: dto.email,
+        // Normalised on write so the client-portal filter is a plain indexed
+        // comparison and not a per-row function. A record saved without this
+        // is invisible to the person it is about — see the column's own
+        // comment on `UniversalEntity`.
+        //
+        // A PERSON is its own subject, so that one is derived here rather than
+        // left to every caller to remember. The equivalent for a case — the
+        // applicant's address — cannot be derived in core: where it lives is
+        // vertical vocabulary (§5.5), so the vertical's client sends it, and
+        // the backfill migration handles records that predate it.
+        subjectEmail:
+          dto.subjectEmail?.trim().toLowerCase() ||
+          (dto.type === EntityType.PERSON
+            ? dto.email?.trim().toLowerCase() || null
+            : null),
         phoneNumber: dto.phoneNumber,
         verticalAttributes: dto.verticalAttributes,
         // Workable types (case, obligation, breach) start OPEN unless the
@@ -236,6 +331,7 @@ export class CrmService {
       type?: EntityType;
       status?: EntityStatus;
       assignedTo?: string;
+      subjectEmail?: string;
       dueBefore?: string;
       dueAfter?: string;
     },
@@ -255,6 +351,32 @@ export class CrmService {
       qb.andWhere('e."assignedTo" = :assignedTo', {
         assignedTo: filters.assignedTo,
       });
+    // Compared lower-cased and trimmed on both sides: the stored value comes
+    // from a form and the filter value from a JWT, and "A@x.com" and
+    // "a@x.com " are the same applicant. The migration normalises what it
+    // backfills for the same reason.
+    //
+    // Keyed on `!== undefined`, NOT on truthiness, and an unusable value denies
+    // everything rather than filtering nothing.
+    //
+    // `CrmController.clientScoped` always SETS this key for a client-role
+    // caller, to `user.email`. Written as `if (filters.subjectEmail)`, an empty
+    // or missing JWT email made the whole predicate disappear — and a client
+    // then received every record in the tenant instead of none. That is the
+    // original leak this column was added to close, reintroduced from the
+    // other direction. The sibling checks in `CrmAccessService.ownsEntity`,
+    // `DocumentAccessService` and `WorkflowService` all fail closed on the
+    // same condition; this one has to as well.
+    if (filters.subjectEmail !== undefined) {
+      const needle = filters.subjectEmail.trim().toLowerCase();
+      if (needle) {
+        qb.andWhere('LOWER(TRIM(e."subjectEmail")) = :subjectEmail', {
+          subjectEmail: needle,
+        });
+      } else {
+        qb.andWhere('1 = 0');
+      }
+    }
     if (filters.dueAfter)
       qb.andWhere('e."dueDate" >= :dueAfter', { dueAfter: filters.dueAfter });
     if (filters.dueBefore)
@@ -282,6 +404,7 @@ export class CrmService {
       type?: EntityType;
       status?: EntityStatus;
       assignedTo?: string;
+      subjectEmail?: string;
       dueBefore?: string;
       dueAfter?: string;
       page?: number;
@@ -450,8 +573,21 @@ export class CrmService {
       );
     }
 
+    // Before anything is applied: a field the pack has frozen at this stage
+    // may not move. Checked against the record as it stands, not as it would
+    // stand after the merge.
+    await this.assertNoLockedFieldChanged(entity, updates, vertical ?? null);
+
     const { verticalAttributes, ...rest } = updates;
     Object.assign(entity, rest);
+
+    // Normalised on write, matching `createEntity` and the backfill migration,
+    // so the client-portal filter stays an indexed comparison. An explicit
+    // empty string clears it — which HIDES the record from its subject, so it
+    // is only ever what the caller literally sent.
+    if (rest.subjectEmail !== undefined) {
+      entity.subjectEmail = rest.subjectEmail?.trim().toLowerCase() || null;
+    }
 
     // `verticalAttributes` merges rather than replaces, at every depth.
     //

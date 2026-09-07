@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AlertFiring } from './entities/alert-firing.entity';
 import { AlertRuleService } from './alert-rule.service';
+import { AlertRuleController } from './alert-rule.controller';
 import { RuleEvaluatorModule } from './rule-evaluator.module';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { Tenant } from '../iam/entities/tenant.entity';
@@ -30,6 +31,7 @@ import { TasksModule } from '../tasks/tasks.module';
     NotificationsModule,
     TasksModule,
   ],
+  controllers: [AlertRuleController],
   providers: [AlertRuleService],
   exports: [AlertRuleService],
 })

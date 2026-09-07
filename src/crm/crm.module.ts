@@ -14,6 +14,7 @@ import { DocumentsModule } from '../documents/documents.module';
 import { AuditModule } from '../audit/audit.module';
 import { AcceptanceService } from './acceptance.service';
 import { PackRuleModule } from '../rules/pack-rule.module';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
 import { CrmAccessService } from './crm-access.service';
 
 // CRM module per CLAUDE.md §2 row 3: polymorphic UniversalEntity.
@@ -35,6 +36,10 @@ import { CrmAccessService } from './crm-access.service';
     // PackRuleModule, NOT RulesModule: the latter closes an import cycle
     // through Tasks → Documents → Crm. See its header.
     PackRuleModule,
+    // `assertNoLockedFieldChanged` evaluates a pack field's `lockedWhen`.
+    // Same module PackRuleService uses; importing it here rather than
+    // reaching through PackRuleModule keeps the dependency explicit.
+    RuleEvaluatorModule,
   ],
   controllers: [CrmController],
   providers: [

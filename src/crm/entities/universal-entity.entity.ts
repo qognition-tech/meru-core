@@ -117,6 +117,10 @@ export enum EntityStatus {
 @Index(['tenantId', 'type', 'status'])
 @Index(['tenantId', 'assignedTo'])
 @Index(['tenantId', 'dueDate'])
+// Every client-portal read is "this tenant, records about this person", and it
+// runs on the applicant's own page load. It gets a real index for the same
+// reason the workboard reads above do.
+@Index(['tenantId', 'subjectEmail'])
 export class UniversalEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -159,6 +163,30 @@ export class UniversalEntity {
    *  without orphaning the record's history. */
   @Column({ type: 'uuid', nullable: true })
   assignedTo: string | null;
+
+  /**
+   * The email of the person this record is **about**, as opposed to `email`
+   * above, which identifies a person record itself.
+   *
+   * This exists because there was no way to answer "which records belong to
+   * this client". `assignedTo` is the *staff* owner, so scoping a client-role
+   * caller by it — which is what `CrmController.clientScoped` did — matched
+   * nothing at all, and the entire client portal rendered "no case yet" for
+   * every real applicant. Nobody saw it because no client account can be
+   * minted while `RESEND_API_KEY` is unset.
+   *
+   * A column rather than a `verticalAttributes` predicate for the reason the
+   * block above gives: a jsonb predicate cannot use an index. Generic on
+   * purpose — "the subject of this record" is a shape both verticals have
+   * (an applicant on a case, a counterparty on an obligation), and no
+   * immigration or GRC vocabulary reaches core.
+   *
+   * Deliberately NOT reusing `email`: `createEntity` rejects a duplicate email
+   * tenant-wide across every type, so a case carrying its applicant's address
+   * would collide with that applicant's own person record.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  subjectEmail: string | null;
 
   @Column({ type: 'jsonb', default: {} })
   verticalAttributes: Record<string, any>;

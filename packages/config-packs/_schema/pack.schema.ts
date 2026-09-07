@@ -850,6 +850,24 @@ export const ConfigPackSchema = z.object({
       multiple: z.boolean().optional(),
       default: z.unknown().optional(),
       formula: z.string().optional(),
+      /**
+       * JsonLogic over the record. While it evaluates true the field is
+       * IMMUTABLE — `CrmService.updateEntity` refuses a change with 409.
+       *
+       * This is the only genuine server-side field lock in the platform. A
+       * settlement mode that may be edited after lodgement is not a record of
+       * what was agreed, it is a record of what somebody last typed, and the
+       * distinction is what a fee dispute turns on.
+       *
+       * Evaluated against the same flattened view rules see —
+       * `verticalAttributes` promoted one level, top-level columns winning.
+       * A field with no `lockedWhen` is never locked, so a pack that omits it
+       * behaves exactly as before.
+       *
+       * NOTE: `audited` is deliberately NOT declared alongside this. Declaring
+       * a key nothing enforces is how `rules[]` sat inert for months.
+       */
+      lockedWhen: z.unknown().optional(),
     })).default([]),
   })).optional(),
 
@@ -861,10 +879,34 @@ export const ConfigPackSchema = z.object({
     termsUrl: HttpUrl.optional(),
     helpUrl: HttpUrl.optional(),
   }).optional(),
+  /**
+   * Pack provenance and, critically, its unresolved caveats.
+   *
+   * This object used to allow three keys, and Zod strips what it does not
+   * declare. All four immigration country packs carry
+   * `metadata.alertRulesReview` — the warning that no firm may rely on a
+   * deadline this product computes until a registered practitioner has signed
+   * the rules off for that jurisdiction (dependency D-6, risk R-10). Every one
+   * of them was being **silently deleted at load**, so the caveat existed in
+   * the source file and was invisible to every runtime reader: the API, the
+   * UI, and anyone querying the stored pack.
+   *
+   * A caveat that does not survive validation is decorative. `alertRulesReview`
+   * and `workflowConditions` are declared here so they reach storage and can be
+   * rendered next to the alerts they qualify.
+   */
   metadata: z.object({
     author: z.string().optional(),
     lastReviewedAt: z.string().datetime().optional(),
     regulatoryReference: z.string().optional(),
+    /**
+     * Free prose. Present ⇒ the pack's `alertRules[]` are NOT signed off by a
+     * practitioner for this jurisdiction, and any deadline derived from them
+     * must be rendered as unverified. Remove the key when it is signed.
+     */
+    alertRulesReview: z.string().optional(),
+    /** Free prose on transition conditions the loader cannot yet evaluate. */
+    workflowConditions: z.string().optional(),
   }).optional(),
 });
 

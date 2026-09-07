@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australian Immigration",
   "description": "Australian Immigration — country overlay on the immigration vertical.",
-  "version": "2.4.0",
+  "version": "2.6.0",
   "vertical": "immigration",
   "country": "AU",
   "extends": "immigration",

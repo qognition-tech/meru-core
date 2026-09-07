@@ -43,6 +43,19 @@ export class CreateEntityDto implements CreateEntityInput {
   email?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Email of the person this record is ABOUT — the applicant on a case, ' +
+      'the counterparty on an obligation. Distinct from `email`, which ' +
+      'identifies a person record itself. This is what confines a ' +
+      '`client`-role caller to their own records, so a record created ' +
+      'without it is invisible to the person it concerns.',
+    example: 'applicant@example.com',
+  })
+  @IsOptional()
+  @IsString()
+  subjectEmail?: string;
+
+  @ApiPropertyOptional({
     description: 'Phone number',
     example: '+1234567890',
   })

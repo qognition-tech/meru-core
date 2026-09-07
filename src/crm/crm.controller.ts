@@ -59,14 +59,15 @@ export class CrmController {
   ) {}
 
   /**
-   * A `client` is an applicant, not staff: they may see only records assigned to
-   * them. RLS isolates one tenant from another, it does NOT isolate users inside
-   * a tenant — so without this a client token received every case in the firm.
-   * ImmiStack filtered in the browser, which is presentation, not authorisation.
+   * A `client` is an applicant, not staff: they may see only the records they
+   * are the SUBJECT of. RLS isolates one tenant from another, it does NOT
+   * isolate users inside a tenant — so without this a client token received
+   * every case in the firm. ImmiStack filtered in the browser, which is
+   * presentation, not authorisation.
    *
    * Forced rather than defaulted: a client cannot widen it by passing
-   * `?assignedTo=` for somebody else. Shared by the list and the export, so an
-   * export can never be broader than the list it mirrors.
+   * `?subjectEmail=` for somebody else. Shared by the list and the export, so
+   * an export can never be broader than the list it mirrors.
    */
   private clientScoped(
     user: UserPayload,
@@ -80,8 +81,22 @@ export class CrmController {
         PlatformRole.STAFF,
       ].includes(r as PlatformRole),
     );
+    // Scoped by SUBJECT, not by assignee.
+    //
+    // This forced `assignedTo: user.id`, and `assignedTo` is the *staff*
+    // owner of a record — so a client's query matched nothing, always, and
+    // the entire client portal rendered "no case yet" to every real
+    // applicant. It read as correct because the intent was right and the only
+    // filter the DTO offered was the wrong one; `subjectEmail` exists now to
+    // give it a correct one.
+    //
+    // Spreading `query` first is deliberate: the client's own `subjectEmail`
+    // is overwritten, never merged, so a client cannot widen their own scope
+    // by supplying one. Email rather than user id because a record is created
+    // by staff against an applicant's address, often before that applicant
+    // has a login at all.
     return roles.includes(PlatformRole.CLIENT) && !isStaff
-      ? { ...query, assignedTo: user.id }
+      ? { ...query, subjectEmail: user.email }
       : query;
   }
 
@@ -92,7 +107,10 @@ export class CrmController {
    * reach this particular record.
    */
   private actorFrom(user: UserPayload): Actor {
-    return { id: user.id, roles: user.roles ?? [] };
+    // `email` carries because `own` scope resolves ownership by SUBJECT for a
+    // client — they are never the assignee of their own record. Dropping it
+    // here silently reverts every by-id read for a client to 404.
+    return { id: user.id, roles: user.roles ?? [], email: user.email };
   }
 
   // ==================== COMMENTS ====================

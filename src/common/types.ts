@@ -223,6 +223,13 @@ export interface CreateEntityInput {
   firstName?: string;
   lastName?: string;
   email?: string;
+  /**
+   * Email of the person this record is ABOUT — distinct from `email`, which
+   * identifies a person record itself. This is what confines a `client`-role
+   * caller to their own records, so a record created without it is invisible
+   * to the person it concerns. See `UniversalEntity.subjectEmail`.
+   */
+  subjectEmail?: string;
   phoneNumber?: string;
   verticalAttributes?: Record<string, any>;
   /** Lifecycle. Defaults to `open` for workable types, null for the rest. */
