@@ -2,7 +2,7 @@
   "code": "immigration",
   "name": "Immigration Practice Management",
   "description": "Shared immigration vocabulary — every country overlay inherits this.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "vertical": "immigration",
   "locales": [
     "en"
@@ -2712,6 +2712,38 @@
           "text": "{{tenant.name}}"
         }
       ]
+    }
+  ],
+  "rules": [
+    {
+      "key": "case_no_subject_email",
+      "label": "Applicant cannot see this case",
+      "description": "A case with no subject email is invisible to the applicant it is about: the client portal scopes a client-role caller to records whose subjectEmail matches their own address. The applicant will see 'no case yet' and will not know why. Set the applicant's email on the case.",
+      "when": {
+        "==": [
+          {
+            "var": "subjectEmail"
+          },
+          null
+        ]
+      },
+      "message": "No applicant email is recorded on this case, so the applicant cannot see it in their portal.",
+      "severity": "warning"
+    },
+    {
+      "key": "case_unassigned",
+      "label": "No staff member owns this case",
+      "description": "An unassigned case has nobody accountable for its deadlines. Distinct from the alert rules, which watch dates: this is a fact about the record itself and is true the moment it is created.",
+      "when": {
+        "==": [
+          {
+            "var": "assignedTo"
+          },
+          null
+        ]
+      },
+      "message": "This case has no assigned staff member.",
+      "severity": "warning"
     }
   ]
 }
