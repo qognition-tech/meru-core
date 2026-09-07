@@ -55,18 +55,21 @@ export class BackfillVacStatus1756600000000 implements MigrationInterface {
   }
 
   /**
-   * Removes only the key this migration adds. A case whose status was since
-   * moved to `evidence_pending` or `verified` still loses the key on a
-   * rollback — that is unavoidable without recording what we wrote, and it is
-   * the safe direction: losing the key means the rule reports "not recorded"
-   * rather than inventing a state.
+   * Removes only rows still carrying the seed this migration wrote.
+   *
+   * An earlier draft deleted `vacStatus` from every case that had the key and
+   * called the collateral damage unavoidable. It is not: a case a staff member
+   * has since verified — with a receipt or a TRN on file — would have lost that
+   * attestation on a rollback, and the attestation is the whole point of the
+   * field. Scoping to `= 'unpaid'` leaves every human decision intact and
+   * removes only what was seeded.
    */
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       UPDATE "universal_entities"
          SET "verticalAttributes" = "verticalAttributes" - 'vacStatus'
        WHERE "type" = 'case'
-         AND COALESCE("verticalAttributes", '{}'::jsonb) ? 'vacStatus'
+         AND ("verticalAttributes"->>'vacStatus') = 'unpaid'
     `);
   }
 }

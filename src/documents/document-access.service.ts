@@ -29,7 +29,8 @@ export type DocumentAction = 'read' | 'write' | 'delete' | 'share';
  * | inside `runAsGod`               | anything (already audited)                   |
  * | `firm_admin` / `staff`          | anything in their tenant                     |
  * | `client`                        | what they uploaded, plus documents linked to |
- * |                                 | a CRM record assigned to them                |
+ * |                                 | a CRM record they are the SUBJECT of, or     |
+ * |                                 | that is assigned to them                     |
  * | bare `platform_admin`           | what they uploaded — operator reach is the   |
  * |                                 | god path, see `isGodContext`                 |
  *

@@ -238,7 +238,17 @@ export class CrmService {
         // comparison and not a per-row function. A record saved without this
         // is invisible to the person it is about — see the column's own
         // comment on `UniversalEntity`.
-        subjectEmail: dto.subjectEmail?.trim().toLowerCase() || null,
+        //
+        // A PERSON is its own subject, so that one is derived here rather than
+        // left to every caller to remember. The equivalent for a case — the
+        // applicant's address — cannot be derived in core: where it lives is
+        // vertical vocabulary (§5.5), so the vertical's client sends it, and
+        // the backfill migration handles records that predate it.
+        subjectEmail:
+          dto.subjectEmail?.trim().toLowerCase() ||
+          (dto.type === EntityType.PERSON
+            ? dto.email?.trim().toLowerCase() || null
+            : null),
         phoneNumber: dto.phoneNumber,
         verticalAttributes: dto.verticalAttributes,
         // Workable types (case, obligation, breach) start OPEN unless the
@@ -345,10 +355,28 @@ export class CrmService {
     // from a form and the filter value from a JWT, and "A@x.com" and
     // "a@x.com " are the same applicant. The migration normalises what it
     // backfills for the same reason.
-    if (filters.subjectEmail)
-      qb.andWhere('LOWER(TRIM(e."subjectEmail")) = :subjectEmail', {
-        subjectEmail: filters.subjectEmail.trim().toLowerCase(),
-      });
+    //
+    // Keyed on `!== undefined`, NOT on truthiness, and an unusable value denies
+    // everything rather than filtering nothing.
+    //
+    // `CrmController.clientScoped` always SETS this key for a client-role
+    // caller, to `user.email`. Written as `if (filters.subjectEmail)`, an empty
+    // or missing JWT email made the whole predicate disappear — and a client
+    // then received every record in the tenant instead of none. That is the
+    // original leak this column was added to close, reintroduced from the
+    // other direction. The sibling checks in `CrmAccessService.ownsEntity`,
+    // `DocumentAccessService` and `WorkflowService` all fail closed on the
+    // same condition; this one has to as well.
+    if (filters.subjectEmail !== undefined) {
+      const needle = filters.subjectEmail.trim().toLowerCase();
+      if (needle) {
+        qb.andWhere('LOWER(TRIM(e."subjectEmail")) = :subjectEmail', {
+          subjectEmail: needle,
+        });
+      } else {
+        qb.andWhere('1 = 0');
+      }
+    }
     if (filters.dueAfter)
       qb.andWhere('e."dueDate" >= :dueAfter', { dueAfter: filters.dueAfter });
     if (filters.dueBefore)

@@ -20,12 +20,22 @@ export type CrmAction = 'read' | 'write' | 'delete';
  *
  * RLS does not help. It isolates tenants, not users inside one.
  *
+ * **Ownership has two senses and both are load-bearing.** Staff own by
+ * assignment. An applicant owns by being the record's SUBJECT — they are never
+ * the assignee of their own case, a staff member is. This class read
+ * `assignedTo` alone, and the row below used to say "records assigned to them",
+ * which meant a client matched nothing at all: the client portal rendered "no
+ * case yet" to every applicant. The same wrong test appeared in four places
+ * (here, `CrmController.clientScoped`, `DocumentAccessService` and
+ * `WorkflowService`) and all four now compare `subjectEmail` as well.
+ *
  * | Caller                 | May read                    | May write / delete   |
  * |------------------------|-----------------------------|----------------------|
  * | inside `runAsGod`      | anything (already audited)  | anything             |
  * | `firm_admin` / `staff` | anything in their tenant    | anything in tenant   |
- * | `client`               | records assigned to them    | **nothing**          |
- * | bare `platform_admin`  | records assigned to them    | nothing — god path   |
+ * | `client`               | records they are the SUBJECT of, or that are |
+ * |                        | assigned to them            | **nothing**          |
+ * | bare `platform_admin`  | as above                    | nothing — god path   |
  *
  * ## Why `own` scope is read-only
  *
