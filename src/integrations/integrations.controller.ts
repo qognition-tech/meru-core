@@ -48,6 +48,8 @@ import { BhCentralBankAdapter } from './adapters/bh-central-bank.adapter';
 import { CaIrccAdapter } from './adapters/ca-ircc.adapter';
 import { UkHomeOfficeAdapter } from './adapters/uk-home-office.adapter';
 import { NzImmigrationAdapter } from './adapters/nz-immigration.adapter';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 @ApiTags('integrations')
 @Controller('integrations')
@@ -140,6 +142,11 @@ export class IntegrationsController {
   // ── Record import (Layer 4 `importMappings[]`) ────────────────────────────
 
   @Get('import/mappings')
+  @Roles(
+    PlatformRole.PLATFORM_ADMIN,
+    PlatformRole.FIRM_ADMIN,
+    PlatformRole.STAFF,
+  )
   @ApiOperation({
     summary: "The import mappings the caller's vertical declares",
     description:
@@ -151,6 +158,17 @@ export class IntegrationsController {
   }
 
   @Post('import/:mappingKey')
+  // Bulk record creation, so firm_admin and above — matching the UI, which gates
+  // `/settings/import` on `canManageSettings`.
+  //
+  // This carried NO `@Roles` at all, and the class-level `PolicyGuard` is a
+  // no-op without one: every authenticated role reached it, `client` included.
+  // That is worse than the same gap on `POST /crm/entities` (closed earlier),
+  // because this writes `person` rows in bulk with caller-supplied emails — and
+  // `subjectEmail` is the key that decides which client owns a record. A client
+  // could have created entities attributed to anyone in the tenant, a whole
+  // spreadsheet at a time.
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiOperation({
     summary: 'Plan an import — and only write if asked',
     description:
