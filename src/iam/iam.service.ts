@@ -886,6 +886,14 @@ export class IamService {
    * `firm_admin` from PATCHing their own id to `platform_admin`. The old
    * `@Roles(PLATFORM_ADMIN, FIRM_ADMIN)` guard admitted `firm_admin`, and
    * nothing before this checked the requested role against the caller's own.
+   *
+   * `status` is ceiling-checked the same way, against the target user's
+   * *existing* role rather than any requested one — status has no "requested
+   * rank" the way `role` does. Without this, only `role` went through
+   * `canGrantRole` and a `firm_admin` could suspend or deactivate a
+   * `platform_admin` colleague's account in their own tenant: account
+   * standing tampered with across the exact privilege boundary the role
+   * check already closed.
    */
   async updateUser(
     tenantId: string,
@@ -930,6 +938,18 @@ export class IamService {
     ) {
       throw new ForbiddenException(
         `Cannot grant role '${updates.role}': outranks the caller`,
+      );
+    }
+
+    if (
+      updates.status !== undefined &&
+      !canGrantRole(actor.roles, this.resolvePrimaryRole(user.roles ?? []))
+    ) {
+      // Same ceiling, keyed on the role the target already holds — a caller
+      // may not change the standing of a user who outranks them, even though
+      // nobody is asking to change that user's role here.
+      throw new ForbiddenException(
+        `Cannot change status of a user outranking the caller`,
       );
     }
 

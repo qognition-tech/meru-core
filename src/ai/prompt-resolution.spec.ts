@@ -5,7 +5,12 @@ import {
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
-import { AiPrompt, AiEmbedding, PromptCategory } from './entities/ai-prompt.entity';
+import {
+  AiPrompt,
+  AiEmbedding,
+  ModelProvider,
+  PromptCategory,
+} from './entities/ai-prompt.entity';
 import { CrmService } from '../crm/crm.service';
 import { WorkflowEngineService } from '../workflow/workflow.service';
 import { TaskService } from '../tasks/task.service';
@@ -35,6 +40,7 @@ import { ConnectorsService } from '../integrations/services/connectors.service';
  */
 describe('AiService prompt resolution', () => {
   const promptFindOne = jest.fn();
+  const promptSave = jest.fn();
   const sectionWithPack = jest.fn();
   const resolveAiProvider = jest.fn();
   let service: AiService;
@@ -51,6 +57,8 @@ describe('AiService prompt resolution', () => {
 
   beforeEach(async () => {
     promptFindOne.mockReset();
+    promptSave.mockReset();
+    promptSave.mockImplementation(async (row: unknown) => row);
     sectionWithPack.mockReset();
     resolveAiProvider.mockReset();
     resolveAiProvider.mockResolvedValue(null);
@@ -62,7 +70,7 @@ describe('AiService prompt resolution', () => {
         AiService,
         {
           provide: getRepositoryToken(AiPrompt),
-          useValue: { findOne: promptFindOne, find: jest.fn() },
+          useValue: { findOne: promptFindOne, find: jest.fn(), save: promptSave },
         },
         { provide: getRepositoryToken(AiEmbedding), useValue: {} },
         { provide: CrmService, useValue: stub },
@@ -198,5 +206,78 @@ describe('AiService prompt resolution', () => {
         tenantId: 't1',
       }),
     ).rejects.toThrow(/no AI provider connected/);
+  });
+
+  /**
+   * Regression cover for the second defect fixed in `upsertPrompt`:
+   *  1. the lookup used to be `findOne({ where: { key } })` — no `tenantId`
+   *     — so a legitimate write landed on (or overwrote) whatever row
+   *     already held that key, tenant unbound;
+   *  2. the DTO field is `template`; the entity column is `prompt`, and the
+   *     two were never reconciled, so the caller's text never reached the
+   *     column `resolvePrompt` reads.
+   */
+  describe('upsertPrompt', () => {
+    it('scopes the existing-row lookup by tenantId, not by key alone', async () => {
+      promptFindOne.mockResolvedValue(null);
+
+      await service.upsertPrompt('tenant-a', {
+        key: 'entity_summary',
+        template: 'Summarise: {{INPUT}}',
+      } as any);
+
+      expect(promptFindOne).toHaveBeenCalledWith({
+        where: { key: 'entity_summary', tenantId: 'tenant-a' },
+      });
+    });
+
+    it('writes the row with the caller\'s tenantId, not untenanted', async () => {
+      promptFindOne.mockResolvedValue(null);
+
+      await service.upsertPrompt('tenant-a', {
+        key: 'entity_summary',
+        template: 'Summarise: {{INPUT}}',
+      } as any);
+
+      expect(promptSave).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-a' }),
+      );
+    });
+
+    it('maps the DTO\'s template field onto the entity\'s prompt column', async () => {
+      promptFindOne.mockResolvedValue(null);
+
+      await service.upsertPrompt('tenant-a', {
+        key: 'entity_summary',
+        template: 'Summarise: {{INPUT}}',
+      } as any);
+
+      const saved = promptSave.mock.calls[0][0];
+      expect(saved.prompt).toBe('Summarise: {{INPUT}}');
+      // Never a raw `template` property surviving onto the entity — that is
+      // exactly how the text went missing before this fix.
+      expect(saved.template).toBeUndefined();
+    });
+
+    it('updates an existing tenant row rather than creating a duplicate', async () => {
+      promptFindOne.mockResolvedValue({
+        id: 'row-1',
+        tenantId: 'tenant-a',
+        category: PromptCategory.ENTITY_ANALYSIS,
+        key: 'entity_summary',
+        prompt: 'OLD TEXT',
+        preferredProvider: ModelProvider.OPENAI,
+        modelConfig: {},
+      });
+
+      await service.upsertPrompt('tenant-a', {
+        key: 'entity_summary',
+        template: 'NEW TEXT',
+      } as any);
+
+      const saved = promptSave.mock.calls[0][0];
+      expect(saved.id).toBe('row-1');
+      expect(saved.prompt).toBe('NEW TEXT');
+    });
   });
 });

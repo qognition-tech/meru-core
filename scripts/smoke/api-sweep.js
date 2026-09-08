@@ -18,8 +18,32 @@ require('dotenv').config({ quiet: true });
 
 const BASE = (process.env.BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
 const API = `${BASE}/api/v1`;
-const EMAIL = process.env.SWEEP_EMAIL || 'admin@demo.com';
-const PASSWORD = process.env.SWEEP_PASSWORD || 'demo123';
+
+/**
+ * `SWEEP_EMAIL`/`SWEEP_PASSWORD` used to default to `admin@demo.com` /
+ * `demo123` when unset. That is fine against a fresh local DB, and silently
+ * wrong against `BASE_URL=https://meru-core.vercel.app` — a well-known
+ * credential pair, tried unattended, against whatever the caller pointed
+ * this at. Same ruling Anton made for `meru-core-fe/tools/sweep/lib.mjs`
+ * after a committed platform_admin password: no fallback, fail closed when
+ * the env is missing. Email stays a required env var too, not just the
+ * password — a default email plus a required password would still assume a
+ * specific account exists on whatever `BASE_URL` is.
+ */
+function requiredEnv(name) {
+  const v = process.env[name];
+  if (!v) {
+    throw new Error(
+      `api-sweep: ${name} is not set. Export SWEEP_EMAIL and SWEEP_PASSWORD ` +
+        `for the account this sweep should log in as — there is no default. ` +
+        `Never a well-known credential against a shared BASE_URL.`,
+    );
+  }
+  return v;
+}
+
+const EMAIL = requiredEnv('SWEEP_EMAIL');
+const PASSWORD = requiredEnv('SWEEP_PASSWORD');
 
 /**
  * Routes that are public by design. Everything else must reject an

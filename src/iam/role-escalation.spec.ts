@@ -157,6 +157,73 @@ describe('IamService — role-escalation guard', () => {
     });
   });
 
+  describe('updateUser — status ceiling', () => {
+    // Only `role` went through `canGrantRole`; `status` did not. A
+    // `firm_admin` could suspend or deactivate a `platform_admin`'s account
+    // in their own tenant even though the same caller could never grant
+    // that role — account standing tampered with across the exact
+    // privilege boundary the role check already closed.
+    it('firm_admin CANNOT suspend a platform_admin colleague\'s account', async () => {
+      const { service, users } = buildIamService();
+      seedUser(users, { id: 'super-1', roles: [PlatformRole.PLATFORM_ADMIN] });
+      const actor: Actor = { id: 'admin-1', roles: [PlatformRole.FIRM_ADMIN] };
+
+      await expect(
+        service.updateUser(
+          T,
+          'super-1',
+          { status: UserStatus.INACTIVE },
+          actor,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('firm_admin CANNOT reactivate a locked platform_admin account either — the ceiling is symmetric', async () => {
+      const { service, users } = buildIamService();
+      seedUser(users, {
+        id: 'super-2',
+        roles: [PlatformRole.PLATFORM_ADMIN],
+        status: UserStatus.LOCKED,
+      });
+      const actor: Actor = { id: 'admin-1', roles: [PlatformRole.FIRM_ADMIN] };
+
+      await expect(
+        service.updateUser(T, 'super-2', { status: UserStatus.ACTIVE }, actor),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('firm_admin CAN still suspend a staff member — the ceiling does not overreach', async () => {
+      const { service, users } = buildIamService();
+      seedUser(users, { id: 'staff-1', roles: [PlatformRole.STAFF] });
+      const actor: Actor = { id: 'admin-1', roles: [PlatformRole.FIRM_ADMIN] };
+
+      const updated = await service.updateUser(
+        T,
+        'staff-1',
+        { status: UserStatus.INACTIVE },
+        actor,
+      );
+      expect(updated.status).toBe(UserStatus.INACTIVE);
+    });
+
+    it('platform_admin CAN suspend another platform_admin', async () => {
+      const { service, users } = buildIamService();
+      seedUser(users, { id: 'super-1', roles: [PlatformRole.PLATFORM_ADMIN] });
+      const actor: Actor = {
+        id: 'super-0',
+        roles: [PlatformRole.PLATFORM_ADMIN],
+      };
+
+      const updated = await service.updateUser(
+        T,
+        'super-1',
+        { status: UserStatus.INACTIVE },
+        actor,
+      );
+      expect(updated.status).toBe(UserStatus.INACTIVE);
+    });
+  });
+
   describe('updateUser — self-service by a non-admin', () => {
     it('a client CAN self-edit their own name', async () => {
       const { service, users } = buildIamService();

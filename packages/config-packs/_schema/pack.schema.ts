@@ -466,6 +466,16 @@ const FeeSchema = z.object({
    * `government` is collected on the regulator's behalf and is usually
    * non-refundable and not revenue; `firm` is the firm's own charge;
    * `disbursement` is a third-party cost passed through.
+   *
+   * **Do not add a fourth kind, or any sibling field, to express a card
+   * surcharge on an AU tenant's fee.** The RBA's ban on merchant card
+   * surcharging (eftpos, Mastercard, Visa) is a final decision, in force from
+   * **1 October 2026** — see `au-immigration.json`'s own
+   * `metadata.statutoryConstraints`. No pack on disk declares one today; keep
+   * it that way for `country: "AU"`. A firm's own card terminal is outside
+   * this platform (`payments.service.ts` records settlement, it never
+   * processes a card), so the obligation is an authoring/product constraint,
+   * not a runtime check this schema can enforce.
    */
   kind: z.enum(['government', 'firm', 'disbursement']).default('firm'),
   amountMinor: z.number().int().nonnegative(),
@@ -907,6 +917,24 @@ export const ConfigPackSchema = z.object({
     alertRulesReview: z.string().optional(),
     /** Free prose on transition conditions the loader cannot yet evaluate. */
     workflowConditions: z.string().optional(),
+    /**
+     * Free prose on a dated statutory obligation that changes what this pack
+     * may contain or must produce, where the deadline has not yet arrived.
+     *
+     * Same reasoning as `alertRulesReview`: a caveat that lives only in a
+     * commit message or a workspace doc is invisible to the next person who
+     * edits this file. Two obligations are recorded on the AU overlay today —
+     * the RBA's ban on card surcharging (1 Oct 2026, see `FeeSchema.kind`),
+     * which the packs already satisfy by declaring no surcharge; and APP 1.8's
+     * automated-decision transparency requirement (10 Dec 2026), which is
+     * recorded as **NOT met** because no per-tenant ADM disclosure has been
+     * built. State the unmet ones as unmet: a constraint block that reads like
+     * a compliance claim is worse than no block, because the next author trusts
+     * it. Remove or update a sentence once the obligation is superseded or the
+     * referenced feature actually ships; do not let this drift the way
+     * `alertRulesReview` did.
+     */
+    statutoryConstraints: z.string().optional(),
   }).optional(),
 });
 

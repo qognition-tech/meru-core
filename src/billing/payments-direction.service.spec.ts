@@ -1,5 +1,6 @@
 import { PaymentsService } from './payments.service';
 import { PaymentDirection, PaymentStatus } from './entities/payment.entity';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 
 /**
  * Money out, and the two things that must not happen once it exists.
@@ -57,10 +58,20 @@ describe('PaymentsService — disbursements', () => {
     // spec (payments-client-resolution.service.spec.ts). Stub the resolver's
     // fast path (clientId already names a `users` row) to always hit, so
     // `create()` behaves exactly as it did before resolution existed.
+    //
+    // The stub user must carry `client` in `roles`: `resolveClientUserId`
+    // refuses an id belonging to a staff account, because a charge raised
+    // against a colleague would land in that colleague's own ledger. A
+    // role-less stub is indistinguishable from a staff id to that check.
     const dataSource = {
       getRepository: () => ({
         findOne: ({ where }: { where: { id: string; tenantId: string } }) =>
-          Promise.resolve({ id: where.id, tenantId: where.tenantId, email: 'stub@test.example' }),
+          Promise.resolve({
+            id: where.id,
+            tenantId: where.tenantId,
+            email: 'stub@test.example',
+            roles: [PlatformRole.CLIENT],
+          }),
       }),
     };
 

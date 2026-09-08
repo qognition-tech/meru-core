@@ -433,9 +433,17 @@ module.exports = async function handler(req, res) {
   // A rejected bootstrap is cached in `ready`, so one bad boot makes every
   // subsequent request fail with an opaque FUNCTION_INVOCATION_FAILED and no
   // usable log line — which is exactly how a config-validation error cost
-  // hours of production downtime. Log the real cause, answer with it, and
-  // clear the cache so the next invocation retries rather than being
-  // permanently poisoned by a transient failure.
+  // hours of production downtime. Log the real cause server-side and clear
+  // the cache so the next invocation retries rather than being permanently
+  // poisoned by a transient failure.
+  //
+  // The caller gets a generic envelope only — NOT the stack trace. This route
+  // is unauthenticated by construction (bootstrap has not run, so no guard
+  // exists yet), and the detail can contain file paths, module names and
+  // fragments of a connection string from the underlying driver's error.
+  // Anyone who can trigger a bad boot (a misconfigured env var, an
+  // unreachable DB) would otherwise get that for free. Full detail stays in
+  // `console.error` for whoever is watching the function logs.
   try {
     if (!ready) ready = bootstrap();
     await ready;
@@ -449,10 +457,18 @@ module.exports = async function handler(req, res) {
     res.end(
       JSON.stringify({
         data: null,
+        meta: {
+          requestId: req.headers['x-request-id'] || randomUUID(),
+          timestamp: new Date().toISOString(),
+          version: 'v1',
+        },
         error: {
-          code: 'MER-SRV-0000',
-          message: 'Application failed to start',
-          detail: String(detail).slice(0, 2000),
+          // MeruErrorCode.SERVER_UNAVAILABLE (src/common/types.ts) — the
+          // service did not come up, not an internal error mid-request.
+          // 'MER-SRV-0000' does not exist in the code list; do not reuse it.
+          code: 'MER-SRV-0002',
+          message: 'Service temporarily unavailable',
+          helpUrl: 'https://docs.meru.dev/errors#mersrv0002',
         },
       }),
     );

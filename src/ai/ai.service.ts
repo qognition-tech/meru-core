@@ -30,6 +30,7 @@ import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { ConnectorsService } from '../integrations/services/connectors.service';
 import type { PackPrompt } from '../../packages/config-packs/_schema/pack.schema';
 import { Actor, SYSTEM_ACTOR, scopeOf } from '../common/access';
+import type { UpsertPromptDto } from './dto/ai-request.dto';
 
 /**
  * A prompt the gateway can execute, whichever layer it came from.
@@ -315,20 +316,52 @@ export class AiService {
     }
   }
 
-  async upsertPrompt(prompt: Partial<AiPrompt>): Promise<AiPrompt> {
-    if (!prompt.key) {
+  /**
+   * `UpsertPromptDto.template` and the `ai_prompts.prompt` column have always
+   * had different names. `resolvePrompt` reads `row.prompt` — every call to
+   * this endpoint wrote the caller's text into a field the entity does not
+   * have, so it was silently dropped and the row's actual `prompt` column
+   * stayed whatever it was before (or unset, on a first write). Mapped
+   * explicitly here rather than renaming the DTO field, so a caller already
+   * sending `template` keeps working — the DTO is a public contract.
+   *
+   * `tenantId` comes from the authenticated caller (`AiController.upsertPrompt`),
+   * not the body: `findOne` used to be scoped on `key` alone, so a legitimate
+   * `firm_admin` write landed with no tenant at all, into a table every
+   * tenant's `resolvePrompt` reads from — and because `key` is unique across
+   * the *whole* table (see the controller's comment on this route), naming
+   * another tenant's key overwrote that tenant's live prompt outright. No
+   * `tenantId IS NULL` / "global prompt" convention exists anywhere in this
+   * codebase (see `resolvePrompt`'s own note above) — this does not invent
+   * one, so every write, `platform_admin` included, is tenant-owned.
+   *
+   * `dto.category` has no field on `UpsertPromptDto` at all, a pre-existing
+   * gap this fix does not touch: a brand-new key (no `existing` row to
+   * inherit `category` from) will still fail the entity's NOT NULL
+   * `category` column at INSERT. Flagged, not fixed here — out of scope for
+   * the tenant-scoping and field-mapping defect this method was written for.
+   */
+  async upsertPrompt(
+    tenantId: string,
+    dto: UpsertPromptDto,
+  ): Promise<AiPrompt> {
+    if (!dto.key) {
       throw new Error('Prompt key is required');
     }
 
     const existing = await this.promptRepo.findOne({
-      where: { key: prompt.key },
+      where: { key: dto.key, tenantId },
     });
 
-    if (existing) {
-      return this.promptRepo.save({ ...existing, ...prompt });
-    }
+    const row: Partial<AiPrompt> = {
+      ...existing,
+      key: dto.key,
+      prompt: dto.template,
+      vertical: dto.vertical,
+      tenantId,
+    };
 
-    return this.promptRepo.save(prompt as AiPrompt);
+    return this.promptRepo.save(row as AiPrompt);
   }
 
   async getPromptsByCategory(

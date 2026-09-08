@@ -16,6 +16,7 @@ import {
   SettlePaymentDto,
 } from './dto/payment.dto';
 import { User } from '../iam/entities/user.entity';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import {
   EntityType,
   UniversalEntity,
@@ -93,10 +94,18 @@ export class PaymentsService {
    *
    * Resolution order, cheapest and most certain first:
    *
-   * 1. `clientId` already names a `users` row in this tenant — the documented,
-   *    correct shape. Used as-is, so a caller that already gets this right
-   *    (or a future one that does) pays no extra query and changes no
-   *    behaviour.
+   * 1. `clientId` already names a `users` row in this tenant, *and that row
+   *    holds the `client` role* — the documented, correct shape. Used as-is,
+   *    so a caller that already gets this right (or a future one that does)
+   *    pays no extra query and changes no behaviour. The role check is not
+   *    optional: without it, a staff, firm_admin or platform_admin id typed
+   *    into the same field resolves too, and a charge raised against a
+   *    colleague's id by typo lands in that colleague's own `GET /payments`
+   *    — `Payment.clientId` authorises a client's view of their own ledger,
+   *    and a non-client holding that id defeats the check by construction.
+   *    A matching non-client id is **refused (400)** rather than falling
+   *    through to step 2, because it will not also resolve there and a 404
+   *    would misreport a real id as unknown.
    * 2. `clientId` names a CRM person entity in this tenant. Resolve to the
    *    `users` row sharing its email, compared case-insensitively: neither
    *    `users.email` nor `universal_entities.email` is normalised on write
@@ -128,7 +137,16 @@ export class PaymentsService {
     const directUser = await userRepo.findOne({
       where: { id: clientId, tenantId },
     });
-    if (directUser) return directUser.id;
+    if (directUser) {
+      if (!directUser.roles?.includes(PlatformRole.CLIENT)) {
+        throw new BadRequestException(
+          "That id belongs to a staff account, not a client's — a charge " +
+            "cannot be raised against a colleague's ledger. Pass the " +
+            'client CRM entity id instead.',
+        );
+      }
+      return directUser.id;
+    }
 
     const person = await this.dataSource.getRepository(UniversalEntity).findOne({
       where: { id: clientId, tenantId, type: EntityType.PERSON },

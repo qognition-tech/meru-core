@@ -2,7 +2,7 @@
   "code": "au-immigration",
   "name": "Australian Immigration",
   "description": "Australian Immigration — country overlay on the immigration vertical.",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "vertical": "immigration",
   "country": "AU",
   "extends": "immigration",
@@ -796,10 +796,22 @@
     }
   ],
   "fees": [
-    { "key": "gov_482_primary", "atStep": "lodgement_fee" },
-    { "key": "gov_482_dependent", "atStep": "lodgement_fee" },
-    { "key": "disb_health_examination", "atStep": "document_request" },
-    { "key": "disb_police_check", "atStep": "document_request" }
+    {
+      "key": "gov_482_primary",
+      "atStep": "lodgement_fee"
+    },
+    {
+      "key": "gov_482_dependent",
+      "atStep": "lodgement_fee"
+    },
+    {
+      "key": "disb_health_examination",
+      "atStep": "document_request"
+    },
+    {
+      "key": "disb_police_check",
+      "atStep": "document_request"
+    }
   ],
   "paymentPlans": [
     {
@@ -807,15 +819,28 @@
       "label": "Staged — engagement, lodgement, decision",
       "type": "stage_gated",
       "stages": [
-        { "atStep": "signup_payment", "portionBps": 3000, "label": "On engagement" },
-        { "atStep": "lodgement_fee", "portionBps": 5000, "label": "On lodgement" },
-        { "atStep": "decision", "portionBps": 2000, "label": "On decision" }
+        {
+          "atStep": "signup_payment",
+          "portionBps": 3000,
+          "label": "On engagement"
+        },
+        {
+          "atStep": "lodgement_fee",
+          "portionBps": 5000,
+          "label": "On lodgement"
+        },
+        {
+          "atStep": "decision",
+          "portionBps": 2000,
+          "label": "On decision"
+        }
       ],
       "blockProgressOnArrears": true
     }
   ],
   "metadata": {
     "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read.",
-    "workflowConditions": "The two conditional branches in wf_visa_matter (health_insurance for 500/485, apf for anything but 500/600) are recorded as prose in `transitions[].condition` and are NOT enforced. The pack schema types that field as a string, while WorkflowService.evaluateConditions reads a structured `{operator, rules[]}` object it never receives from a pack — so no pack-declared transition condition has ever been evaluated. Until that bridge exists the branches must be chosen by the caller, and a UI must not present them as automatic. Tracked in AGENTS.md."
+    "workflowConditions": "The two conditional branches in wf_visa_matter (health_insurance for 500/485, apf for anything but 500/600) are recorded as prose in `transitions[].condition` and are NOT enforced. The pack schema types that field as a string, while WorkflowService.evaluateConditions reads a structured `{operator, rules[]}` object it never receives from a pack — so no pack-declared transition condition has ever been evaluated. Until that bridge exists the branches must be chosen by the caller, and a UI must not present them as automatic. Tracked in AGENTS.md.",
+    "statutoryConstraints": "Card surcharging: the RBA has banned merchant surcharging on eftpos, Mastercard and Visa from 1 October 2026. No pack on disk declares a surcharge fee, and `FeeSchema.kind` is deliberately closed to government|firm|disbursement — do not add a fourth kind or a sibling field to express one for an AU tenant. Meru records settlement (`payments.service.ts`); it never processes a card, so a firm's own terminal is outside this platform and this is an authoring constraint, not a runtime check. Verified zero 'surcharge' matches across src, packages and the ImmiStack app on 2026-09-08. APP 1.8 automated-decision transparency takes effect 10 December 2026 and is NOT yet met: no per-tenant ADM disclosure exists. Building it is tracked work, not something this pack currently satisfies."
   }
 }

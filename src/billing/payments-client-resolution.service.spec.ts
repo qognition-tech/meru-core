@@ -1,6 +1,7 @@
 import { PaymentsService } from './payments.service';
 import { PaymentDirection } from './entities/payment.entity';
 import { User } from '../iam/entities/user.entity';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import {
   EntityType,
   UniversalEntity,
@@ -28,7 +29,12 @@ describe('PaymentsService — resolving clientId to a real user', () => {
   const TENANT = 't1';
 
   const build = (opts: {
-    users?: Array<{ id: string; tenantId: string; email: string }>;
+    users?: Array<{
+      id: string;
+      tenantId: string;
+      email: string;
+      roles?: string[];
+    }>;
     people?: Array<{
       id: string;
       tenantId: string;
@@ -37,7 +43,13 @@ describe('PaymentsService — resolving clientId to a real user', () => {
       firstName?: string;
     }>;
   }) => {
-    const users = opts.users ?? [];
+    // Every fixture user is a client unless a test says otherwise — the
+    // negative case (a staff/admin id passed as clientId) sets `roles`
+    // explicitly.
+    const users = (opts.users ?? []).map((u) => ({
+      roles: [PlatformRole.CLIENT],
+      ...u,
+    }));
     const people = opts.people ?? [];
 
     // Real enough to answer `findOne({ where })` the way TypeORM would —
@@ -250,6 +262,52 @@ describe('PaymentsService — resolving clientId to a real user', () => {
         description: 'Fee',
       } as never),
     ).rejects.toThrow(/no email on file/);
+  });
+
+  it('refuses a staff id passed as clientId rather than resolving it as-is', async () => {
+    // The direct-`users.id` fast path used to accept ANY user in the tenant.
+    // A charge raised against a colleague's id by typo would then appear in
+    // that colleague's own `GET /payments` — `Payment.clientId` is the
+    // authorisation key for a client's ledger, and a staff id defeats that
+    // by construction.
+    const { service, rows } = build({
+      users: [{ id: 'staff-1', tenantId: TENANT, email: 'staff@example.com', roles: [PlatformRole.STAFF] }],
+    });
+
+    await expect(
+      service.create(TENANT, {
+        clientId: 'staff-1',
+        amountMinor: 100,
+        currency: 'AUD',
+        description: 'Fee',
+      } as never),
+    ).rejects.toThrow(/not a client/i);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses a firm_admin id passed as clientId, same as staff', async () => {
+    const { service, rows } = build({
+      users: [
+        {
+          id: 'admin-1',
+          tenantId: TENANT,
+          email: 'admin@example.com',
+          roles: [PlatformRole.FIRM_ADMIN],
+        },
+      ],
+    });
+
+    await expect(
+      service.create(TENANT, {
+        clientId: 'admin-1',
+        amountMinor: 100,
+        currency: 'AUD',
+        description: 'Fee',
+      } as never),
+    ).rejects.toThrow(/not a client/i);
+
+    expect(rows).toHaveLength(0);
   });
 
   describe('what each login can see, once the id resolves correctly', () => {

@@ -47,7 +47,13 @@ Verified against `docs/adr/` on disk, 2026-09-08.
 | [0006](0006-operator-invite-link.md) | Operator invite-link retrieval and regeneration | Proposed — 2026-09-05, not merged | Requires `quality` (Owen) + `secops` (Anton) |
 | [0007](0007-operator-console-and-record-lifecycle-contracts.md) | Operator console and record-lifecycle contracts | Proposed — 2026-09-05, not merged | Requires `quality` (Owen) + `secops` (Anton) |
 | [0008](0008-vac-payment-integrity.md) | VAC and payment integrity (ImmiStack Tier 1.1–1.4) | **Implemented** (core) — `vacStatus`, `vacSettlementMode`, field-level immutability, first `rules[]` entry and the `BackfillVacStatus` migration are on `main` and applied to production. Card-authority/PAN redaction (§4.3) and the duty floor (§4.5) not found in `src`/`packages` as of 2026-09-08 — still open | Rescued from a superseded branch; not formally re-gated by Owen against this document |
+| [0009](0009-operator-console-and-tenant-lifecycle.md) | Operator console, tenant lifecycle, and fee-schedule contracts | Proposed — 2026-09-08, not merged | Adopts 0007 D2 (tenant deletion) and D7 (documents/job-run) rather than re-deciding them; adds operator entitlements and runtime fee overrides. Requires `quality` (Owen) + `secops` (Anton) |
 
 **Reading `main`'s money model:** the ADR to cite for `vacStatus`, `vacSettlementMode`,
 card-authority/PAN redaction and the duty floor is **0008**, not 0001. `0001` is the practice-role
 tagging decision and has nothing to do with payments.
+
+**0009 depends on 0007.** Both are Proposed, not merged. 0009's Contracts 1 and 3 restate 0007's
+D2 and D7 with current line numbers and one correction (the job-dispatch extraction 0007 did not
+specify); implement 0007 and 0009 together, not 0009 alone against a codebase where D2/D7 never
+landed.

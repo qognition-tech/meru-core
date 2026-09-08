@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://meru.dev/config-pack.schema.json",
   "title": "Meru Config Pack",
-  "description": "GENERATED FILE \u2014 do not edit. Produced from packages/config-packs/_schema/pack.schema.ts by `npm run packs:schema`. Zod is the source of truth; edit that file and regenerate.",
+  "description": "GENERATED FILE — do not edit. Produced from packages/config-packs/_schema/pack.schema.ts by `npm run packs:schema`. Zod is the source of truth; edit that file and regenerate.",
   "type": "object",
   "properties": {
     "code": {
@@ -1611,6 +1611,9 @@
           "type": "string"
         },
         "workflowConditions": {
+          "type": "string"
+        },
+        "statutoryConstraints": {
           "type": "string"
         }
       }

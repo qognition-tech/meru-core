@@ -141,19 +141,25 @@ export class AiController {
 
   @Post('prompts')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  // A mutating route with no role check at all — any authenticated caller,
-  // including a `client` token, could overwrite a prompt's template. `key`
-  // is globally unique on `AiPrompt` (see `resolvePrompt`'s own comment), so
-  // this is also a *cross-tenant* overwrite primitive: naming another
-  // tenant's `key` replaces their live prompt. Matches the guard already on
-  // `POST /search/index/entity` and `POST /search/index/bulk` for the same
-  // shape of route.
+  // Was a mutating route with no role check at all — any authenticated
+  // caller, including a `client` token, could overwrite a prompt's text.
+  // Role-gated now, but `key` is still globally unique on `AiPrompt` (see
+  // `AiService.resolvePrompt`'s comment), so this remains a *cross-tenant*
+  // overwrite primitive at the DB level if two tenants ever pick the same
+  // key — `AiService.upsertPrompt` scopes its own read and write by
+  // `req.user.tenantId` below, but the unique constraint is on `key` alone
+  // and a collision surfaces as a DB error, not a 403. Matches the guard
+  // already on `POST /search/index/entity` and `POST /search/index/bulk`
+  // for the same shape of route.
   @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create or update a prompt' })
   @ApiResponse({ status: 200, description: 'Prompt saved' })
   @ApiResponse({ status: 403, description: 'Platform admin or firm admin only' })
-  async upsertPrompt(@Body() promptData: UpsertPromptDto) {
-    return this.aiService.upsertPrompt(promptData);
+  async upsertPrompt(
+    @Request() req: AuthenticatedRequest,
+    @Body() promptData: UpsertPromptDto,
+  ) {
+    return this.aiService.upsertPrompt(req.user.tenantId, promptData);
   }
 }
