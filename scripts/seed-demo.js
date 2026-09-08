@@ -35,7 +35,21 @@ const { Role } = requireDist('iam/entities/role.entity');
 
 // ─── Config ────────────────────────────────────────────────────────────
 
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'demo123';
+/**
+ * No fallback, deliberately. This defaulted to `demo123`, and the script reads
+ * `DATABASE_URL` when set — the same variable that points at the Neon pooler —
+ * so an unset variable seeded a guessable account into whatever database
+ * happened to be configured. Same reasoning as `api-sweep.js`'s `requiredEnv`:
+ * a credential with a working default is a credential in the repo.
+ */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD;
+if (!DEMO_PASSWORD) {
+  console.error(
+    '\nDEMO_PASSWORD is not set. This script creates real login accounts, so ' +
+      'it will not invent one.\nRefusing to run.\n',
+  );
+  process.exit(1);
+}
 const BCRYPT_ROUNDS = 10; // must match iam.service.ts → bcrypt.hash(dto.password, 10)
 
 const TENANT = {
