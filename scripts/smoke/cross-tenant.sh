@@ -12,7 +12,17 @@ no(){ printf "  FAIL  %s — %s\n" "$1" "$2"; fail=$((fail+1)); }
 jqid(){ node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log(eval('j'+process.argv[1])||'')}catch(e){console.log('')}})" "$1"; }
 
 mktenant() { # slug-prefix -> "tenantId token slug"
-  local slug="$1-$RANDOM" email="$1-$RANDOM@probe.test" pw="ProbePassw0rd!23"
+  # Password used to be the committed literal "ProbePassw0rd!23". This script's
+  # own usage comment above says to point BASE_URL at production, and there is
+  # still no DELETE /tenants/:id (AGENTS.md — two sweep-pilot-* tenants already
+  # stuck this way), so a probe tenant created against prod is not reliably
+  # cleaned up. A password fixed in git history would then sit on a real,
+  # still-existing tenant forever. Generated per run instead — the account is
+  # created and used inside this same invocation, so nothing downstream needs
+  # it to be memorable or stable. /iam/dto password rule is MinLength(8) only
+  # (create-tenant.dto.ts), so 32 hex chars clears it with room to spare.
+  local slug="$1-$RANDOM" email="$1-$RANDOM@probe.test"
+  local pw="Px1_$(openssl rand -hex 16 2>/dev/null || echo "${RANDOM}${RANDOM}${RANDOM}${RANDOM}")"
   local s=$(curl -s -m 45 -X POST "$B/tenants/signup" -H 'Content-Type: application/json' \
     -d "{\"name\":\"$1\",\"slug\":\"$slug\",\"vertical\":\"immigration\",\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"$email\",\"password\":\"$pw\"}")
   # Single envelope: `{ data: { tenant, user, ... } }`. This used to read
@@ -84,7 +94,15 @@ echo "── Intra-tenant: one client must not see another's document ──"
 # this block once an audited, operator-only "set initial password" path exists
 # (see AGENTS.md / the register-removal note) or once invite email is wired up
 # end-to-end so accept-invite can stand in for register here.
-printf "  SKIP  intra-tenant document isolation — no HTTP path creates a usable low-privilege user without POST /auth/register (removed) or working invite email\n"
+# Still skipped, but NOT for the reason this line used to give. It blamed a
+# missing invite email; RESEND_API_KEY and RESEND_FROM are set on Production
+# (verified 2026-09-08), so invites do send. The actual blocker is narrower:
+# `IamService.inviteUser` only logs the acceptance link server-side and no route
+# returns the token, so a script cannot obtain it without reading Vercel logs or
+# a real inbox. That is exactly what ADR 0006 (operator invite link) specifies,
+# and it is unimplemented. Fixing the wrong blocker has cost this project time
+# before — hence the detail.
+printf "  SKIP  intra-tenant document isolation — invites now send (Resend is configured), but no route returns the acceptance token, so a script cannot mint a client. Needs ADR 0006 (operator invite link).\n"
 
 echo
 echo "══ $pass passed, $fail failed ══"
