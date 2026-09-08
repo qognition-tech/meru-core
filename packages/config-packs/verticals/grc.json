@@ -1,0 +1,2347 @@
+{
+  "code": "grc",
+  "name": "Governance, Risk & Compliance",
+  "description": "Shared GRC vocabulary \u2014 every country overlay inherits this.",
+  "version": "2.1.0",
+  "vertical": "grc",
+  "locales": [
+    "en"
+  ],
+  "roles": [
+    {
+      "key": "compliance_officer",
+      "label": "Compliance Officer",
+      "permissions": [
+        "screening:all",
+        "sar:file",
+        "sar:review",
+        "reports:all",
+        "alerts:manage"
+      ]
+    },
+    {
+      "key": "kyc_analyst",
+      "label": "KYC Analyst",
+      "permissions": [
+        "screening:run",
+        "cases:read",
+        "cases:write",
+        "documents:all",
+        "alerts:read"
+      ]
+    },
+    {
+      "key": "relationship_manager",
+      "label": "Relationship Manager",
+      "permissions": [
+        "cases:read",
+        "clients:read",
+        "alerts:read"
+      ]
+    },
+    {
+      "key": "mlro",
+      "label": "Money Laundering Reporting Officer",
+      "permissions": [
+        "screening:all",
+        "sar:all",
+        "reports:all",
+        "audit:read",
+        "alerts:all"
+      ]
+    }
+  ],
+  "documentTypes": [
+    {
+      "key": "trade_invoice",
+      "label": "Commercial Invoice",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "png"
+      ],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "invoiceNumber",
+          "seller",
+          "buyer",
+          "goods",
+          "hsCode",
+          "value",
+          "currency",
+          "shipmentOrigin",
+          "shipmentDestination",
+          "incoterms"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "bill_of_lading",
+      "label": "Bill of Lading",
+      "required": false,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "blNumber",
+          "vesselName",
+          "portOfLoading",
+          "portOfDischarge",
+          "shipper",
+          "consignee",
+          "cargoDescription",
+          "containerNumbers"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    },
+    {
+      "key": "corporate_id",
+      "label": "Trade License / Corporate ID",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "png"
+      ],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "companyName",
+          "licenseNumber",
+          "issueDate",
+          "expiryDate",
+          "licenseAuthority",
+          "activities"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "aml-customer-onboarding",
+      "name": "AML Customer Onboarding (CDD)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Customer Intake",
+          "type": "form",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 24,
+          "formFields": [
+            {
+              "key": "entityName",
+              "label": "Entity Name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "entityType",
+              "label": "Entity Type",
+              "type": "select",
+              "required": true,
+              "validation": {
+                "options": [
+                  {
+                    "value": "individual",
+                    "label": "Individual"
+                  },
+                  {
+                    "value": "corporate",
+                    "label": "Corporate"
+                  },
+                  {
+                    "value": "financial_institution",
+                    "label": "Financial Institution"
+                  }
+                ]
+              }
+            },
+            {
+              "key": "jurisdiction",
+              "label": "Jurisdiction",
+              "type": "country",
+              "required": true
+            },
+            {
+              "key": "businessActivity",
+              "label": "Primary Business Activity",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "expectedTransactionVolume",
+              "label": "Expected Annual Volume (AED)",
+              "type": "currency"
+            },
+            {
+              "key": "isPep",
+              "label": "Is PEP or Related to PEP?",
+              "type": "checkbox"
+            }
+          ],
+          "transitions": [
+            {
+              "to": "initial_screening",
+              "label": "Proceed to Screening"
+            }
+          ]
+        },
+        {
+          "id": "initial_screening",
+          "name": "Sanctions & PEP Screening",
+          "type": "api_call",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 1,
+          "apiAction": {
+            "adapterId": "uae-central-bank",
+            "method": "runScreening",
+            "params": {
+              "lists": [
+                "ofac",
+                "eu",
+                "un",
+                "uk_hmt",
+                "uae_local"
+              ],
+              "pepCheck": true,
+              "adverseMedia": true
+            }
+          },
+          "transitions": [
+            {
+              "to": "document_collection",
+              "label": "Clear \u2014 Proceed",
+              "condition": "screening.riskLevel !== 'critical'"
+            },
+            {
+              "to": "enhanced_due_diligence",
+              "label": "Hit \u2014 Escalate to EDD",
+              "condition": "screening.riskLevel === 'critical'"
+            }
+          ]
+        },
+        {
+          "id": "document_collection",
+          "name": "Document Collection",
+          "type": "document",
+          "slaHours": 72,
+          "requiredDocuments": [
+            "corporate_id"
+          ],
+          "transitions": [
+            {
+              "to": "analyst_review",
+              "label": "Documents Complete"
+            }
+          ]
+        },
+        {
+          "id": "enhanced_due_diligence",
+          "name": "Enhanced Due Diligence",
+          "type": "review",
+          "assignedRole": "compliance_officer",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "mlro_review",
+              "label": "EDD Complete \u2014 Escalate to MLRO"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject Onboarding"
+            }
+          ]
+        },
+        {
+          "id": "analyst_review",
+          "name": "KYC Analyst Review",
+          "type": "review",
+          "assignedRole": "kyc_analyst",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "approved",
+              "label": "Approve Onboarding"
+            },
+            {
+              "to": "compliance_review",
+              "label": "Refer to Compliance"
+            }
+          ]
+        },
+        {
+          "id": "compliance_review",
+          "name": "Compliance Officer Review",
+          "type": "review",
+          "assignedRole": "compliance_officer",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "approved",
+              "label": "Approve"
+            },
+            {
+              "to": "mlro_review",
+              "label": "Escalate to MLRO"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject"
+            }
+          ]
+        },
+        {
+          "id": "mlro_review",
+          "name": "MLRO Decision",
+          "type": "review",
+          "assignedRole": "mlro",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "approved",
+              "label": "Approve with Enhanced Monitoring"
+            },
+            {
+              "to": "sar_filing",
+              "label": "File SAR"
+            },
+            {
+              "to": "rejected",
+              "label": "Reject"
+            }
+          ]
+        },
+        {
+          "id": "sar_filing",
+          "name": "SAR Filing",
+          "type": "api_call",
+          "assignedRole": "mlro",
+          "slaHours": 24,
+          "apiAction": {
+            "adapterId": "uae-central-bank",
+            "method": "fileSar"
+          },
+          "transitions": [
+            {
+              "to": "rejected",
+              "label": "SAR Filed"
+            }
+          ]
+        },
+        {
+          "id": "approved",
+          "name": "Customer Approved",
+          "type": "notification",
+          "transitions": []
+        },
+        {
+          "id": "rejected",
+          "name": "Onboarding Rejected",
+          "type": "notification",
+          "transitions": []
+        }
+      ]
+    }
+  ],
+  "screening": {
+    "enabled": true,
+    "lists": [
+      "ofac",
+      "eu",
+      "un",
+      "uk_hmt",
+      "uae_local"
+    ],
+    "threshold": 0.85,
+    "autoEscalate": true,
+    "pepCheck": true,
+    "adverseMedia": true
+  },
+  "compliance": {
+    "dataResidency": "AE",
+    "retentionYears": 5,
+    "encryptionRequired": true,
+    "auditRequired": true,
+    "regulatoryFrameworks": [
+      "CBUAE AML-CFT Guidelines 2019",
+      "Federal Decree-Law No. 20 of 2018",
+      "FATF Recommendations"
+    ],
+    "reportingObligations": [
+      {
+        "trigger": "suspicious_transaction",
+        "reportType": "SAR",
+        "deadline": "within_14_days",
+        "regulatorId": "uae-cbuae"
+      },
+      {
+        "trigger": "cash_transaction_above_threshold",
+        "reportType": "CTR",
+        "deadline": "within_2_days",
+        "regulatorId": "uae-cbuae"
+      }
+    ]
+  },
+  "kpis": [
+    {
+      "key": "active_cases",
+      "label": "Active Onboarding Cases",
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "screening_hits",
+      "label": "Screening Hits (30d)",
+      "unit": "count",
+      "metric": {
+        "source": "screening_match",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "sar_filed",
+      "label": "SARs Filed (30d)",
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "==": [
+            {
+              "var": "sarFiled"
+            },
+            true
+          ]
+        }
+      }
+    },
+    {
+      "key": "avg_kyc_days",
+      "label": "Avg. KYC Completion Days",
+      "unit": "days",
+      "target": 5,
+      "alert": {
+        "threshold": 10,
+        "direction": "above"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "average_days",
+        "field": "createdAt",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        },
+        "until": "updatedAt"
+      }
+    },
+    {
+      "key": "false_positive_rate",
+      "label": "Screening False Positive Rate",
+      "unit": "percentage",
+      "alert": {
+        "threshold": 60,
+        "direction": "above"
+      },
+      "metric": {
+        "source": "screening_match",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "status"
+            },
+            "closed"
+          ]
+        },
+        "of": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "sla_compliance",
+      "label": "SLA Compliance",
+      "unit": "percentage",
+      "target": 95,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "or": [
+            {
+              "==": [
+                {
+                  "var": "dueDate"
+                },
+                null
+              ]
+            },
+            {
+              ">=": [
+                {
+                  "var": "dueDate_daysUntil"
+                },
+                0
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "uiConfig": {
+    "primaryColor": "#C8102E",
+    "supportEmail": "support@governancex.com",
+    "termsUrl": "https://governancex.com/terms",
+    "helpUrl": "https://help.governancex.com/uae"
+  },
+  "metadata": {
+    "author": "Meru Platform Team",
+    "lastReviewedAt": "2026-05-01T00:00:00Z",
+    "regulatoryReference": "CBUAE Guidance for Licensed Financial Institutions \u2014 AML/CFT, 2021"
+  },
+  "entityTypes": [
+    {
+      "type": "screening_match",
+      "label": "Screening Match",
+      "pluralLabel": "Match Review",
+      "module": "sanctions",
+      "workable": true,
+      "statusLabels": {
+        "open": "Pending Review",
+        "in_progress": "Under Review",
+        "blocked": "Escalated",
+        "resolved": "True Match",
+        "closed": "False Positive",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "matchedName",
+          "label": "Matched Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "listSource",
+          "label": "List",
+          "type": "select",
+          "options": [
+            "OFAC",
+            "UN",
+            "EU",
+            "UK_HMT",
+            "UAE_LOCAL",
+            "INTERNAL"
+          ],
+          "required": true
+        },
+        {
+          "key": "matchScore",
+          "label": "Match Score",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "counterpartyId",
+          "label": "Counterparty",
+          "type": "entityRef"
+        },
+        {
+          "key": "dispositionNote",
+          "label": "Disposition Rationale",
+          "type": "textarea"
+        },
+        {
+          "key": "rescreenDue",
+          "label": "Next Rescreen",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "vendor",
+      "label": "Vendor",
+      "pluralLabel": "Vendor Due Diligence",
+      "module": "vendor_dd",
+      "workable": true,
+      "fields": [
+        {
+          "key": "legalName",
+          "label": "Legal Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jurisdiction",
+          "label": "Jurisdiction",
+          "type": "country"
+        },
+        {
+          "key": "riskTier",
+          "label": "Risk Tier",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "key": "contractValue",
+          "label": "Contract Value",
+          "type": "currency"
+        },
+        {
+          "key": "lastAssessedAt",
+          "label": "Last Assessed",
+          "type": "date"
+        },
+        {
+          "key": "uboVerified",
+          "label": "UBO Verified",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "control_test",
+      "label": "Control Test",
+      "pluralLabel": "Control Testing",
+      "module": "control_testing",
+      "workable": true,
+      "fields": [
+        {
+          "key": "controlRef",
+          "label": "Control Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "framework",
+          "label": "Framework",
+          "type": "select",
+          "options": [
+            "CBUAE",
+            "SOC2",
+            "ISO27001",
+            "BASEL_III",
+            "INTERNAL"
+          ]
+        },
+        {
+          "key": "testResult",
+          "label": "Result",
+          "type": "select",
+          "options": [
+            "effective",
+            "partially_effective",
+            "ineffective",
+            "not_tested"
+          ]
+        },
+        {
+          "key": "evidenceUrl",
+          "label": "Evidence",
+          "type": "document"
+        },
+        {
+          "key": "testedBy",
+          "label": "Tested By",
+          "type": "user"
+        },
+        {
+          "key": "nextTestDue",
+          "label": "Next Test Due",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "risk_scenario",
+      "label": "Risk Scenario",
+      "pluralLabel": "Risk Workshop",
+      "module": "risk_workshop",
+      "workable": true,
+      "fields": [
+        {
+          "key": "scenario",
+          "label": "Scenario",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "likelihood",
+          "label": "Likelihood (1-5)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "impact",
+          "label": "Impact (1-5)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "inherentScore",
+          "label": "Inherent Risk",
+          "type": "computed",
+          "formula": "likelihood * impact"
+        },
+        {
+          "key": "mitigation",
+          "label": "Mitigation",
+          "type": "textarea"
+        },
+        {
+          "key": "residualScore",
+          "label": "Residual Risk",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "milestone",
+      "label": "Milestone",
+      "pluralLabel": "Governance Roadmap",
+      "module": "milestones",
+      "workable": true,
+      "fields": [
+        {
+          "key": "targetDate",
+          "label": "Target Date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "owner",
+          "label": "Owner",
+          "type": "user"
+        },
+        {
+          "key": "dependsOn",
+          "label": "Depends On",
+          "type": "entityRef",
+          "multiple": true
+        },
+        {
+          "key": "completionPct",
+          "label": "Completion %",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "rfi",
+      "label": "RFI",
+      "pluralLabel": "Requests for Information",
+      "module": "rfi",
+      "workable": true,
+      "statusLabels": {
+        "open": "Issued",
+        "in_progress": "Awaiting Response",
+        "blocked": "Overdue",
+        "resolved": "Responded",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "recipientEmail",
+          "label": "Recipient",
+          "type": "email",
+          "required": true
+        },
+        {
+          "key": "subject",
+          "label": "Subject",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "body",
+          "label": "Request",
+          "type": "richtext"
+        },
+        {
+          "key": "slaHours",
+          "label": "SLA (hours)",
+          "type": "number",
+          "default": 72
+        },
+        {
+          "key": "remindersSent",
+          "label": "Reminders Sent",
+          "type": "number",
+          "default": 0
+        },
+        {
+          "key": "respondedAt",
+          "label": "Responded",
+          "type": "datetime"
+        }
+      ]
+    },
+    {
+      "type": "turnover_record",
+      "label": "Turnover Record",
+      "pluralLabel": "Turnover Monitoring",
+      "module": "turnover",
+      "workable": false,
+      "fields": [
+        {
+          "key": "counterpartyId",
+          "label": "Counterparty",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "period",
+          "label": "Period",
+          "type": "month",
+          "required": true
+        },
+        {
+          "key": "declaredTurnover",
+          "label": "Declared",
+          "type": "currency"
+        },
+        {
+          "key": "observedTurnover",
+          "label": "Observed",
+          "type": "currency"
+        },
+        {
+          "key": "variancePct",
+          "label": "Variance %",
+          "type": "computed",
+          "formula": "((observedTurnover - declaredTurnover) / declaredTurnover) * 100"
+        },
+        {
+          "key": "alertThresholdPct",
+          "label": "Alert Threshold %",
+          "type": "number",
+          "default": 25
+        }
+      ]
+    },
+    {
+      "type": "knowledge_article",
+      "label": "Article",
+      "pluralLabel": "Knowledge Base",
+      "module": "knowledge_base",
+      "workable": false,
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "body",
+          "label": "Content",
+          "type": "richtext",
+          "required": true
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "aml",
+            "sanctions",
+            "trade_finance",
+            "regulatory",
+            "internal_policy"
+          ]
+        },
+        {
+          "key": "tags",
+          "label": "Tags",
+          "type": "tags"
+        },
+        {
+          "key": "reviewedAt",
+          "label": "Last Reviewed",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "training_module",
+      "label": "Training Module",
+      "pluralLabel": "Training",
+      "module": "training",
+      "workable": false,
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "durationMinutes",
+          "label": "Duration (min)",
+          "type": "number"
+        },
+        {
+          "key": "mandatoryFor",
+          "label": "Mandatory For",
+          "type": "roles",
+          "multiple": true
+        },
+        {
+          "key": "renewMonths",
+          "label": "Renewal (months)",
+          "type": "number",
+          "default": 12
+        },
+        {
+          "key": "completions",
+          "label": "Completions",
+          "type": "json"
+        }
+      ]
+    },
+    {
+      "type": "obligation",
+      "label": "Obligation",
+      "pluralLabel": "Compliance Obligations",
+      "module": "obligations",
+      "workable": true,
+      "statusLabels": {
+        "open": "Registered",
+        "in_progress": "In Progress",
+        "blocked": "At Risk",
+        "resolved": "Met",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "obligationRef",
+          "label": "Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "regulator",
+          "label": "Regulator",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "frequency",
+          "label": "Frequency",
+          "type": "select",
+          "options": [
+            "once",
+            "monthly",
+            "quarterly",
+            "semi_annual",
+            "annual"
+          ],
+          "required": true
+        },
+        {
+          "key": "nextDueAt",
+          "label": "Next Due",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "owner",
+          "label": "Accountable Owner",
+          "type": "text"
+        },
+        {
+          "key": "evidenceRequired",
+          "label": "Evidence Required",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "breach",
+      "label": "Breach",
+      "pluralLabel": "Breach Register",
+      "module": "breaches",
+      "workable": true,
+      "statusLabels": {
+        "open": "Reported",
+        "in_progress": "Investigating",
+        "blocked": "Escalated",
+        "resolved": "Remediated",
+        "closed": "Closed",
+        "cancelled": "Dismissed"
+      },
+      "fields": [
+        {
+          "key": "breachRef",
+          "label": "Reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "severity",
+          "label": "Severity",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "key": "obligationId",
+          "label": "Breached Obligation",
+          "type": "entityRef"
+        },
+        {
+          "key": "discoveredAt",
+          "label": "Discovered",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "reportableToRegulator",
+          "label": "Reportable",
+          "type": "boolean"
+        },
+        {
+          "key": "reportedAt",
+          "label": "Reported To Regulator",
+          "type": "date"
+        },
+        {
+          "key": "rootCause",
+          "label": "Root Cause",
+          "type": "textarea"
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "key": "entity_summary",
+      "category": "entity_analysis",
+      "description": "Plain-language summary of one banking governance and compliance record for a staff member.",
+      "prompt": "You are a banking governance and compliance operations assistant. Summarise the record below for a staff member who has thirty seconds to read it. Lead with what needs a decision, then state the current status, then anything overdue. Do not speculate about facts that are not in the record; say \"not recorded\" instead.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "risk_review",
+      "category": "entity_analysis",
+      "description": "Flag concerns on a record without inventing severity.",
+      "prompt": "Review this banking governance and compliance record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent \u2014 an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "document_review",
+      "category": "document_processing",
+      "description": "Assess a supplied document against what the record expects.",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document \u2014 do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "document_extraction",
+      "category": "data_extraction",
+      "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain \u2014 never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "maxTokens": 1200,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "form_validation",
+      "category": "validation",
+      "description": "Explain validation failures in human terms. Keyed by AiService.validateFormData.",
+      "prompt": "The submitted form data failed one or more validation rules. For each failure, explain in one sentence what is wrong and what the person should change, addressed to them, in plain language and without jargon. Do not invent rules that are not in the list.\n\nRules:\n{{VALIDATIONRULES}}\n\nSubmitted data:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "next_action",
+      "category": "workflow_decision",
+      "description": "Recommend the next workflow step. Advisory only.",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides \u2014 do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 500,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "assistant_command",
+      "category": "entity_analysis",
+      "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
+      "prompt": "You are the banking governance and compliance assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it \u2014 do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what obligations are due this month\", \"explain this screening hit\", \"which breaches are unreported\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.3,
+      "maxTokens": 1000,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "screening_match_rationale",
+      "category": "entity_analysis",
+      "description": "Explain a screening hit for the match-review workflow.",
+      "prompt": "Explain this screening match to a compliance officer deciding true match versus false positive. State which fields agree and which differ, and what the match score and algorithm do and do not establish \u2014 a phonetic match is weaker evidence than an exact one, and a high score on a common name is weaker than the number suggests. Do not recommend a disposition; the officer decides.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nMatch:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "obligation_impact",
+      "category": "workflow_decision",
+      "description": "Assess a regulatory change against a tracked obligation.",
+      "prompt": "Assess how the regulatory change below affects the obligation described. State: whether the obligation's requirement, deadline or evidence changes; what specifically changes; and what the institution must do differently. If the change does not affect this obligation, say so plainly rather than manufacturing a connection.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nObligation:\n{{CONTEXT}}\n\nRegulatory change:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 1100,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    }
+  ],
+  "messaging": {
+    "templates": [
+      {
+        "key": "user_invite",
+        "name": "Team invitation",
+        "channel": "email",
+        "subject": "You have been invited to {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation \u2014 the link cannot be reused.\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "inviterName",
+          "productName",
+          "inviteUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "password_reset",
+        "name": "Password reset",
+        "channel": "email",
+        "subject": "Reset your {{productName}} password",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email \u2014 your password has not changed. If you get these repeatedly, tell your administrator.\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "productName",
+          "resetUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "task_assigned",
+        "name": "Task assigned",
+        "channel": "email",
+        "subject": "{{taskTitle}} \u2014 assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "taskDescription",
+          "assignerName",
+          "dueDate",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "task_overdue",
+        "name": "Task overdue",
+        "channel": "email",
+        "subject": "Overdue: {{taskTitle}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "dueDate",
+          "daysOverdue",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "document_request",
+        "name": "Documents requested",
+        "channel": "email",
+        "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us \u2014 it may not have been recorded against your file.\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "documentCount",
+          "documentList",
+          "uploadUrl"
+        ]
+      },
+      {
+        "key": "document_received",
+        "name": "Document received",
+        "channel": "email",
+        "subject": "We received {{documentName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet \u2014 we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "documentName",
+          "entityLabel",
+          "outstandingLine"
+        ]
+      },
+      {
+        "key": "payment_due",
+        "name": "Payment due",
+        "channel": "email",
+        "subject": "{{firmName}} \u2014 {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "reference",
+          "paymentInstructions"
+        ]
+      },
+      {
+        "key": "payment_overdue",
+        "name": "Payment overdue",
+        "channel": "email",
+        "subject": "Overdue: {{amountFormatted}} \u2014 {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us \u2014 tell us before the work stops rather than after.\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "daysOverdue",
+          "reference"
+        ]
+      },
+      {
+        "key": "payment_received",
+        "name": "Payment receipt",
+        "channel": "email",
+        "subject": "Receipt \u2014 {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "paidDate",
+          "reference",
+          "balanceLine"
+        ]
+      },
+      {
+        "key": "status_change",
+        "name": "Matter status change",
+        "channel": "email",
+        "subject": "{{entityLabel}} is now {{newStatus}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "oldStatus",
+          "newStatus",
+          "changedAt",
+          "nextStepLine",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "sla_breach_internal",
+        "name": "SLA breach (internal)",
+        "channel": "email",
+        "subject": "SLA breached: {{entityLabel}} at {{stepName}}",
+        "body": "{{entityLabel}} has been at {{stepName}} for {{hoursElapsed}} hours against an SLA of {{slaHours}} hours.\n\nAssigned to: {{assigneeName}}\nEscalation: {{escalationTarget}}\n\nOpen it here: {{entityUrl}}",
+        "variables": [
+          "entityLabel",
+          "stepName",
+          "hoursElapsed",
+          "slaHours",
+          "assigneeName",
+          "escalationTarget",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "welcome_client",
+        "name": "Client portal welcome",
+        "channel": "email",
+        "subject": "Welcome to the {{firmName}} client portal",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n\u2014 {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "portalUrl",
+          "contactName",
+          "contactEmail"
+        ]
+      },
+      {
+        "key": "generic_notification_sms",
+        "name": "Short notification (SMS)",
+        "channel": "sms",
+        "subject": "",
+        "body": "{{firmName}}: {{message}} {{shortUrl}}",
+        "variables": [
+          "firmName",
+          "message",
+          "shortUrl"
+        ]
+      },
+      {
+        "key": "screening_hit_alert",
+        "name": "Screening hit (internal)",
+        "channel": "email",
+        "subject": "Screening hit: {{subjectName}} ({{severity}})",
+        "body": "A screening run flagged {{subjectName}}.\n\nHighest match: {{matchScore}} via {{algorithm}} against {{listName}}\nSeverity: {{severity}}\nMatches: {{matchCount}}\n\nThis is a potential match requiring review, not a determination. Review it here: {{reviewUrl}}",
+        "variables": [
+          "subjectName",
+          "matchScore",
+          "algorithm",
+          "listName",
+          "severity",
+          "matchCount",
+          "reviewUrl"
+        ]
+      },
+      {
+        "key": "obligation_due",
+        "name": "Obligation due",
+        "channel": "email",
+        "subject": "{{obligationTitle}} due {{dueDate}}",
+        "body": "{{obligationTitle}} is due on {{dueDate}} ({{daysRemaining}} days).\n\nRegulator: {{regulatorName}}\nOwner: {{ownerName}}\nEvidence required: {{evidenceRequired}}\n\nOpen it here: {{obligationUrl}}",
+        "variables": [
+          "obligationTitle",
+          "dueDate",
+          "daysRemaining",
+          "regulatorName",
+          "ownerName",
+          "evidenceRequired",
+          "obligationUrl"
+        ]
+      },
+      {
+        "key": "breach_escalation",
+        "name": "Breach escalation",
+        "channel": "email",
+        "subject": "Breach {{breachReference}} escalated \u2014 {{severity}}",
+        "body": "Breach {{breachReference}} has been escalated to {{escalationTarget}}.\n\nSeverity: {{severity}}\nIdentified: {{identifiedAt}}\nReporting deadline: {{reportingDeadline}}\nSummary: {{summary}}\n\nOpen it here: {{breachUrl}}",
+        "variables": [
+          "breachReference",
+          "severity",
+          "identifiedAt",
+          "reportingDeadline",
+          "summary",
+          "escalationTarget",
+          "breachUrl"
+        ]
+      },
+      {
+        "key": "rfi_followup_reminder",
+        "name": "RFI follow-up (sequence)",
+        "channel": "email",
+        "subject": "Follow-up: information request still open",
+        "body": "Hello {{firstName}},\n\nOur request for information remains open and we have not yet received a response. We need it to complete our review and meet our own regulatory reporting obligations.\n\nPlease respond, or reply to this email if you believe it has already been answered.\n\n{{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName"
+        ]
+      }
+    ],
+    "sequences": [
+      {
+        "key": "rfi_followup",
+        "label": "Follow up an unanswered RFI",
+        "trigger": {
+          "entityType": "rfi",
+          "when": {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress"
+              ]
+            ]
+          }
+        },
+        "steps": [
+          {
+            "templateKey": "rfi_followup_reminder",
+            "afterHours": 72
+          },
+          {
+            "templateKey": "rfi_followup_reminder",
+            "afterHours": 168
+          }
+        ],
+        "stopWhen": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed",
+              "cancelled"
+            ]
+          ]
+        },
+        "stopOnReply": true,
+        "maxMessages": 2
+      }
+    ]
+  },
+  "alertRules": [
+    {
+      "key": "screening_match_unreviewed_24h",
+      "label": "Screening match awaiting review for 24 hours",
+      "entityType": "screening_match",
+      "when": {
+        "and": [
+          {
+            ">=": [
+              {
+                "var": "createdAt_daysSince"
+              },
+              1
+            ]
+          },
+          {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress"
+              ]
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "kyc_analyst"
+      ],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 48,
+      "escalateToRoles": [
+        "mlro"
+      ]
+    },
+    {
+      "key": "control_test_overdue",
+      "label": "Control test overdue",
+      "entityType": "control_test",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "compliance_officer"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "mlro"
+      ]
+    },
+    {
+      "key": "rfi_response_overdue",
+      "label": "RFI response overdue",
+      "entityType": "rfi",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "relationship_manager"
+      ],
+      "createTask": false,
+      "cooldownHours": 48,
+      "escalateAfterHours": 96,
+      "escalateToRoles": [
+        "compliance_officer"
+      ]
+    },
+    {
+      "key": "milestone_due_14d",
+      "label": "Governance milestone due within 14 days",
+      "entityType": "milestone",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              14
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "info",
+      "notifyRoles": [
+        "compliance_officer"
+      ],
+      "createTask": false,
+      "cooldownHours": 168,
+      "escalateAfterHours": null,
+      "escalateToRoles": []
+    }
+  ],
+  "scoringModels": [
+    {
+      "key": "counterparty_risk",
+      "label": "Counterparty risk",
+      "entityType": "vendor",
+      "factors": [
+        {
+          "key": "sanctions_hit",
+          "label": "Open sanctions or PEP hit",
+          "when": {
+            "var": "hasOpenScreeningHit"
+          },
+          "weight": 40
+        },
+        {
+          "key": "high_risk_jurisdiction",
+          "label": "High-risk jurisdiction",
+          "when": {
+            "in": [
+              {
+                "var": "country"
+              },
+              [
+                "IR",
+                "KP",
+                "SY",
+                "MM",
+                "AF"
+              ]
+            ]
+          },
+          "weight": 30
+        },
+        {
+          "key": "cash_intensive",
+          "label": "Cash-intensive business",
+          "when": {
+            "var": "cashIntensive"
+          },
+          "weight": 15
+        },
+        {
+          "key": "complex_ownership",
+          "label": "Ownership more than three layers deep",
+          "when": {
+            ">": [
+              {
+                "var": "ownershipLayers"
+              },
+              3
+            ]
+          },
+          "weight": 15
+        },
+        {
+          "key": "dd_stale",
+          "label": "Due diligence older than a year",
+          "when": {
+            ">=": [
+              {
+                "var": "lastDueDiligenceAt_daysSince"
+              },
+              365
+            ]
+          },
+          "weight": 20
+        },
+        {
+          "key": "long_standing_clean",
+          "label": "Five years with no adverse finding",
+          "when": {
+            "and": [
+              {
+                ">=": [
+                  {
+                    "var": "onboardedAt_daysSince"
+                  },
+                  1825
+                ]
+              },
+              {
+                "!": {
+                  "var": "hasAdverseFinding"
+                }
+              }
+            ]
+          },
+          "weight": -15
+        }
+      ],
+      "bands": [
+        {
+          "key": "low",
+          "label": "Low",
+          "minScore": -15,
+          "color": "#10b981"
+        },
+        {
+          "key": "medium",
+          "label": "Medium",
+          "minScore": 30,
+          "color": "#f59e0b"
+        },
+        {
+          "key": "high",
+          "label": "High",
+          "minScore": 55,
+          "color": "#ef4444"
+        },
+        {
+          "key": "prohibited",
+          "label": "Prohibited",
+          "minScore": 85,
+          "color": "#7f1d1d"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "key": "blocks",
+      "label": "Blocks",
+      "fromType": "milestone",
+      "toType": "milestone",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Blocked by",
+      "blocksCompletion": true
+    },
+    {
+      "key": "evidences",
+      "label": "Evidences",
+      "fromType": "control_test",
+      "toType": "obligation",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Evidenced by",
+      "blocksCompletion": false
+    },
+    {
+      "key": "raised_against",
+      "label": "Raised against",
+      "fromType": "breach",
+      "toType": "obligation",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Breaches",
+      "blocksCompletion": false
+    },
+    {
+      "key": "remediated_by",
+      "label": "Remediated by",
+      "fromType": "breach",
+      "toType": "control_test",
+      "cardinality": "many_to_many",
+      "inverseLabel": "Remediates",
+      "blocksCompletion": true
+    },
+    {
+      "key": "counterparty_of",
+      "label": "Counterparty of",
+      "fromType": "vendor",
+      "toType": "trade_instrument",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Counterparties",
+      "blocksCompletion": false
+    }
+  ],
+  "navigation": [
+    {
+      "key": "home",
+      "label": "Dashboard",
+      "path": "/",
+      "icon": "layout-dashboard",
+      "portal": "staff",
+      "order": 10,
+      "roles": []
+    },
+    {
+      "key": "screening",
+      "label": "Sanctions Screening",
+      "path": "/screening",
+      "icon": "shield-check",
+      "portal": "staff",
+      "order": 20,
+      "roles": []
+    },
+    {
+      "key": "match_review",
+      "label": "Match Review",
+      "path": "/match-review",
+      "icon": "search-check",
+      "portal": "staff",
+      "order": 30,
+      "roles": []
+    },
+    {
+      "key": "counterparties",
+      "label": "Counterparties",
+      "path": "/counterparties",
+      "icon": "building-2",
+      "portal": "staff",
+      "order": 40,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "trade_finance",
+      "label": "Trade Finance",
+      "path": "/trade-finance",
+      "icon": "ship",
+      "portal": "staff",
+      "order": 50,
+      "roles": []
+    },
+    {
+      "key": "vessels",
+      "label": "Vessel Tracking",
+      "path": "/vessels",
+      "icon": "anchor",
+      "portal": "staff",
+      "order": 60,
+      "roles": []
+    },
+    {
+      "key": "obligations",
+      "label": "Obligations",
+      "path": "/obligations",
+      "icon": "clipboard-check",
+      "portal": "staff",
+      "order": 70,
+      "roles": []
+    },
+    {
+      "key": "breaches",
+      "label": "Breaches",
+      "path": "/breaches",
+      "icon": "triangle-alert",
+      "portal": "staff",
+      "order": 80,
+      "roles": []
+    },
+    {
+      "key": "vendor_dd",
+      "label": "Vendor Due Diligence",
+      "path": "/vendor-dd",
+      "icon": "handshake",
+      "portal": "staff",
+      "order": 90,
+      "roles": []
+    },
+    {
+      "key": "control_testing",
+      "label": "Control Testing",
+      "path": "/control-testing",
+      "icon": "test-tube",
+      "portal": "staff",
+      "order": 100,
+      "roles": []
+    },
+    {
+      "key": "risk_workshop",
+      "label": "Risk Workshop",
+      "path": "/risk-workshop",
+      "icon": "activity",
+      "portal": "staff",
+      "order": 110,
+      "roles": []
+    },
+    {
+      "key": "rfi",
+      "label": "RFI",
+      "path": "/rfi",
+      "icon": "message-square-quote",
+      "portal": "staff",
+      "order": 120,
+      "module": "forms",
+      "roles": []
+    },
+    {
+      "key": "turnover",
+      "label": "Turnover Monitoring",
+      "path": "/turnover",
+      "icon": "trending-up",
+      "portal": "staff",
+      "order": 130,
+      "roles": []
+    },
+    {
+      "key": "roadmap",
+      "label": "Milestones & Roadmap",
+      "path": "/roadmap",
+      "icon": "map",
+      "portal": "staff",
+      "order": 140,
+      "roles": []
+    },
+    {
+      "key": "knowledge_base",
+      "label": "Knowledge Base",
+      "path": "/knowledge-base",
+      "icon": "book-open",
+      "portal": "staff",
+      "order": 150,
+      "roles": []
+    },
+    {
+      "key": "training",
+      "label": "Training",
+      "path": "/training",
+      "icon": "graduation-cap",
+      "portal": "staff",
+      "order": 160,
+      "roles": []
+    },
+    {
+      "key": "documents",
+      "label": "Documents",
+      "path": "/documents",
+      "icon": "folder",
+      "portal": "staff",
+      "order": 170,
+      "module": "documents",
+      "roles": []
+    },
+    {
+      "key": "tasks",
+      "label": "Tasks",
+      "path": "/tasks",
+      "icon": "check-square",
+      "portal": "staff",
+      "order": 180,
+      "module": "tasks",
+      "roles": []
+    },
+    {
+      "key": "communications",
+      "label": "Communications",
+      "path": "/communications",
+      "icon": "mail",
+      "portal": "staff",
+      "order": 190,
+      "module": "communications",
+      "roles": []
+    },
+    {
+      "key": "reports",
+      "label": "Reports",
+      "path": "/reports",
+      "icon": "bar-chart-3",
+      "portal": "staff",
+      "order": 200,
+      "roles": []
+    },
+    {
+      "key": "audit",
+      "label": "Audit Trail",
+      "path": "/audit",
+      "icon": "scroll-text",
+      "portal": "staff",
+      "order": 210,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "settings",
+      "label": "Settings",
+      "path": "/settings",
+      "icon": "settings",
+      "portal": "admin",
+      "order": 900,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "billing",
+      "label": "Billing",
+      "path": "/settings/billing",
+      "icon": "credit-card",
+      "portal": "admin",
+      "order": 910,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "users",
+      "label": "Users & Roles",
+      "path": "/settings/users",
+      "icon": "users",
+      "portal": "admin",
+      "order": 920,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "connectors",
+      "label": "Regulator Connectors",
+      "path": "/settings/connectors",
+      "icon": "plug",
+      "portal": "admin",
+      "order": 930,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    }
+  ],
+  "dashboards": [
+    {
+      "key": "compliance_home",
+      "label": "Compliance Overview",
+      "portal": "staff",
+      "roles": [],
+      "widgets": [
+        {
+          "key": "open_matches",
+          "label": "Matches Awaiting Review",
+          "type": "kpi",
+          "source": "screening_hits",
+          "span": 3
+        },
+        {
+          "key": "sars",
+          "label": "SARs Filed",
+          "type": "kpi",
+          "source": "sar_filed",
+          "span": 3
+        },
+        {
+          "key": "avg_kyc",
+          "label": "Avg. KYC Days",
+          "type": "kpi",
+          "source": "avg_kyc_days",
+          "span": 3
+        },
+        {
+          "key": "fp_rate",
+          "label": "False Positive Rate",
+          "type": "kpi",
+          "source": "false_positive_rate",
+          "span": 3
+        },
+        {
+          "key": "breaches_open",
+          "label": "Open Breaches",
+          "type": "count",
+          "source": "breach",
+          "when": {
+            "in": [
+              {
+                "var": "status"
+              },
+              [
+                "open",
+                "in_progress",
+                "blocked"
+              ]
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "obligations_due",
+          "label": "Obligations Due in 30 Days",
+          "type": "count",
+          "source": "obligation",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "dueDate_daysUntil"
+                  },
+                  30
+                ]
+              },
+              {
+                "!=": [
+                  {
+                    "var": "status"
+                  },
+                  "closed"
+                ]
+              }
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "vendors_high",
+          "label": "High-Risk Vendors",
+          "type": "count",
+          "source": "vendor",
+          "when": {
+            "in": [
+              {
+                "var": "riskTier"
+              },
+              [
+                "high",
+                "critical"
+              ]
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "match_by_status",
+          "label": "Match Review by Status",
+          "type": "chart",
+          "source": "screening_match",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "escalated_matches",
+          "label": "Escalated Matches",
+          "type": "list",
+          "source": "screening_match",
+          "when": {
+            "==": [
+              {
+                "var": "status"
+              },
+              "blocked"
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
+    },
+    {
+      "key": "mlro_home",
+      "label": "MLRO Board",
+      "portal": "admin",
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ],
+      "widgets": [
+        {
+          "key": "sla",
+          "label": "SLA Compliance",
+          "type": "kpi",
+          "source": "sla_compliance",
+          "span": 4
+        },
+        {
+          "key": "active_cases",
+          "label": "Active Cases",
+          "type": "kpi",
+          "source": "active_cases",
+          "span": 4
+        },
+        {
+          "key": "turnover_records",
+          "label": "Turnover Records",
+          "type": "count",
+          "source": "turnover_record",
+          "span": 4
+        },
+        {
+          "key": "control_by_status",
+          "label": "Control Tests by Status",
+          "type": "chart",
+          "source": "control_test",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "rfi_open",
+          "label": "Open RFIs",
+          "type": "list",
+          "source": "rfi",
+          "when": {
+            "!=": [
+              {
+                "var": "status"
+              },
+              "closed"
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
+    }
+  ],
+  "importMappings": [
+    {
+      "key": "counterparties_csv",
+      "label": "Counterparties (CSV)",
+      "source": "csv",
+      "targetEntityType": "organization",
+      "fields": [
+        {
+          "from": "Legal Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "transform": "lowercase"
+        },
+        {
+          "from": "Jurisdiction",
+          "to": "jurisdiction",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Registration Number",
+          "to": "registrationNumber"
+        },
+        {
+          "from": "Risk Tier",
+          "to": "riskTier",
+          "transform": "lowercase"
+        }
+      ],
+      "dedupeOn": [
+        "registrationNumber"
+      ]
+    },
+    {
+      "key": "vendors_csv",
+      "label": "Vendors (CSV)",
+      "source": "csv",
+      "targetEntityType": "vendor",
+      "fields": [
+        {
+          "from": "Vendor Name",
+          "to": "legalName",
+          "required": true
+        },
+        {
+          "from": "Jurisdiction",
+          "to": "jurisdiction",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Risk Tier",
+          "to": "riskTier",
+          "transform": "lowercase"
+        },
+        {
+          "from": "Contract Value",
+          "to": "contractValue"
+        },
+        {
+          "from": "Last Assessed",
+          "to": "lastAssessedAt",
+          "transform": "date_iso"
+        }
+      ],
+      "dedupeOn": [
+        "legalName"
+      ]
+    }
+  ]
+}

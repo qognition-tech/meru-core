@@ -3,10 +3,17 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { FormSchema, FormStatus, FormLayout } from './entities/form-schema.entity';
+import {
+  FormSchema,
+  FormStatus,
+  FormLayout,
+} from './entities/form-schema.entity';
 import { FormField, FieldType } from './entities/form-field.entity';
 import {
   FormSubmission,
@@ -16,6 +23,7 @@ import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import { Actor, scopeOf } from '../common/access';
 
 export interface FormDefinition {
   name: string;
@@ -50,7 +58,9 @@ export class FormBuilderService {
     private submissionRepo: Repository<FormSubmission>,
     private dataSource: DataSource,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
   ) {}
 
@@ -101,7 +111,7 @@ export class FormBuilderService {
       await queryRunner.commitTransaction();
       this.logger.log(`Form created: ${savedSchema.id}`);
 
-      return this.getForm(savedSchema.id);
+      return this.getForm(savedSchema.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -110,9 +120,19 @@ export class FormBuilderService {
     }
   }
 
-  async getForm(id: string): Promise<FormSchema> {
+  /**
+   * Tenant-scoped fetch. `tenantId` is required, not optional — same fix,
+   * same reasoning, as `getSubmission` below: this was `findOne({ where: { id
+   * } })` with no tenant filter at all, so any form schema in any tenant
+   * resolved by id alone. RLS is verified enforced in production for this
+   * table (`form_schemas` carries `rls=true, force=true`), so this is
+   * defence-in-depth rather than the live cross-tenant leak an earlier report
+   * claimed — but the belt-and-braces posture applies here exactly as it does
+   * everywhere else this codebase touches regulated data.
+   */
+  async getForm(id: string, tenantId: string): Promise<FormSchema> {
     const form = await this.formSchemaRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['fields'],
     });
 
@@ -139,6 +159,77 @@ export class FormBuilderService {
     });
   }
 
+  /**
+   * Bare update of a DRAFT form. Published (ACTIVE) forms are immutable by
+   * design — live submissions reference their field set — so edits to a
+   * published form must go through createNewVersion instead. This split is
+   * the contract answer to the FE's "PUT /forms/:id or /forms/:id/version?"
+   * question: PUT for drafts, version for anything already published.
+   */
+  async updateForm(
+    id: string,
+    tenantId: string,
+    definition: Partial<FormDefinition>,
+  ): Promise<FormSchema> {
+    const form = await this.formSchemaRepo.findOne({
+      where: { id, tenantId },
+    });
+
+    if (!form) {
+      throw new NotFoundException('Form not found');
+    }
+
+    if (form.status !== FormStatus.DRAFT) {
+      throw new ConflictException(
+        'Published forms are immutable — create a new draft version via POST /forms/:id/version, edit that, then publish it.',
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      if (definition.name !== undefined) form.name = definition.name;
+      if (definition.description !== undefined)
+        form.description = definition.description;
+      if (definition.layout !== undefined) form.layout = definition.layout;
+      if (definition.config !== undefined) form.config = definition.config;
+      await queryRunner.manager.save(form);
+
+      // A fields array replaces the draft's field set wholesale — partial
+      // field patches would need per-field identity the DTO doesn't carry.
+      if (definition.fields !== undefined) {
+        await queryRunner.manager.delete(FormField, { formSchemaId: form.id });
+        for (const fieldDef of definition.fields) {
+          const field = queryRunner.manager.create(FormField, {
+            formSchemaId: form.id,
+            key: fieldDef.key,
+            label: fieldDef.label,
+            type: fieldDef.type,
+            description: fieldDef.description,
+            placeholder: fieldDef.placeholder,
+            order: fieldDef.order || 0,
+            validation: fieldDef.validation || {},
+            options: fieldDef.options || {},
+            config: fieldDef.config || {},
+            conditionalLogic: fieldDef.conditionalLogic,
+          });
+          await queryRunner.manager.save(field);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    return this.getForm(id, tenantId);
+  }
+
   async publishForm(id: string, tenantId: string): Promise<FormSchema> {
     const form = await this.formSchemaRepo.findOne({
       where: { id, tenantId },
@@ -151,7 +242,7 @@ export class FormBuilderService {
     form.status = FormStatus.ACTIVE;
     await this.formSchemaRepo.save(form);
 
-    return this.getForm(id);
+    return this.getForm(id, tenantId);
   }
 
   async createNewVersion(
@@ -159,11 +250,10 @@ export class FormBuilderService {
     tenantId: string,
     userId: string,
   ): Promise<FormSchema> {
-    const existingForm = await this.getForm(id);
-
-    if (existingForm.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `getForm` is now tenant-scoped by its required `tenantId` argument —
+    // same note as `getSubmission` — so the redundant `tenantId` equality
+    // check that used to follow this is dead code and has been removed.
+    const existingForm = await this.getForm(id, tenantId);
 
     // Archive old version
     existingForm.status = FormStatus.ARCHIVED;
@@ -207,9 +297,11 @@ export class FormBuilderService {
       }
 
       await queryRunner.commitTransaction();
-      this.logger.log(`Form version ${savedSchema.version} created: ${savedSchema.id}`);
+      this.logger.log(
+        `Form version ${savedSchema.version} created: ${savedSchema.id}`,
+      );
 
-      return this.getForm(savedSchema.id);
+      return this.getForm(savedSchema.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -227,7 +319,7 @@ export class FormBuilderService {
     data: Record<string, any>,
     entityId?: string,
   ): Promise<FormSubmission> {
-    const form = await this.getForm(formSchemaId);
+    const form = await this.getForm(formSchemaId, tenantId);
 
     // Validate data
     const validationErrors = this.validateData(data, form.fields);
@@ -238,28 +330,49 @@ export class FormBuilderService {
       entityId,
       data,
       validationErrors,
-      status: validationErrors.length > 0 
-        ? SubmissionStatus.DRAFT 
-        : SubmissionStatus.SUBMITTED,
+      status:
+        validationErrors.length > 0
+          ? SubmissionStatus.DRAFT
+          : SubmissionStatus.SUBMITTED,
       submittedBy: userId,
       submittedAt: validationErrors.length > 0 ? null : new Date(),
-      history: [{
-        timestamp: new Date(),
-        action: 'created',
-        userId,
-        changes: data,
-      }],
+      history: [
+        {
+          timestamp: new Date(),
+          action: 'created',
+          userId,
+          changes: data,
+        },
+      ],
     });
 
     const saved = await this.submissionRepo.save(submission);
     this.logger.log(`Submission created: ${saved.id}`);
 
-    return this.getSubmission(saved.id);
+    return this.getSubmission(saved.id, tenantId);
   }
 
-  async getSubmission(id: string): Promise<FormSubmission> {
+  /**
+   * Tenant-scoped fetch. `tenantId` is required, not optional — this used to
+   * be `findOne({ where: { id } })` with **no tenant filter at all**, so any
+   * submission in any tenant resolved by id alone: a `client` in one tenant
+   * who knew or guessed a submission UUID could read another tenant's form
+   * data outright. An optional tenant parameter a caller could forget to pass
+   * would have been the same bug with extra steps — the compiler now finds
+   * every call site instead, the same fix `CrmService.getEntity` made for
+   * `/crm/entities`.
+   *
+   * This is tenant isolation only, not user-scoping. Whether a `client`-role
+   * caller may reach a submission that is not theirs (as opposed to not their
+   * tenant's) is a different rule — it narrows *inside* one tenant, tenant
+   * isolation narrows *across* tenants — and it lives one layer up, in
+   * `FormController.assertSubmissionOwnership`, exactly the split
+   * `CrmAccessService`/`DocumentAccessService` make between tenant scope and
+   * ownership.
+   */
+  async getSubmission(id: string, tenantId: string): Promise<FormSubmission> {
     const submission = await this.submissionRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['formSchema', 'formSchema.fields'],
     });
 
@@ -275,11 +388,29 @@ export class FormBuilderService {
     formSchemaId?: string,
     status?: SubmissionStatus,
     entityId?: string,
+    /**
+     * Optional, unlike the pattern `CrmAccessService.applyScope` sets, because
+     * one caller outside `src/forms/*` — `AiService`'s smart-search branch —
+     * calls this with only a `tenantId`, aggregating tenant-wide the same way
+     * its CRM and document branches next to it do (those use `SYSTEM_ACTOR`).
+     * `ai.service.ts` is out of this hardening pass's file ownership, so
+     * threading a real actor through that call is a handoff, not done here —
+     * until then a `client`-role caller reaching AI smart-search still sees
+     * every applicant's form submissions in those results, same as before
+     * this change. Every caller inside this module (`FormController`) passes
+     * one.
+     */
+    actor?: Actor,
   ): Promise<FormSubmission[]> {
     const where: any = { tenantId };
     if (formSchemaId) where.formSchemaId = formSchemaId;
     if (status) where.status = status;
     if (entityId) where.entityId = entityId;
+    // `own` scope: a client sees only what they submitted. Applied in the
+    // query, not filtered after the fact in the controller, so every future
+    // caller of this method inherits it — see the note on `actor` above for
+    // the one caller that does not yet supply one.
+    if (actor && scopeOf(actor) === 'own') where.submittedBy = actor.id;
 
     return this.submissionRepo.find({
       where,
@@ -294,14 +425,17 @@ export class FormBuilderService {
     userId: string,
     data: Record<string, any>,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `getSubmission` is tenant-scoped by its required `tenantId` argument —
+    // this 404s rather than yielding another tenant's row, so the explicit
+    // `tenantId` comparison this method used to make afterwards is dead code
+    // now and has been removed.
+    const submission = await this.getSubmission(id, tenantId);
 
     // Validate data
-    const validationErrors = this.validateData(data, submission.formSchema.fields);
+    const validationErrors = this.validateData(
+      data,
+      submission.formSchema.fields,
+    );
 
     // Merge data
     const newData = { ...submission.data, ...data };
@@ -320,7 +454,7 @@ export class FormBuilderService {
       history: submission.history,
     });
 
-    return this.getSubmission(id);
+    return this.getSubmission(id, tenantId);
   }
 
   async submitForm(
@@ -328,11 +462,9 @@ export class FormBuilderService {
     tenantId: string,
     userId: string,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // See the note on `updateSubmission` — `getSubmission` already 404s on a
+    // wrong-tenant id, so the redundant `tenantId` check is gone.
+    const submission = await this.getSubmission(id, tenantId);
 
     if (submission.validationErrors.length > 0) {
       throw new BadRequestException('Form has validation errors');
@@ -348,7 +480,7 @@ export class FormBuilderService {
     });
 
     await this.submissionRepo.save(submission);
-    return this.getSubmission(id);
+    return this.getSubmission(id, tenantId);
   }
 
   async reviewSubmission(
@@ -358,15 +490,17 @@ export class FormBuilderService {
     status: 'approved' | 'rejected',
     notes?: string,
   ): Promise<FormSubmission> {
-    const submission = await this.getSubmission(id);
+    // See the note on `updateSubmission` — `getSubmission` already 404s on a
+    // wrong-tenant id, so the redundant `tenantId` check is gone. Staff-only
+    // (`@Roles(STAFF, FIRM_ADMIN)` on the controller route) is unaffected: this
+    // is tenant isolation, not the `own`-scope ownership check, so a staff
+    // reviewer still reaches any applicant's submission in their own tenant.
+    const submission = await this.getSubmission(id, tenantId);
 
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
-
-    submission.status = status === 'approved'
-      ? SubmissionStatus.APPROVED
-      : SubmissionStatus.REJECTED;
+    submission.status =
+      status === 'approved'
+        ? SubmissionStatus.APPROVED
+        : SubmissionStatus.REJECTED;
     submission.reviewedBy = userId;
     submission.reviewedAt = new Date();
     submission.reviewNotes = notes || null;
@@ -378,13 +512,13 @@ export class FormBuilderService {
     });
 
     await this.submissionRepo.save(submission);
-    
+
     // Index submission after approval
     if (status === 'approved') {
       await this.indexSubmission(submission);
     }
-    
-    return this.getSubmission(id);
+
+    return this.getSubmission(id, tenantId);
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================
@@ -409,7 +543,10 @@ export class FormBuilderService {
       await this.searchService.indexEntityData(searchableData);
       this.logger.debug(`Form submission indexed: ${submission.id}`);
     } catch (error) {
-      this.logger.error(`Failed to index form submission: ${submission.id}`, error);
+      this.logger.error(
+        `Failed to index form submission: ${submission.id}`,
+        error,
+      );
     }
   }
 
@@ -421,18 +558,23 @@ export class FormBuilderService {
     return this.searchService.search(tenantId, query, limit);
   }
 
+  // Not wired to any route today (`grep -rn extractFormDataWithAI src`
+  // finds only this definition) — `tenantId` added anyway so this keeps
+  // compiling against `getForm`'s now-required tenant scope rather than
+  // becoming the next unscoped call site the moment a controller reaches it.
   async extractFormDataWithAI(
     documentContent: string,
     formSchemaId: string,
+    tenantId: string,
   ): Promise<any> {
     try {
-      const form = await this.getForm(formSchemaId);
-      
-      const fieldNames = form.fields.map(f => f.key).join(', ');
-      
+      const form = await this.getForm(formSchemaId, tenantId);
+
+      const fieldNames = form.fields.map((f) => f.key).join(', ');
+
       const extraction = await this.aiService.extractFromDocument(
         documentContent,
-        form.fields.map(f => f.key),
+        form.fields.map((f) => f.key),
       );
 
       return {
@@ -441,7 +583,9 @@ export class FormBuilderService {
         confidence: 0.85, // Simplified confidence score
       };
     } catch (error) {
-      this.logger.error(`Failed to extract form data with AI: ${error.message}`);
+      this.logger.error(
+        `Failed to extract form data with AI: ${error.message}`,
+      );
       return {
         success: false,
         extractedData: null,
@@ -450,14 +594,16 @@ export class FormBuilderService {
     }
   }
 
+  // Same note as `extractFormDataWithAI` above — not wired to any route today.
   async validateFormWithAI(
     formData: Record<string, any>,
     formSchemaId: string,
+    tenantId: string,
   ): Promise<any> {
     try {
-      const form = await this.getForm(formSchemaId);
-      
-      const validationRules = form.fields.map(f => ({
+      const form = await this.getForm(formSchemaId, tenantId);
+
+      const validationRules = form.fields.map((f) => ({
         key: f.key,
         label: f.label,
         type: f.type,
@@ -496,7 +642,10 @@ export class FormBuilderService {
       const validation = field.validation;
 
       // Required check
-      if (validation?.required && (value === undefined || value === null || value === '')) {
+      if (
+        validation?.required &&
+        (value === undefined || value === null || value === '')
+      ) {
         errors.push({
           field: field.key,
           message: `${field.label} is required`,
@@ -549,7 +698,8 @@ export class FormBuilderService {
         if (!regex.test(value)) {
           errors.push({
             field: field.key,
-            message: validation.patternMessage || `${field.label} format is invalid`,
+            message:
+              validation.patternMessage || `${field.label} format is invalid`,
             type: 'pattern',
           });
         }
@@ -561,8 +711,8 @@ export class FormBuilderService {
 
   // ==================== RENDER HELPERS ====================
 
-  async renderForm(formSchemaId: string): Promise<any> {
-    const form = await this.getForm(formSchemaId);
+  async renderForm(formSchemaId: string, tenantId: string): Promise<any> {
+    const form = await this.getForm(formSchemaId, tenantId);
 
     return {
       id: form.id,
@@ -573,7 +723,7 @@ export class FormBuilderService {
       config: form.config,
       fields: form.fields
         .sort((a, b) => a.order - b.order)
-        .map(field => ({
+        .map((field) => ({
           id: field.id,
           key: field.key,
           label: field.label,
@@ -594,7 +744,10 @@ export class FormBuilderService {
     tenantId: string,
     submissionId: string,
   ): Promise<Document[]> {
-    return this.documentHubService.getFormSubmissionDocuments(tenantId, submissionId);
+    return this.documentHubService.getFormSubmissionDocuments(
+      tenantId,
+      submissionId,
+    );
   }
 
   async attachDocumentToSubmission(
@@ -603,11 +756,11 @@ export class FormBuilderService {
     documentId: string,
     userId: string,
   ): Promise<Document> {
-    const submission = await this.getSubmission(submissionId);
-
-    if (submission.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // Confirms the submission exists in this tenant before attaching — see
+    // `getSubmission`'s own note on why `tenantId` is required. The redundant
+    // post-fetch tenant comparison this method used to make is gone; the
+    // return value is not otherwise needed here.
+    await this.getSubmission(submissionId, tenantId);
 
     return this.documentHubService.attachDocumentToEntity(
       documentId,
@@ -636,7 +789,7 @@ export class FormBuilderService {
     );
 
     // Update submission with document analysis
-    const submission = await this.getSubmission(submissionId);
+    const submission = await this.getSubmission(submissionId, tenantId);
     submission.metadata = {
       ...submission.metadata,
       documentAnalysis: results,
@@ -647,8 +800,8 @@ export class FormBuilderService {
     return {
       submissionId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
+      successful: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
       results,
     };
   }
@@ -663,9 +816,15 @@ export class FormBuilderService {
     const results = await Promise.all(
       documents.map(async (doc) => {
         try {
-          return await this.documentHubService.extractDocumentData(doc.id, extractionSchema);
+          return await this.documentHubService.extractDocumentData(
+            doc.id,
+            extractionSchema,
+          );
         } catch (error) {
-          this.logger.error(`Failed to extract data from document ${doc.id}:`, error);
+          this.logger.error(
+            `Failed to extract data from document ${doc.id}:`,
+            error,
+          );
           return { documentId: doc.id, success: false, error: error.message };
         }
       }),
@@ -673,13 +832,13 @@ export class FormBuilderService {
 
     // Merge extracted data
     const extractedData = results
-      .filter(r => r.success)
+      .filter((r) => r.success)
       .reduce((acc, r) => ({ ...acc, ...r.extractedData }), {});
 
     return {
       submissionId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
+      successful: results.filter((r) => r.success).length,
       extractedData,
     };
   }
@@ -689,13 +848,9 @@ export class FormBuilderService {
     submissionId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'form_submission',
-        entityId: submissionId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'form_submission',
+      entityId: submissionId,
+    });
   }
 }

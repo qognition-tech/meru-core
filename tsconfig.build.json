@@ -1,4 +1,13 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    // Client reference material (proposals, BRDs, an exported marketing site).
+    // It is gitignored but still on disk, and its .tsx files are not part of
+    // this build — they were failing the typecheck with JSX syntax errors.
+    "claude-documents"
+  ]
 }

@@ -88,7 +88,7 @@ export class BillingPlan {
     gstRate?: number;
   };
 
-  @OneToMany(() => Subscription, subscription => subscription.plan)
+  @OneToMany(() => Subscription, (subscription) => subscription.plan)
   subscriptions: Subscription[];
 
   @CreateDateColumn()

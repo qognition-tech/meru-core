@@ -3,13 +3,23 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
-import { Report, ReportType, DataSource as ReportDataSource } from './entities/report.entity';
+import {
+  Report,
+  ReportType,
+  DataSource as ReportDataSource,
+} from './entities/report.entity';
 import { ReportExecution } from './entities/report-execution.entity';
-import { DashboardWidget, WidgetType } from './entities/dashboard-widget.entity';
+import {
+  DashboardWidget,
+  WidgetType,
+} from './entities/dashboard-widget.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 
@@ -41,7 +51,9 @@ export class AnalyticsService {
     private widgetRepo: Repository<DashboardWidget>,
     private dataSource: DataSource,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   // ==================== REPORT BUILDER ====================
@@ -72,6 +84,52 @@ export class AnalyticsService {
     }
 
     return this.reportRepo.find({ where });
+  }
+
+  /**
+   * Past report runs, newest first — the "generated reports" list.
+   *
+   * `results` is deliberately excluded: it holds the full result set of every
+   * run, so selecting it here would stream the entire reporting history of a
+   * tenant on what the UI treats as an index page. Fetch a single execution's
+   * payload through the report itself when it is actually needed.
+   */
+  async getGeneratedReports(
+    tenantId: string,
+    limit = 50,
+  ): Promise<Array<ReportExecution & { reportName: string | null }>> {
+    const executions = await this.executionRepo.find({
+      where: { tenantId },
+      order: { executedAt: 'DESC' },
+      take: Math.min(limit, 200),
+      select: [
+        'id',
+        'reportId',
+        'executedAt',
+        'executedBy',
+        'rowCount',
+        'executionTimeMs',
+        'status',
+        'errorMessage',
+        'fileUrl',
+        'createdAt',
+      ],
+    });
+
+    if (executions.length === 0) return [];
+
+    // One extra query rather than N: the UI lists the report's name next to
+    // each run, and there is no FK relation defined between these entities.
+    const reports = await this.reportRepo.find({
+      where: { tenantId },
+      select: ['id', 'name'],
+    });
+    const nameById = new Map(reports.map((r) => [r.id, r.name]));
+
+    return executions.map((execution) => ({
+      ...execution,
+      reportName: nameById.get(execution.reportId) ?? null,
+    })) as Array<ReportExecution & { reportName: string | null }>;
   }
 
   async getReport(id: string, tenantId: string): Promise<Report> {
@@ -145,7 +203,10 @@ export class AnalyticsService {
     }
   }
 
-  private async executeQuery(report: Report, parameters?: Record<string, any>): Promise<any> {
+  private async executeQuery(
+    report: Report,
+    parameters?: Record<string, any>,
+  ): Promise<any> {
     const config = report.configuration;
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -184,16 +245,20 @@ export class AnalyticsService {
     }
   }
 
-  private buildCRMQuery(config: any, params: any[], parameters?: Record<string, any>): string {
+  private buildCRMQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
     let query = 'SELECT ';
-    
+
     if (config.columns) {
       query += config.columns.map((c: any) => c.field).join(', ');
     } else {
       query += '*';
     }
 
-    query += ' FROM universal_entities WHERE tenant_id = $1';
+    query += ' FROM universal_entities WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (config.filters) {
@@ -218,20 +283,28 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildWorkflowQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM workflow_instances WHERE tenant_id = $1';
+  private buildWorkflowQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    let query = 'SELECT * FROM workflow_instances WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.workflowId) {
-      query += ` AND workflow_id = $${params.length + 1}`;
+      query += ` AND "workflowId" = $${params.length + 1}`;
       params.push(parameters.workflowId);
     }
 
     return query;
   }
 
-  private buildDocumentsQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM documents WHERE tenant_id = $1';
+  private buildDocumentsQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    let query = 'SELECT * FROM documents WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.entityType) {
@@ -242,8 +315,12 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildTasksQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM tasks WHERE tenant_id = $1';
+  private buildTasksQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    let query = 'SELECT * FROM tasks WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.assignedTo) {
@@ -254,14 +331,22 @@ export class AnalyticsService {
     return query;
   }
 
-  private buildFormsQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM form_submissions WHERE tenant_id = $1';
+  private buildFormsQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    const query = 'SELECT * FROM form_submissions WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
     return query;
   }
 
-  private buildBillingQuery(config: any, params: any[], parameters?: Record<string, any>): string {
-    let query = 'SELECT * FROM invoices WHERE tenant_id = $1';
+  private buildBillingQuery(
+    config: any,
+    params: any[],
+    parameters?: Record<string, any>,
+  ): string {
+    let query = 'SELECT * FROM invoices WHERE "tenantId" = $1';
     params.push(parameters?.tenantId);
 
     if (parameters?.startDate && parameters?.endDate) {
@@ -339,7 +424,10 @@ export class AnalyticsService {
     };
   }
 
-  private async executeWidgetQuery(widget: DashboardWidget, tenantId: string): Promise<any> {
+  private async executeWidgetQuery(
+    widget: DashboardWidget,
+    tenantId: string,
+  ): Promise<any> {
     const config = widget.configuration;
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -355,7 +443,7 @@ export class AnalyticsService {
       }
 
       const results = await queryRunner.query(
-        `SELECT ${query.fields.join(', ')} FROM ${query.table} WHERE tenant_id = $1 LIMIT 100`,
+        `SELECT ${query.fields.join(', ')} FROM ${query.table} WHERE "tenantId" = $1 LIMIT 100`,
         params,
       );
 
@@ -384,16 +472,20 @@ export class AnalyticsService {
         status: 'active',
       },
     });
-    
-    const reports = allReports.filter(report => report.schedule?.enabled === true);
+
+    const reports = allReports.filter(
+      (report) => report.schedule?.enabled === true,
+    );
 
     for (const report of reports) {
       const schedule = report.schedule;
       if (!schedule?.enabled) continue;
 
       // Check if it's time to run
-      const [scheduleHour, scheduleMinute] = schedule.time.split(':').map(Number);
-      
+      const [scheduleHour, scheduleMinute] = schedule.time
+        .split(':')
+        .map(Number);
+
       if (currentHour !== scheduleHour || currentMinute !== scheduleMinute) {
         continue;
       }
@@ -415,16 +507,34 @@ export class AnalyticsService {
       if (shouldRun) {
         try {
           this.logger.log(`Executing scheduled report: ${report.id}`);
-          
-          const result = await this.executeReport(report.tenantId, 'system', {
+
+          const format: 'csv' | 'xlsx' | 'pdf' = schedule.format ?? 'csv';
+          const exported = await this.exportReport(
+            report.tenantId,
+            report.id,
+            format,
+          );
+
+          // Emit event so any registered listener (e.g. COM module) can
+          // deliver the export to the schedule.recipients list.
+          this.eventEmitter.emit('analytics.report.ready', {
+            tenantId: report.tenantId,
             reportId: report.id,
-            format: schedule.format,
+            reportName: report.name,
+            format,
+            fileUrl: exported.fileUrl,
+            mimeType: exported.mimeType,
+            recipients: schedule.recipients ?? [],
           });
 
-          // TODO: Send email to recipients
-          this.logger.log(`Report ${report.id} executed successfully`);
+          this.logger.log(
+            `Scheduled report ${report.id} executed and emitted (format=${format})`,
+          );
         } catch (error) {
-          this.logger.error(`Failed to execute scheduled report ${report.id}:`, error);
+          this.logger.error(
+            `Failed to execute scheduled report ${report.id}:`,
+            error,
+          );
         }
       }
     }
@@ -436,14 +546,77 @@ export class AnalyticsService {
     tenantId: string,
     reportId: string,
     format: 'csv' | 'xlsx' | 'pdf',
-  ): Promise<{ fileUrl: string }> {
-    const report = await this.getReport(reportId, tenantId);
+  ): Promise<{ fileUrl: string; data?: string; mimeType: string }> {
     const result = await this.executeReport(tenantId, 'system', { reportId });
+    const rows: Record<string, any>[] = Array.isArray(result.data)
+      ? result.data
+      : [];
 
-    // TODO: Implement actual export logic
-    // For now, return a placeholder
-    return {
-      fileUrl: `/api/analytics/reports/${reportId}/download`,
+    switch (format) {
+      case 'csv': {
+        const csv = this.rowsToCsv(rows);
+        // Return as RFC 2397 data URI so the caller can stream or store without
+        // a second round-trip. For large datasets wire storage.service.ts instead.
+        const b64 = Buffer.from(csv, 'utf8').toString('base64');
+        return {
+          fileUrl: `data:text/csv;base64,${b64}`,
+          data: csv,
+          mimeType: 'text/csv',
+        };
+      }
+
+      case 'xlsx': {
+        // XLSX requires an external library (e.g. exceljs). Return CSV with an
+        // appropriate header until the library is added as a dependency.
+        const csv = this.rowsToCsv(rows);
+        const b64 = Buffer.from(csv, 'utf8').toString('base64');
+        this.logger.warn(
+          `exportReport: xlsx requested but exceljs not installed — returning CSV`,
+        );
+        return {
+          fileUrl: `data:text/csv;base64,${b64}`,
+          data: csv,
+          mimeType: 'text/csv',
+        };
+      }
+
+      case 'pdf': {
+        // PDF generation requires puppeteer or pdfmake. Return JSON until wired.
+        const json = JSON.stringify(rows, null, 2);
+        const b64 = Buffer.from(json, 'utf8').toString('base64');
+        this.logger.warn(
+          `exportReport: pdf requested but no PDF library installed — returning JSON`,
+        );
+        return {
+          fileUrl: `data:application/json;base64,${b64}`,
+          data: json,
+          mimeType: 'application/json',
+        };
+      }
+
+      default:
+        throw new BadRequestException(`Unsupported export format: ${format}`);
+    }
+  }
+
+  // ── CSV helpers ─────────────────────────────────────────────────────────────
+
+  private rowsToCsv(rows: Record<string, any>[]): string {
+    if (rows.length === 0) return '';
+
+    const headers = Object.keys(rows[0]);
+    const escape = (v: unknown): string => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
     };
+
+    const lines = [
+      headers.map(escape).join(','),
+      ...rows.map((row) => headers.map((h) => escape(row[h])).join(',')),
+    ];
+
+    return lines.join('\r\n');
   }
 }

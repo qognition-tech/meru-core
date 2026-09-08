@@ -49,12 +49,6 @@ export class Document {
   @JoinColumn({ name: 'tenantId' })
   tenant: Tenant;
 
-  @Column({ nullable: true })
-  vertical: string;
-
-  @Column({ nullable: true })
-  environment: string;
-
   @Column()
   name: string;
 
@@ -73,13 +67,25 @@ export class Document {
   @Column({ type: 'text', nullable: true })
   mimeType: string;
 
-  @Column({ type: 'enum', enum: DocumentStatus, default: DocumentStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: DocumentStatus,
+    default: DocumentStatus.ACTIVE,
+  })
   status: DocumentStatus;
 
-  @Column({ type: 'enum', enum: DocumentEncryption, default: DocumentEncryption.NONE })
+  @Column({
+    type: 'enum',
+    enum: DocumentEncryption,
+    default: DocumentEncryption.NONE,
+  })
   encryption: DocumentEncryption;
 
-  @Column({ type: 'enum', enum: DocumentEncryption, default: DocumentEncryption.NONE })
+  @Column({
+    type: 'enum',
+    enum: DocumentEncryption,
+    default: DocumentEncryption.NONE,
+  })
   requiredEncryption: DocumentEncryption;
 
   @Column({ nullable: true })
@@ -88,7 +94,7 @@ export class Document {
   @Column({ nullable: true })
   linkedEntityId: string;
 
-  @Column({ type: 'jsonb', default: {} })
+  @Column({ type: 'jsonb', default: [] })
   tags: string[];
 
   @Column({ type: 'jsonb', default: {} })
@@ -118,8 +124,8 @@ export class Document {
   @Column({ type: 'int', default: 1 })
   versionNumber: number;
 
-  @Column({ type: 'uuid' })
-  currentVersionId: string;
+  @Column({ type: 'uuid', nullable: true })
+  currentVersionId: string | null;
 
   @Column({ type: 'text', nullable: true })
   s3Url: string;
@@ -131,7 +137,9 @@ export class Document {
   @Column({ name: 'uploadedById' })
   uploadedById: string;
 
-  @OneToMany(() => DocumentVersion, (version) => version.document, { cascade: true })
+  @OneToMany(() => DocumentVersion, (version) => version.document, {
+    cascade: true,
+  })
   versions: DocumentVersion[];
 
   @CreateDateColumn()

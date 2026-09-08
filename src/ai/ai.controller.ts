@@ -6,6 +6,7 @@ import {
   UseGuards,
   Request,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,10 +18,31 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AiService } from './ai.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
+import { CitationEnforcementInterceptor } from './interceptors/citation-enforcement.interceptor';
 import type { AiRequest } from './ai.service';
+import type { AuthenticatedRequest } from '../orchestration/authenticated-request.interface';
+import { AiPrompt, PromptCategory } from './entities/ai-prompt.entity';
+import { VerticalType } from '../iam/enums/vertical.enum';
+import {
+  AnalyzeEntityDto,
+  CreateEmbeddingDto,
+  ExecutePromptDto,
+  UpsertPromptDto,
+} from './dto/ai-request.dto';
 
+interface AnalyzeEntityBody {
+  vertical?: VerticalType;
+  [key: string]: unknown;
+}
+
+// CLAUDE.md §6.3: ALL AI responses are citation-enforced.
+// CitationEnforcementInterceptor replaces any response that lacks sources[]
+// with the standard "no verified source" fallback.
 @Controller('ai')
 @ApiTags('ai')
+@UseInterceptors(CitationEnforcementInterceptor)
 export class AiController {
   constructor(private aiService: AiService) {}
 
@@ -30,10 +52,18 @@ export class AiController {
   @ApiOperation({ summary: 'Execute an AI prompt' })
   @ApiResponse({ status: 200, description: 'AI response' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async execute(@Request() req, @Body() aiRequest: AiRequest) {
+  async execute(
+    @Request() req: AuthenticatedRequest,
+    @Body() aiRequest: ExecutePromptDto,
+  ) {
     return this.aiService.execute({
       ...aiRequest,
       tenantId: req.user.tenantId,
+      // The prompt library lives in the tenant's vertical pack, so the vertical
+      // is what selects it. PolicyGuard has already resolved and attached it
+      // (policy.guard.ts:53); an explicit `vertical` in the body still wins so
+      // an operator can target another vertical's prompt deliberately.
+      vertical: aiRequest.vertical ?? (req.tenantVertical as VerticalType),
     });
   }
 
@@ -42,11 +72,14 @@ export class AiController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Analyze a CRM entity using AI' })
   @ApiResponse({ status: 200, description: 'Entity analysis result' })
-  async analyzeEntity(@Request() req, @Body() entityData: any) {
+  async analyzeEntity(
+    @Request() req: AuthenticatedRequest,
+    @Body() entityData: AnalyzeEntityDto,
+  ) {
     return this.aiService.analyzeEntity(
       req.user.tenantId,
       entityData,
-      entityData.vertical || 'immigration',
+      entityData.vertical ?? VerticalType.IMMIGRATION,
     );
   }
 
@@ -56,14 +89,8 @@ export class AiController {
   @ApiOperation({ summary: 'Create an embedding for text' })
   @ApiResponse({ status: 200, description: 'Embedding created' })
   async createEmbedding(
-    @Request() req,
-    @Body()
-    data: {
-      text: string;
-      type: string;
-      resourceId: string;
-      metadata?: Record<string, any>;
-    },
+    @Request() req: AuthenticatedRequest,
+    @Body() data: CreateEmbeddingDto,
   ) {
     return this.aiService.createEmbedding(
       req.user.tenantId,
@@ -83,7 +110,7 @@ export class AiController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'Search results' })
   async semanticSearch(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Query('query') query: string,
     @Query('type') type?: string,
     @Query('limit') limit?: string,
@@ -102,19 +129,37 @@ export class AiController {
   @ApiOperation({ summary: 'Get available prompts' })
   @ApiQuery({ name: 'category', required: false })
   @ApiResponse({ status: 200, description: 'Prompts list' })
-  async getPrompts(@Request() req, @Query('category') category?: string) {
+  async getPrompts(
+    @Request() req: AuthenticatedRequest,
+    @Query('category') category?: string,
+  ) {
     return this.aiService.getPromptsByCategory(
-      category as any,
+      category as PromptCategory,
       req.user.tenantId,
     );
   }
 
   @Post('prompts')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  // Was a mutating route with no role check at all — any authenticated
+  // caller, including a `client` token, could overwrite a prompt's text.
+  // Role-gated now, but `key` is still globally unique on `AiPrompt` (see
+  // `AiService.resolvePrompt`'s comment), so this remains a *cross-tenant*
+  // overwrite primitive at the DB level if two tenants ever pick the same
+  // key — `AiService.upsertPrompt` scopes its own read and write by
+  // `req.user.tenantId` below, but the unique constraint is on `key` alone
+  // and a collision surfaces as a DB error, not a 403. Matches the guard
+  // already on `POST /search/index/entity` and `POST /search/index/bulk`
+  // for the same shape of route.
+  @Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create or update a prompt' })
   @ApiResponse({ status: 200, description: 'Prompt saved' })
-  async upsertPrompt(@Body() promptData: any) {
-    return this.aiService.upsertPrompt(promptData);
+  @ApiResponse({ status: 403, description: 'Platform admin or firm admin only' })
+  async upsertPrompt(
+    @Request() req: AuthenticatedRequest,
+    @Body() promptData: UpsertPromptDto,
+  ) {
+    return this.aiService.upsertPrompt(req.user.tenantId, promptData);
   }
 }

@@ -10,6 +10,18 @@ import {
 export enum NotificationType {
   EMAIL = 'email',
   SMS = 'sms',
+  /**
+   * Declared so a thread can be keyed on it and a message recorded against it.
+   *
+   * **There is no WhatsApp transport.** `NotificationDispatchService` fails a
+   * non-email channel explicitly with "no transport configured for channel
+   * 'whatsapp'" rather than reporting `sent`, because a channel that claims
+   * delivery without a provider is worse than one that says why it cannot —
+   * a caseworker would believe the client had been told. Sending needs a Meta
+   * Business account and a template approved by WhatsApp, which is licensing
+   * rather than code.
+   */
+  WHATSAPP = 'whatsapp',
   PUSH = 'push',
   IN_APP = 'in_app',
   SLACK = 'slack',
@@ -46,12 +58,26 @@ export enum NotificationCategory {
   COLLABORATION = 'collaboration',
 }
 
+/**
+ * Which way a message travelled.
+ *
+ * Everything COM has ever recorded is `OUTBOUND`. `INBOUND` exists because a
+ * thread with only one side is a send log wearing an inbox's clothes, and the
+ * provider webhook that fills it in should not need a schema change to land.
+ */
+export enum NotificationDirection {
+  OUTBOUND = 'outbound',
+  INBOUND = 'inbound',
+}
+
 @Entity('notifications')
 @Index(['tenantId', 'recipientId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'createdAt'])
+// The thread read: "this counterparty's correspondence, oldest first".
+@Index(['tenantId', 'threadKey', 'createdAt'])
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -68,14 +94,43 @@ export class Notification {
   @Column({ type: 'enum', enum: NotificationType })
   type: NotificationType;
 
-  @Column({ type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.PENDING,
+  })
   status: NotificationStatus;
 
-  @Column({ type: 'enum', enum: NotificationPriority, default: NotificationPriority.NORMAL })
+  @Column({
+    type: 'enum',
+    enum: NotificationPriority,
+    default: NotificationPriority.NORMAL,
+  })
   priority: NotificationPriority;
 
-  @Column({ type: 'enum', enum: NotificationCategory, default: NotificationCategory.SYSTEM })
+  @Column({
+    type: 'enum',
+    enum: NotificationCategory,
+    default: NotificationCategory.SYSTEM,
+  })
   category: NotificationCategory;
+
+  /**
+   * Groups every message exchanged with one counterparty on one channel.
+   *
+   * `channel:counterparty`, derived by `ThreadService.deriveKey`. Nullable only
+   * so the column could be added without rewriting the table in one statement;
+   * every write sets it and the migration backfilled the history.
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  threadKey: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: NotificationDirection.OUTBOUND,
+  })
+  direction: NotificationDirection;
 
   @Column()
   recipientId: string;
@@ -168,10 +223,13 @@ export class NotificationPreference {
   };
 
   @Column({ type: 'jsonb', default: {} })
-  categoryPreferences: Record<string, {
-    enabled: boolean;
-    channels: NotificationType[];
-  }>;
+  categoryPreferences: Record<
+    string,
+    {
+      enabled: boolean;
+      channels: NotificationType[];
+    }
+  >;
 
   @Column({ type: 'jsonb', default: {}, nullable: true })
   quietHours?: {

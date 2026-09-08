@@ -1,6 +1,12 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  IsUUID,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { EntityType } from '../entities/universal-entity.entity';
+import { EntityStatus, EntityType } from '../entities/universal-entity.entity';
 import { CreateEntityInput } from '../../common/types';
 
 export class CreateEntityDto implements CreateEntityInput {
@@ -37,6 +43,19 @@ export class CreateEntityDto implements CreateEntityInput {
   email?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Email of the person this record is ABOUT — the applicant on a case, ' +
+      'the counterparty on an obligation. Distinct from `email`, which ' +
+      'identifies a person record itself. This is what confines a ' +
+      '`client`-role caller to their own records, so a record created ' +
+      'without it is invisible to the person it concerns.',
+    example: 'applicant@example.com',
+  })
+  @IsOptional()
+  @IsString()
+  subjectEmail?: string;
+
+  @ApiPropertyOptional({
     description: 'Phone number',
     example: '+1234567890',
   })
@@ -52,4 +71,28 @@ export class CreateEntityDto implements CreateEntityInput {
   })
   @IsOptional()
   verticalAttributes?: Record<string, any>;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // Meaningful for workable types (case, obligation, breach). Omitting
+  // `status` starts those at `open` and leaves reference types null.
+
+  @ApiPropertyOptional({
+    enum: EntityStatus,
+    description:
+      'Generic lifecycle state. Verticals map their own vocabulary onto these ' +
+      'in a config pack rather than core learning GRC or immigration stages.',
+  })
+  @IsOptional()
+  @IsEnum(EntityStatus)
+  status?: EntityStatus;
+
+  @ApiPropertyOptional({ example: '2026-09-30T00:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'users.id of the owner' })
+  @IsOptional()
+  @IsUUID()
+  assignedTo?: string;
 }

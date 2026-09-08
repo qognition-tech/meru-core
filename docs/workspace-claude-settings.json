@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vercel ls *)",
+      "Bash(vercel inspect *)",
+      "Bash(vercel env ls *)",
+      "Bash(vercel projects ls *)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "mcp__retool__retool_get_react_app_thread_activity_status",
+      "mcp__retool__retool_list_react_app_files",
+      "mcp__retool__retool_read_react_app_files",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__find"
+    ]
+  }
+}

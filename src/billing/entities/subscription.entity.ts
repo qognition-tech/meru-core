@@ -51,7 +51,11 @@ export class Subscription {
   @JoinColumn({ name: 'planId' })
   plan: BillingPlan;
 
-  @Column({ type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIALING })
+  @Column({
+    type: 'enum',
+    enum: SubscriptionStatus,
+    default: SubscriptionStatus.TRIALING,
+  })
   status: SubscriptionStatus;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -86,13 +90,13 @@ export class Subscription {
     taxId?: string;
   };
 
-  @OneToMany(() => UsageRecord, usage => usage.subscription)
+  @OneToMany(() => UsageRecord, (usage) => usage.subscription)
   usageRecords: UsageRecord[];
 
-  @OneToMany(() => Invoice, invoice => invoice.subscription)
+  @OneToMany(() => Invoice, (invoice) => invoice.subscription)
   invoices: Invoice[];
 
-  @OneToMany(() => CreditLedger, credit => credit.subscription)
+  @OneToMany(() => CreditLedger, (credit) => credit.subscription)
   creditLedger: CreditLedger[];
 
   @CreateDateColumn()

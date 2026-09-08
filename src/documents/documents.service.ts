@@ -2,27 +2,42 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { S3 } from 'aws-sdk';
-import { v4 as uuidv4 } from 'uuid';
+import { StorageService } from '../storage/storage.service';
+import { randomUUID } from 'node:crypto';
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { Document, DocumentStatus, DocumentEncryption, DocumentType } from './entities/document.entity';
-import { DocumentVersion, VersionStatus } from './entities/document-version.entity';
-import { DocumentMetadata, MetadataType } from './entities/document-metadata.entity';
+import {
+  Document,
+  DocumentStatus,
+  DocumentEncryption,
+  DocumentType,
+} from './entities/document.entity';
+import {
+  DocumentVersion,
+  VersionStatus,
+} from './entities/document-version.entity';
+import {
+  DocumentMetadata,
+  MetadataType,
+} from './entities/document-metadata.entity';
 import { User } from '../iam/entities/user.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SearchDocumentsDto } from './dto/search-documents.dto';
-import { OrchestrationService } from '../core/orchestration.service';
+import { RequestDocumentUploadUrlDto } from './dto/request-upload-url.dto';
+import { OrchestrationService } from '../orchestration/orchestration.service';
+import { DocumentAccessService } from './document-access.service';
+import type { Actor } from '../common/access';
 
-interface UploadResult {
+// Exported because the controller now returns it directly (it used to be
+// re-boxed into an inline `{ success, data }` literal, which hid the type).
+export interface UploadResult {
   document: Document;
   version: DocumentVersion;
   url?: string;
@@ -31,7 +46,6 @@ interface UploadResult {
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
-  private s3: S3;
 
   constructor(
     @InjectRepository(Document)
@@ -45,45 +59,70 @@ export class DocumentsService {
     private configService: ConfigService,
     private dataSource: DataSource,
     private orchestrationService: OrchestrationService,
-  ) {
-    this.s3 = new S3({
-      accessKeyId: this.configService.get('AWS_ACCESS_KEY_ID'),
-      secretAccessKey: this.configService.get('AWS_SECRET_ACCESS_KEY'),
-      region: this.configService.get('AWS_REGION', 'us-east-1'),
-    });
-  }
+    private access: DocumentAccessService,
+    // All bytes go through StorageService: it resolves the tenant's driver
+    // (S3 or Supabase) and asserts the tenants/<tenantId>/ prefix on every
+    // key. This service used to construct its own aws-sdk S3 client, which
+    // bypassed both and meant the provider abstraction bought nothing.
+    private storage: StorageService,
+  ) {}
 
   async upload(
     file: Express.Multer.File,
     dto: UploadDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<UploadResult> {
+    const userId = actor.id;
     this.logger.log(`Uploading document: ${dto.name} for tenant: ${tenantId}`);
+
+    // `dto.linkedEntityId` used to be written into the row unchecked, so a
+    // client could plant a document onto another applicant's case simply by
+    // naming its id — `DocumentAccessService` only ever gated EXISTING
+    // documents, it had no hook on creation. `tenant`/`god` scope is
+    // unrestricted, matching every other write on this service; `own` scope
+    // must own the record it is attaching to.
+    if (dto.linkedEntityId) {
+      await this.access.assertOwnsEntity(tenantId, dto.linkedEntityId, actor);
+    }
+
+    // The user lookup and the storage write happen BEFORE any transaction
+    // opens. The serverless pg pool is `{ max: 1 }` (app.module.ts): once a
+    // transaction has checked out the only connection, any second acquire —
+    // another repository read, or StorageDriverRegistry.forTenant()'s
+    // tenant-pin lookup inside `storage.putObject` — blocks for the full
+    // `connectionTimeoutMillis` (10s) and surfaces as a raw pool-timeout 500
+    // ten seconds after the real answer (success, or a clean 503 when
+    // storage is unconfigured) could have been known in under a second. This
+    // also matches `/documents/upload-url`, which never opens a transaction
+    // and answers in ~0.3s.
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const fileType =
+      dto.fileType ||
+      this.detectFileType(dto.originalFileName || file.originalname);
+    const fileSize = file.size;
+
+    const encryptionLevel = dto.requiredEncryption || DocumentEncryption.NONE;
+    const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
+
+    const documentSlug = this.generateSlug(dto.name, tenantId);
+
+    const s3Key = this.generateObjectKey(tenantId, documentSlug, 1, fileType);
+    const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+      contentType: file.mimetype,
+    });
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
-
-      const fileType = dto.fileType || this.detectFileType(dto.originalFileName || file.originalname);
-      const fileSize = file.size;
-
-      const encryptionLevel = dto.requiredEncryption || DocumentEncryption.NONE;
-      const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
-
-      const documentSlug = this.generateSlug(dto.name, tenantId);
-
-      const s3Key = this.generateS3Key(tenantId, documentSlug, 1, fileType);
-      const s3UploadResult = await this.uploadToS3(encrypted, s3Key, file.mimetype);
-
       const document = queryRunner.manager.create(Document, {
-        id: uuidv4(),
+        id: randomUUID(),
         tenantId,
         name: dto.name,
         slug: documentSlug,
@@ -107,16 +146,23 @@ export class DocumentsService {
       });
 
       const version = queryRunner.manager.create(DocumentVersion, {
-        id: uuidv4(),
+        id: randomUUID(),
         documentId: document.id,
         versionNumber: 1,
         status: VersionStatus.ACTIVE,
-        s3Key: s3UploadResult.Key,
-        s3Bucket: s3UploadResult.Bucket,
+        s3Key,
+        s3Bucket: stored.bucket,
+        storageProvider: stored.provider,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
-        encryptionKey: encryptionLevel !== DocumentEncryption.NONE ? this.getEncryptionKey() : undefined,
-        encryptionAlgorithm: encryptionLevel !== DocumentEncryption.NONE ? 'aes-256-gcm' : undefined,
+        encryptionKey:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? this.getEncryptionKey()
+            : undefined,
+        encryptionAlgorithm:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? 'aes-256-gcm'
+            : undefined,
         changeDescription: dto.changeDescription || 'Initial upload',
         changeMetadata: {
           changedBy: userId,
@@ -134,13 +180,17 @@ export class DocumentsService {
       await queryRunner.commitTransaction();
 
       if (dto.triggerAI) {
-        this.triggerAIAnalysis(document.id, tenantId, userId);
+        // `null`, not the uploader: this runs after the response, on a document
+        // that was just created in this transaction. There is no read to scope
+        // and no user waiting, so passing an Actor here would imply an
+        // authorisation decision that is not being made.
+        this.triggerAIAnalysis(document.id, tenantId, null);
       }
 
       return {
         document,
         version,
-        url: this.getPresignedUrl(s3UploadResult.Key),
+        url: await this.storage.signedReadUrl(tenantId, s3Key, stored.provider),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -151,12 +201,63 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * Step one of the presigned-upload path: a short-TTL signed PUT URL and the
+   * key it targets, so the browser can send the bytes straight to the bucket
+   * instead of through `POST /documents/upload` — which routes through the
+   * single Vercel function fronting this API and its own body-size ceiling
+   * (CLAUDE.md §10). Scanned passports and multi-page PDFs routinely exceed
+   * that ceiling; this route does not.
+   *
+   * Returns the storage key up front rather than requiring the caller to
+   * recompute it: the browser echoes `storageKey`/`storageProvider`/
+   * `storageBucket` back on the follow-up `POST /documents` call, which is
+   * what finalises the document with a real, readable version. Until that
+   * second call happens, the bytes sit in the bucket with no `Document`/
+   * `DocumentVersion` row pointing at them — an orphaned object, not a
+   * document, and never rendered as one.
+   */
+  async requestUploadUrl(
+    dto: RequestDocumentUploadUrlDto,
+    tenantId: string,
+  ): Promise<{
+    uploadUrl: string;
+    storageKey: string;
+    storageProvider: string;
+    storageBucket: string;
+    expiresInSeconds: number;
+  }> {
+    const fileType = dto.fileType || this.detectFileType(dto.originalFileName);
+    const slug = this.generateSlug(dto.name, tenantId);
+    const storageKey = this.generateObjectKey(tenantId, slug, 1, fileType);
+    const expiresInSeconds = 300;
+
+    const { uploadUrl, provider, bucket } =
+      await this.storage.getUploadPresignedUrl(tenantId, storageKey, expiresInSeconds);
+
+    return {
+      uploadUrl,
+      storageKey,
+      storageProvider: provider,
+      storageBucket: bucket,
+      expiresInSeconds,
+    };
+  }
+
   async create(
     dto: CreateDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Document> {
+    const userId = actor.id;
     this.logger.log(`Creating document: ${dto.name} for tenant: ${tenantId}`);
+
+    // Same hole as `upload()`, on the metadata-only and direct-to-bucket
+    // finalise paths: `dto.linkedEntityId` written verbatim let a client
+    // attach a record to a case that was not theirs.
+    if (dto.linkedEntityId) {
+      await this.access.assertOwnsEntity(tenantId, dto.linkedEntityId, actor);
+    }
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
@@ -165,8 +266,34 @@ export class DocumentsService {
 
     const documentSlug = this.generateSlug(dto.name, tenantId);
 
+    // A direct-to-bucket upload finalising here (see `requestUploadUrl`)
+    // supplies all three; every other caller of this route supplies none.
+    const directUpload =
+      dto.storageKey && dto.storageProvider && dto.storageBucket
+        ? {
+            key: dto.storageKey,
+            provider: dto.storageProvider,
+            bucket: dto.storageBucket,
+          }
+        : null;
+    if (!directUpload && (dto.storageKey || dto.storageProvider || dto.storageBucket)) {
+      throw new BadRequestException(
+        'storageKey, storageProvider and storageBucket must all be present ' +
+          'together, or all absent.',
+      );
+    }
+
+    // A client-supplied key must not be trusted just because it round-tripped
+    // through this tenant's own token — assert it before it is ever written
+    // into a row, the same discipline `StorageService` applies on every read
+    // and write. `POST /documents/upload-url` only ever hands back a key
+    // already under this prefix, so this only fires on a forged or stale one.
+    if (directUpload) {
+      this.storage.assertKeyBelongsToTenant(tenantId, directUpload.key);
+    }
+
     const document = this.documentRepo.create({
-      id: uuidv4(),
+      id: randomUUID(),
       tenantId,
       name: dto.name,
       slug: documentSlug,
@@ -184,13 +311,54 @@ export class DocumentsService {
       rbac: {
         owner: userId,
       },
-      versionNumber: 0,
-      currentVersionId: '',
+      versionNumber: directUpload ? 1 : 0,
+      // No version row exists yet at this insert — even on the directUpload
+      // path, the version below is created and back-filled onto `saved`
+      // only after this row is written. `''` is not a valid uuid; Postgres
+      // rejected it at parse time before the NOT NULL check ever ran
+      // (`invalid input syntax for type uuid: ""`), 500ing every
+      // POST /documents call unconditionally. `null` matches the column's
+      // declared nullable state — see migration 1756410000000, which drops
+      // the NOT NULL the column was created with.
+      currentVersionId: null,
       uploadedById: userId,
       uploadedBy: user,
     });
 
-    return this.documentRepo.save(document);
+    const saved = await this.documentRepo.save(document);
+
+    if (directUpload) {
+      const versionId = randomUUID();
+      const version = this.versionRepo.create({
+        id: versionId,
+        documentId: saved.id,
+        versionNumber: 1,
+        status: VersionStatus.ACTIVE,
+        s3Key: directUpload.key,
+        s3Bucket: directUpload.bucket,
+        storageProvider: directUpload.provider,
+        fileSize: dto.fileSize,
+        // The server never touched the bytes for a direct-to-bucket upload —
+        // a checksum here would be a fabricated claim, not a computed one
+        // (CLAUDE.md §5.2: unknown is never clear). Left unset, same as
+        // `encryptionKey`/`encryptionAlgorithm` above for a non-encrypted
+        // version, rather than a value nobody calculated.
+        checksum: undefined,
+        changeDescription: dto.changeDescription || 'Direct upload',
+        changeMetadata: {
+          changedBy: userId,
+          changeReason: 'Direct upload via POST /documents/upload-url',
+        },
+        uploadedById: userId,
+        uploadedBy: user,
+      });
+      await this.versionRepo.save(version);
+
+      saved.currentVersionId = versionId;
+      await this.documentRepo.save(saved);
+    }
+
+    return saved;
   }
 
   async createNewVersion(
@@ -198,45 +366,66 @@ export class DocumentsService {
     file: Express.Multer.File,
     changeDescription: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<UploadResult> {
+    const userId = actor.id;
     this.logger.log(`Creating new version for document: ${documentId}`);
 
-    const document = await this.documentRepo.findOne({ where: { id: documentId, tenantId } });
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+    });
     if (!document) {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'write');
+    await this.checkAccess(document, actor, 'write');
+
+    // See upload() for why: the user lookup and the storage write happen
+    // before any transaction opens, because the serverless pool is
+    // `{ max: 1 }` and a second acquire while a transaction holds the only
+    // connection blocks for the full connectionTimeoutMillis (10s).
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const newVersionNumber = document.versionNumber + 1;
+    const encryptionLevel = document.requiredEncryption;
+    const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
+
+    const s3Key = this.generateObjectKey(
+      tenantId,
+      document.slug,
+      newVersionNumber,
+      document.fileType,
+    );
+    const stored = await this.storage.putObject(tenantId, s3Key, encrypted, {
+      contentType: file.mimetype,
+    });
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
-
-      const newVersionNumber = document.versionNumber + 1;
-      const encryptionLevel = document.requiredEncryption;
-      const encrypted = await this.encryptFile(file.buffer, encryptionLevel);
-
-      const s3Key = this.generateS3Key(tenantId, document.slug, newVersionNumber, document.fileType);
-      const s3UploadResult = await this.uploadToS3(encrypted, s3Key, file.mimetype);
-
       const version = queryRunner.manager.create(DocumentVersion, {
-        id: uuidv4(),
+        id: randomUUID(),
         documentId: document.id,
         versionNumber: newVersionNumber,
         status: VersionStatus.ACTIVE,
-        s3Key: s3UploadResult.Key,
-        s3Bucket: s3UploadResult.Bucket,
+        s3Key,
+        s3Bucket: stored.bucket,
+        storageProvider: stored.provider,
         fileSize: encrypted.length,
         checksum: this.calculateChecksum(encrypted),
-        encryptionKey: encryptionLevel !== DocumentEncryption.NONE ? this.getEncryptionKey() : undefined,
-        encryptionAlgorithm: encryptionLevel !== DocumentEncryption.NONE ? 'aes-256-gcm' : undefined,
+        encryptionKey:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? this.getEncryptionKey()
+            : undefined,
+        encryptionAlgorithm:
+          encryptionLevel !== DocumentEncryption.NONE
+            ? 'aes-256-gcm'
+            : undefined,
         changeDescription,
         changeMetadata: {
           changedBy: userId,
@@ -260,7 +449,7 @@ export class DocumentsService {
       return {
         document,
         version,
-        url: this.getPresignedUrl(s3UploadResult.Key),
+        url: await this.storage.signedReadUrl(tenantId, s3Key, stored.provider),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -274,7 +463,13 @@ export class DocumentsService {
   async findAll(
     tenantId: string,
     searchDto: SearchDocumentsDto,
-  ): Promise<{ documents: Document[]; total: number; page: number; limit: number }> {
+    actor: Actor,
+  ): Promise<{
+    documents: Document[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const {
       query,
       fileTypes,
@@ -299,19 +494,27 @@ export class DocumentsService {
     }
 
     if (encryption) {
-      queryBuilder.andWhere('document.encryption = :encryption', { encryption });
+      queryBuilder.andWhere('document.encryption = :encryption', {
+        encryption,
+      });
     }
 
     if (linkedEntityType) {
-      queryBuilder.andWhere('document.linkedEntityType = :linkedEntityType', { linkedEntityType });
+      queryBuilder.andWhere('document.linkedEntityType = :linkedEntityType', {
+        linkedEntityType,
+      });
     }
 
     if (linkedEntityId) {
-      queryBuilder.andWhere('document.linkedEntityId = :linkedEntityId', { linkedEntityId });
+      queryBuilder.andWhere('document.linkedEntityId = :linkedEntityId', {
+        linkedEntityId,
+      });
     }
 
     if (fileTypes && fileTypes.length > 0) {
-      queryBuilder.andWhere('document.fileType IN (:...fileTypes)', { fileTypes });
+      queryBuilder.andWhere('document.fileType IN (:...fileTypes)', {
+        fileTypes,
+      });
     }
 
     if (tags && tags.length > 0) {
@@ -325,9 +528,18 @@ export class DocumentsService {
       );
 
       if (includeAI) {
-        queryBuilder.orWhere('document.aiAnalysis::text ILIKE :query', { query: `%${query}%` });
+        queryBuilder.orWhere('document.aiAnalysis::text ILIKE :query', {
+          query: `%${query}%`,
+        });
       }
     }
+
+    // User scoping, not just tenant scoping. RLS stops tenant A reading tenant
+    // B; nothing but this stops one of tenant A's clients listing the whole
+    // firm's document table. Applied to the query rather than filtered after,
+    // so `total` is also the caller's total and paging does not walk documents
+    // they cannot open.
+    await this.access.applyScope(queryBuilder, tenantId, actor);
 
     queryBuilder
       .orderBy(`document.${sortBy}`, sortOrder)
@@ -344,7 +556,11 @@ export class DocumentsService {
     };
   }
 
-  async findOne(id: string, tenantId: string, userId: string): Promise<Document> {
+  async findOne(
+    id: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
       relations: ['versions', 'uploadedBy'],
@@ -354,7 +570,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     return document;
   }
@@ -362,7 +578,7 @@ export class DocumentsService {
   async getVersions(
     documentId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<DocumentVersion[]> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId, tenantId },
@@ -372,7 +588,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     return this.versionRepo.find({
       where: { documentId },
@@ -384,7 +600,7 @@ export class DocumentsService {
     documentId: string,
     versionId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<DocumentVersion> {
     const document = await this.documentRepo.findOne({
       where: { id: documentId, tenantId },
@@ -394,7 +610,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'read');
+    await this.checkAccess(document, actor, 'read');
 
     const version = await this.versionRepo.findOne({
       where: { id: versionId, documentId },
@@ -407,36 +623,38 @@ export class DocumentsService {
     return version;
   }
 
+  /**
+   * A signed URL for the bytes.
+   *
+   * `tenantId` and `actor` are required, and that is a fix rather than
+   * tidiness: they used to be optional, and when either was absent the whole
+   * access check was skipped *and* the fallback lookup dropped the tenant
+   * filter — so the one route that hands out the actual file content was the
+   * one with the weakest guard.
+   */
   async downloadUrl(
     documentId: string,
-    versionId?: string,
-    tenantId?: string,
-    userId?: string,
+    versionId: string | undefined,
+    tenantId: string,
+    actor: Actor,
   ): Promise<string> {
-    let document: Document | null = null;
     let version: DocumentVersion | null = null;
 
-    if (tenantId && userId) {
-      document = await this.documentRepo.findOne({
-        where: { id: documentId, tenantId },
-      });
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+    });
 
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
-
-      await this.checkAccess(document, userId, 'read');
+    if (!document) {
+      throw new NotFoundException('Document not found');
     }
+
+    await this.checkAccess(document, actor, 'read');
 
     if (versionId) {
       version = await this.versionRepo.findOne({
         where: { id: versionId, documentId },
       });
-    } else {
-      document = document || await this.documentRepo.findOne({ where: { id: documentId } });
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
+    } else if (document.currentVersionId) {
       version = await this.versionRepo.findOne({
         where: { id: document.currentVersionId },
       });
@@ -446,14 +664,18 @@ export class DocumentsService {
       throw new NotFoundException('Document version not found');
     }
 
-    return this.getPresignedUrl(version.s3Key);
+    return this.storage.signedReadUrl(
+      tenantId,
+      version.s3Key,
+      version.storageProvider,
+    );
   }
 
   async update(
     id: string,
     dto: UpdateDocumentDto,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Document> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
@@ -463,14 +685,14 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'write');
+    await this.checkAccess(document, actor, 'write');
 
     Object.assign(document, dto);
 
     return this.documentRepo.save(document);
   }
 
-  async remove(id: string, tenantId: string, userId: string): Promise<void> {
+  async remove(id: string, tenantId: string, actor: Actor): Promise<void> {
     const document = await this.documentRepo.findOne({
       where: { id, tenantId },
     });
@@ -479,7 +701,7 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.checkAccess(document, userId, 'delete');
+    await this.checkAccess(document, actor, 'delete');
 
     document.status = DocumentStatus.DELETED;
     document.deletedAt = new Date();
@@ -487,47 +709,58 @@ export class DocumentsService {
     await this.documentRepo.save(document);
   }
 
-  async triggerAIAnalysis(documentId: string, tenantId: string, userId: string): Promise<void> {
-    this.logger.log(`Triggering AI analysis for document: ${documentId}`);
+  /**
+   * Run document intelligence over a stored document.
+   *
+   * `actor` is checked before anything is read, because an analysis result is a
+   * derived read of the file: summarising a document the caller may not open
+   * discloses it just as surely as downloading it would.
+   *
+   * The check is skipped only for the internal call from `upload`, where the
+   * caller has just supplied the bytes — passed as `null` explicitly so that
+   * omitting an actor can never be mistaken for "no check needed".
+   */
+  /**
+   * "Analyse this document" — which the platform cannot yet do.
+   *
+   * The previous body called `performIntelligentSearch('')`, discarded the
+   * answer, and wrote `summary: 'Document analyzed successfully', riskLevel:
+   * 'low'` onto the record. Nothing had been read. A document that looked
+   * assessed and unremarkable is exactly the §5.2 failure: unknown reported
+   * as a positive. `DocIntelEngine` (POST /engines/doc-intel) does real
+   * extraction and fraud signalling; wiring it here — download, hand the
+   * bytes to the engine, store `extractedFields` and `fraudSignals` — is the
+   * real implementation, and it is not done yet.
+   *
+   * Until then this performs the access check, writes nothing, and reports
+   * `analyzed: false` with the reason. The route turns that into a 503.
+   */
+  async triggerAIAnalysis(
+    documentId: string,
+    tenantId: string,
+    actor: Actor | null,
+  ): Promise<{ analyzed: false; unavailableReason: string }> {
+    // Outside any try: an authorisation failure swallowed into a success is a
+    // denial reported as a success.
+    const document = await this.documentRepo.findOne({
+      where: { id: documentId, tenantId },
+      relations: ['uploadedBy'],
+    });
 
-    try {
-      const document = await this.documentRepo.findOne({
-        where: { id: documentId, tenantId },
-        relations: ['uploadedBy'],
-      });
-
-      if (!document) {
-        throw new NotFoundException('Document not found');
-      }
-
-      const version = await this.versionRepo.findOne({
-        where: { id: document.currentVersionId },
-      });
-
-      if (!version) {
-        throw new NotFoundException('Document version not found');
-      }
-
-      const fileContent = await this.downloadFile(version.s3Key);
-
-      const analysis = await this.orchestrationService.performIntelligentSearch(tenantId, '', {
-        includeAIAnalysis: true,
-        searchType: 'semantic',
-      });
-
-      document.aiAnalysis = {
-        analyzedAt: new Date(),
-        summary: 'Document analyzed successfully',
-        categories: ['pending'],
-        riskLevel: 'low',
-      };
-
-      await this.documentRepo.save(document);
-
-      this.logger.log(`AI analysis completed for document: ${documentId}`);
-    } catch (error: any) {
-      this.logger.error(`AI analysis failed for document ${documentId}: ${error.message}`);
+    if (!document) {
+      throw new NotFoundException('Document not found');
     }
+
+    if (actor) {
+      await this.checkAccess(document, actor, 'read');
+    }
+
+    const unavailableReason =
+      'Document analysis is not implemented: DocIntelEngine is not wired to ' +
+      'stored documents, so nothing was read and nothing was written to ' +
+      'aiAnalysis. Use POST /engines/doc-intel with the file contents.';
+    this.logger.warn(`AI analysis requested for ${documentId}: ${unavailableReason}`);
+    return { analyzed: false, unavailableReason };
   }
 
   private async encryptFile(
@@ -549,53 +782,36 @@ export class DocumentsService {
     return Buffer.concat([iv, authTag, encrypted]);
   }
 
-  private async decryptFile(buffer: Buffer, key: string, algorithm: string): Promise<Buffer> {
+  private async decryptFile(
+    buffer: Buffer,
+    key: string,
+    algorithm: string,
+  ): Promise<Buffer> {
     const iv = buffer.slice(0, 16);
     const authTag = buffer.slice(16, 32);
     const encrypted = buffer.slice(32);
 
-    const decipher = crypto.createDecipheriv(algorithm, Buffer.from(key, 'base64'), iv) as crypto.DecipherGCM;
+    const decipher = crypto.createDecipheriv(
+      algorithm,
+      Buffer.from(key, 'base64'),
+      iv,
+    ) as crypto.DecipherGCM;
     decipher.setAuthTag(authTag);
 
     return Buffer.concat([decipher.update(encrypted), decipher.final()]);
   }
 
-  private async uploadToS3(
-    buffer: Buffer,
-    key: string,
-    contentType?: string,
-  ): Promise<S3.ManagedUpload.SendData> {
-    return this.s3
-      .upload({
-        Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-        Key: key,
-        Body: buffer,
-        ContentType: contentType,
-        ServerSideEncryption: 'AES256',
-      })
-      .promise();
-  }
-
-  private async downloadFile(key: string): Promise<Buffer> {
-    const result = await this.s3
-      .getObject({
-        Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-        Key: key,
-      })
-      .promise();
-
-    return result.Body as Buffer;
-  }
-
-  private getPresignedUrl(key: string, expiresIn: number = 3600): string {
-    return this.s3.getSignedUrl('getObject', {
-      Bucket: this.configService.get('AWS_S3_BUCKET', 'meru-documents'),
-      Key: key,
-      Expires: expiresIn,
-    });
-  }
-
-  private generateS3Key(tenantId: string, slug: string, version: number, fileType: DocumentType): string {
+  /**
+   * Object key for a version. The `tenants/<tenantId>/` prefix is not a
+   * naming convention: on Supabase it is the only thing separating tenants,
+   * and StorageService refuses any key that lacks it.
+   */
+  private generateObjectKey(
+    tenantId: string,
+    slug: string,
+    version: number,
+    fileType: DocumentType,
+  ): string {
     return `tenants/${tenantId}/documents/${slug}/v${version}.${fileType}`;
   }
 
@@ -627,24 +843,26 @@ export class DocumentsService {
   }
 
   private getEncryptionKey(): string {
-    return this.configService.get('DOCUMENT_ENCRYPTION_KEY', 'default-encryption-key-32-chars!');
+    return this.configService.get(
+      'DOCUMENT_ENCRYPTION_KEY',
+      'default-encryption-key-32-chars!',
+    );
   }
 
-  private async checkAccess(document: Document, userId: string, action: 'read' | 'write' | 'delete' | 'share'): Promise<void> {
-    if (document.rbac.owner === userId) {
-      return;
-    }
-
-    if (document.rbac.permissions && document.rbac.permissions[action]) {
-      const user = await this.userRepo.findOne({ where: { id: userId } });
-      if (user) {
-        const hasPermission = user.roles.some(role => document.rbac.permissions![action].includes(role));
-        if (hasPermission) {
-          return;
-        }
-      }
-    }
-
-    throw new ForbiddenException(`You don't have ${action} permission for this document`);
+  /**
+   * Authorisation for one document.
+   *
+   * Delegates to `DocumentAccessService` so documents, the document hub and any
+   * future caller cannot disagree about who may see what. This method used to
+   * grant access to the uploader alone, which denied a caseworker the documents
+   * on their own cases; `DocumentHubService.canAccessDocument` meanwhile
+   * returned `true` unconditionally. One rule now answers both.
+   */
+  private async checkAccess(
+    document: Document,
+    actor: Actor,
+    action: 'read' | 'write' | 'delete' | 'share',
+  ): Promise<void> {
+    await this.access.assert(document, actor, action);
   }
 }

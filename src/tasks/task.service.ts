@@ -3,17 +3,29 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
+  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan, In } from 'typeorm';
-import { Task, TaskStatus, TaskType, TaskPriority } from './entities/task.entity';
+import { Between, In, LessThan, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
+import {
+  Task,
+  TaskStatus,
+  TaskType,
+  TaskPriority,
+} from './entities/task.entity';
 import { TaskComment } from './entities/task-comment.entity';
-import { RecurringJob, RecurringJobStatus } from './entities/recurring-job.entity';
+import {
+  RecurringJob,
+  RecurringJobStatus,
+} from './entities/recurring-job.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import { Actor, scopeOf } from '../common/access';
 
 export interface CreateTaskDto {
   title: string;
@@ -43,7 +55,9 @@ export class TaskService {
     @InjectRepository(RecurringJob)
     private recurringJobRepo: Repository<RecurringJob>,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
   ) {}
 
@@ -59,13 +73,22 @@ export class TaskService {
     const saved = await this.taskRepo.save(task);
     this.logger.log(`Task created: ${saved.id}`);
 
-    return this.getTask(saved.id);
+    // Trusted internal re-fetch of the row just created — not the
+    // actor-scoped `getTask` below, because the creator (staff, per the
+    // controller's `@Roles` gate) is not necessarily the assignee, and a
+    // `client`-shaped ownership check on the caller's own creation would be
+    // nonsensical here.
+    return this.findTaskOrThrow(saved.id, tenantId, ['comments']);
   }
 
-  async getTask(id: string): Promise<Task> {
+  private async findTaskOrThrow(
+    id: string,
+    tenantId: string,
+    relations: string[] = [],
+  ): Promise<Task> {
     const task = await this.taskRepo.findOne({
-      where: { id },
-      relations: ['comments'],
+      where: { id, tenantId },
+      relations,
     });
 
     if (!task) {
@@ -75,6 +98,36 @@ export class TaskService {
     return task;
   }
 
+  /**
+   * Refuses a task that is neither this tenant's nor (for a non-staff caller)
+   * this caller's own assignment.
+   *
+   * RLS confines the connection to the tenant; this is the user-inside-a-
+   * tenant check CLAUDE.md §8 requires on top of it — `getTask` previously
+   * took no `tenantId` at all, so RLS was the *only* thing standing between a
+   * `client` token and any task in the firm, with no explicit filter as
+   * defence-in-depth. 404, not 403: a task id that is not this caller's is
+   * not confirmed to exist for them, the same shape `DocumentAccessService`
+   * uses for documents.
+   */
+  private assertOwnedByOrTenant(task: Task, actor: Actor): void {
+    if (scopeOf(actor) === 'own' && task.assignedTo !== actor.id) {
+      throw new NotFoundException('Task not found');
+    }
+  }
+
+  async getTask(id: string, tenantId: string, actor: Actor): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId, ['comments']);
+    this.assertOwnedByOrTenant(task, actor);
+    return task;
+  }
+
+  /**
+   * Every `assignedTo` a non-staff caller could ask for is overridden to
+   * their own id — a `client` requesting `?assignedTo=<other-user>` used to
+   * get exactly that other user's caseload back, since `GET /tasks` carried
+   * no role gate and the service applied no ownership at all.
+   */
   async listTasks(
     tenantId: string,
     options: {
@@ -85,27 +138,50 @@ export class TaskService {
       entityId?: string;
       dueBefore?: Date;
       dueAfter?: Date;
+      page?: number;
+      limit?: number;
     } = {},
-  ): Promise<Task[]> {
-    const where: any = { tenantId };
+    actor: Actor,
+  ): Promise<{ items: Task[]; total: number; page: number; limit: number }> {
+    const where: Record<string, unknown> = { tenantId };
 
     if (options.status) where.status = options.status;
     if (options.assignedTo) where.assignedTo = options.assignedTo;
     if (options.priority) where.priority = options.priority;
     if (options.type) where.type = options.type;
     if (options.entityId) where.entityId = options.entityId;
-    if (options.dueBefore) where.dueDate = LessThan(options.dueBefore);
-    if (options.dueAfter) {
-      where.dueDate = where.dueDate 
-        ? { ...where.dueDate, $moreThan: options.dueAfter }
-        : MoreThan(options.dueAfter);
+
+    // Both bounds together used to build `{ ...LessThan(x), $moreThan: y }`.
+    // `$moreThan` is not a TypeORM operator — it is Mongo syntax — so the object
+    // was a `LessThan` with an inert extra key: the lower bound was silently
+    // dropped and the query answered a different question than it was asked.
+    // Same class of fault as the calendar range below.
+    if (options.dueBefore && options.dueAfter) {
+      where.dueDate = Between(options.dueAfter, options.dueBefore);
+    } else if (options.dueBefore) {
+      where.dueDate = LessThan(options.dueBefore);
+    } else if (options.dueAfter) {
+      where.dueDate = MoreThanOrEqual(options.dueAfter);
     }
 
-    return this.taskRepo.find({
+    // Wins over whatever `assignedTo` was requested above — see the doc
+    // comment on this method.
+    if (scopeOf(actor) === 'own') {
+      where.assignedTo = actor.id;
+    }
+
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(200, Math.max(1, Number(options.limit) || 50));
+
+    const [items, total] = await this.taskRepo.findAndCount({
       where,
       relations: ['comments'],
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { items, total, page, limit };
   }
 
   async updateTask(
@@ -124,10 +200,18 @@ export class TaskService {
     Object.assign(task, updates);
     await this.taskRepo.save(task);
 
-    return this.getTask(id);
+    return this.findTaskOrThrow(id, tenantId, ['comments']);
   }
 
-  async startTask(id: string, tenantId: string, userId: string): Promise<Task> {
+  /**
+   * A `client`'s own assigned checklist task keeps working — start/complete
+   * are the two actions ImmiStack gives an applicant on their own task —
+   * scoped to their own assignment via `assertOwnedByOrTenant`. Staff reach
+   * any task in the tenant, as before.
+   */
+  async startTask(id: string, tenantId: string, actor: Actor): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
     return this.updateTask(id, tenantId, {
       status: TaskStatus.IN_PROGRESS,
       startedAt: new Date(),
@@ -137,15 +221,20 @@ export class TaskService {
   async completeTask(
     id: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
   ): Promise<Task> {
+    const task = await this.findTaskOrThrow(id, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
     return this.updateTask(id, tenantId, {
-      status: TaskStatus.COMPLETED,
+      status: TaskStatus.DONE,
       completedAt: new Date(),
-      completedBy: userId,
+      completedBy: actor.id,
     });
   }
 
+  // Staff-only at the controller (`@Roles`), so no ownership check here —
+  // cancelling is an administrative action, not a checklist step a client
+  // performs on their own task.
   async cancelTask(
     id: string,
     tenantId: string,
@@ -175,17 +264,38 @@ export class TaskService {
       assignedTo: userId,
     };
 
-    if (options.status) {
-      where.status = options.status;
+    // `In(...)`, not a bare array. A plain array in TypeORM find-options is not
+    // an IN clause — it is serialised as a Postgres array literal and compared
+    // against the column, so this 500'd with
+    //   invalid input value for enum tasks_status_enum: "{"todo","in_progress",…}"
+    // and /tasks/my-work was unreachable. Same family as the `revokedAt: null`
+    // bug in IamService: find-options syntax that looks right and silently
+    // means something else.
+    if (options.status?.length) {
+      where.status = In(options.status);
     } else if (!options.includeCompleted) {
-      where.status = ['todo', 'in_progress', 'under_review', 'blocked'];
+      where.status = In([
+        TaskStatus.TODO,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.UNDER_REVIEW,
+        TaskStatus.BLOCKED,
+      ]);
     }
+
+    // Same clamp as `listTasks` above (line 174) — a caller-supplied `limit`
+    // is bounded, not trusted outright. Not currently reachable from
+    // `TaskController.getMyWork`, which does not read `?limit=` off the
+    // query string at all, but this method takes `options.limit` directly
+    // and an unclamped `take` here — plus the eager `relations: ['comments']`
+    // — is exactly the primitive an unbounded read reaches for the moment
+    // something (a future route, an internal caller) does wire it up.
+    const limit = Math.min(200, Math.max(1, Number(options.limit) || 50));
 
     const tasks = await this.taskRepo.find({
       where,
       relations: ['comments'],
       order: { priority: 'DESC', dueDate: 'ASC' },
-      take: options.limit || 50,
+      take: limit,
     });
 
     // Get counts for each status
@@ -194,31 +304,40 @@ export class TaskService {
     return { tasks, counts };
   }
 
+  /**
+   * Per-status task counts for one assignee.
+   *
+   * Statuses come from the enum rather than a hand-written list. The list had
+   * drifted: it contained `completed`, which is not a TaskStatus — the member
+   * is `done` — and `status as TaskStatus` silenced the type error, so the
+   * count query reached Postgres and 500'd with
+   * `invalid input value for enum tasks_status_enum: "completed"`, taking all
+   * of `/tasks/my-work` down with it.
+   *
+   * One grouped query rather than a COUNT per status: the old loop issued a
+   * round trip for every state and then summed a `total` that included itself
+   * had the key ordering differed.
+   */
   private async getTaskCounts(
     tenantId: string,
     userId: string,
   ): Promise<Record<string, number>> {
-    const counts: Record<string, number> = {
-      todo: 0,
-      in_progress: 0,
-      under_review: 0,
-      completed: 0,
-      total: 0,
-    };
+    const counts: Record<string, number> = Object.fromEntries(
+      Object.values(TaskStatus).map((s) => [s, 0]),
+    );
 
-    for (const status of Object.keys(counts)) {
-      if (status === 'total') continue;
+    const rows = await this.taskRepo
+      .createQueryBuilder('t')
+      .select('t.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('t."tenantId" = :tenantId', { tenantId })
+      .andWhere('t."assignedTo" = :userId', { userId })
+      .groupBy('t.status')
+      .getRawMany<{ status: string; count: number }>();
 
-      counts[status] = await this.taskRepo.count({
-        where: {
-          tenantId,
-          assignedTo: userId,
-          status: status as TaskStatus,
-        },
-      });
-    }
+    for (const row of rows) counts[row.status] = row.count;
 
-    counts.total = Object.values(counts).reduce((a, b) => a + b, 0);
+    counts.total = rows.reduce((sum, r) => sum + r.count, 0);
 
     return counts;
   }
@@ -228,20 +347,15 @@ export class TaskService {
   async addComment(
     taskId: string,
     tenantId: string,
-    userId: string,
+    actor: Actor,
     content: string,
   ): Promise<TaskComment> {
-    const task = await this.taskRepo.findOne({
-      where: { id: taskId, tenantId },
-    });
-
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+    const task = await this.findTaskOrThrow(taskId, tenantId);
+    this.assertOwnedByOrTenant(task, actor);
 
     const comment = this.commentRepo.create({
       taskId,
-      userId,
+      userId: actor.id,
       content,
       mentions: this.extractMentions(content),
     });
@@ -252,7 +366,7 @@ export class TaskService {
   private extractMentions(content: string): string[] {
     const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
     const matches = content.match(mentionRegex);
-    return matches ? matches.map(m => m.substring(1)) : [];
+    return matches ? matches.map((m) => m.substring(1)) : [];
   }
 
   // ==================== RECURRING JOBS ====================
@@ -310,10 +424,7 @@ export class TaskService {
     });
   }
 
-  async pauseRecurringJob(
-    id: string,
-    tenantId: string,
-  ): Promise<RecurringJob> {
+  async pauseRecurringJob(id: string, tenantId: string): Promise<RecurringJob> {
     const job = await this.recurringJobRepo.findOne({
       where: { id, tenantId },
     });
@@ -410,7 +521,9 @@ export class TaskService {
 
     await this.recurringJobRepo.save(job);
 
-    this.logger.log(`Recurring job ${job.id} executed, task ${task.id} created`);
+    this.logger.log(
+      `Recurring job ${job.id} executed, task ${task.id} created`,
+    );
   }
 
   private calculateNextRun(schedule: string, startDate?: Date): Date {
@@ -433,25 +546,47 @@ export class TaskService {
     }
   }
 
-  // ==================== CALENDAR INTEGRATION (PLACEHOLDER) ====================
+  // ==================== CALENDAR INTEGRATION ====================
 
+  /**
+   * Tasks with a due date inside a window, as calendar events.
+   *
+   * The range filter was `MoreThan(start) && LessThan(end)`. `&&` evaluates to
+   * its right operand, so the expression *is* `LessThan(end)` and `startDate`
+   * was discarded — the endpoint silently answered "everything due before the
+   * end of the window", including last year's. It reads like a range and is not
+   * one, which is why it survived review. `Between` says what was meant.
+   *
+   * `scope: 'firm'` returns every task in the tenant. The endpoint was
+   * hard-scoped to the caller with no way to widen it, so a shared team calendar
+   * — the main thing a firm wants a calendar for — could not be built from it,
+   * and the frontend assembled its month grid client-side instead.
+   *
+   * `scope: 'firm'` is a staff privilege. A non-staff caller asking for it is
+   * silently held to `'mine'` rather than rejected — the same "narrow, don't
+   * block" posture as `listTasks`' `assignedTo` override — since `'mine'` is
+   * always what they were entitled to ask for anyway.
+   */
   async getCalendarEvents(
     tenantId: string,
     userId: string,
+    actor: Actor,
     startDate: Date,
     endDate: Date,
+    scope: 'mine' | 'firm' = 'mine',
   ): Promise<any[]> {
-    // Get tasks with due dates
+    const effectiveScope = scopeOf(actor) === 'own' ? 'mine' : scope;
     const tasks = await this.taskRepo.find({
       where: {
         tenantId,
-        assignedTo: userId,
-        dueDate: MoreThan(startDate) && LessThan(endDate),
+        ...(effectiveScope === 'firm' ? {} : { assignedTo: userId }),
+        dueDate: Between(startDate, endDate),
       },
+      order: { dueDate: 'ASC' },
     });
 
     // Convert to calendar events
-    return tasks.map(task => ({
+    return tasks.map((task) => ({
       id: task.id,
       title: task.title,
       description: task.description,
@@ -467,15 +602,17 @@ export class TaskService {
     tenantId: string,
     userId: string,
     provider: 'google' | 'outlook',
-  ): Promise<{ success: boolean; message: string }> {
-    // Placeholder for calendar sync
-    // In production, this would use Google Calendar API or Microsoft Graph API
+  ): Promise<never> {
+    // Not built. This used to answer HTTP 200 `{success: false}`, which every
+    // generic client reads as "it worked". A 501 is what the frontends'
+    // notImplemented() seam is looking for, and what Swagger now advertises.
     this.logger.log(`Calendar sync requested: ${provider} for user ${userId}`);
-
-    return {
-      success: false,
-      message: `Calendar sync with ${provider} is not yet implemented`,
-    };
+    throw new NotImplementedException({
+      code: 'MER-SRV-0501',
+      message: `Calendar sync with ${provider} is not implemented. Tasks with a dueDate are projected by GET /tasks/calendar/events; two-way sync needs a Google/Microsoft OAuth app that has not been provisioned.`,
+      provider,
+      tenantId,
+    });
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================
@@ -525,7 +662,11 @@ export class TaskService {
         where: {
           tenantId,
           assignedTo: userId,
-          status: In([TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED]),
+          status: In([
+            TaskStatus.TODO,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.BLOCKED,
+          ]),
         },
         order: { priority: 'DESC', dueDate: 'ASC' },
       });
@@ -535,7 +676,7 @@ export class TaskService {
         category: 'workflow_decision' as any,
         key: 'task_prioritization',
         input: JSON.stringify({
-          tasks: tasks.map(t => ({
+          tasks: tasks.map((t) => ({
             id: t.id,
             title: t.title,
             priority: t.priority,
@@ -553,7 +694,7 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error(`Failed to get prioritized tasks: ${error.message}`);
-      
+
       // Return tasks without AI recommendations on error
       const tasks = await this.taskRepo.find({
         where: {
@@ -681,14 +822,10 @@ export class TaskService {
     taskId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'task',
-        entityId: taskId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'task',
+      entityId: taskId,
+    });
   }
 
   async getTaskDocumentStats(

@@ -28,6 +28,7 @@ import {
 } from '@nestjs/swagger';
 import { StorageService } from './storage.service';
 import { CurrentUser } from '../iam/decorators/current-user.decorator';
+import type { UserPayload } from '../common/types';
 import { TenantId } from '../tenant/decorators/tenant-id.decorator';
 import { JwtAuthGuard } from '../iam/guards/jwt-auth.guard';
 import { UseGuards } from '@nestjs/common';
@@ -43,10 +44,14 @@ import {
   CreateVersionDto,
 } from './dto/storage.dto';
 import { StorageFile, FileVersion } from './entities/storage-file.entity';
-import { StorageClass, FileStatus, StorageMetrics } from './interfaces/storage.interface';
+import {
+  StorageClass,
+  FileStatus,
+  StorageMetrics,
+} from './interfaces/storage.interface';
 
 @ApiTags('Storage')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('storage')
 export class StorageController {
@@ -56,16 +61,23 @@ export class StorageController {
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload a file', description: 'Upload a file to cloud storage with metadata support' })
+  @ApiOperation({
+    summary: 'Upload a file',
+    description: 'Upload a file to cloud storage with metadata support',
+  })
   @ApiConsumes('multipart/form-data')
-  @ApiResponse({ status: 201, description: 'File uploaded successfully', type: StorageFile })
+  @ApiResponse({
+    status: 201,
+    description: 'File uploaded successfully',
+    type: StorageFile,
+  })
   @ApiResponse({ status: 400, description: 'Invalid file or metadata' })
   @ApiResponse({ status: 413, description: 'File too large' })
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
     return this.storageService.upload({
       tenantId,
@@ -80,56 +92,93 @@ export class StorageController {
       expiresInDays: dto.expiresInDays,
       encrypt: dto.encrypt,
       folder: dto.folder,
-      userId,
+      userId: actor.id,
     });
   }
 
   @Post('multipart/initiate')
-  @ApiOperation({ summary: 'Initiate multipart upload', description: 'Start a large file multipart upload' })
+  @ApiOperation({
+    summary: 'Initiate multipart upload',
+    description: 'Start a large file multipart upload',
+  })
   @ApiResponse({ status: 201, description: 'Multipart upload initiated' })
   async initiateMultipartUpload(
     @Body() dto: InitiateMultipartUploadDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
-  ): Promise<{ uploadId: string; fileId: string; uploadUrls: { partNumber: number; url: string }[] }> {
+    @CurrentUser() actor: UserPayload,
+  ): Promise<{
+    uploadId: string;
+    fileId: string;
+    uploadUrls: { partNumber: number; url: string }[];
+  }> {
     return this.storageService.initiateMultipartUpload(
       tenantId,
       dto.fileName,
       dto.mimeType,
       dto.totalSize,
-      userId,
+      actor.id,
       dto.partSize,
       dto.metadata,
     );
   }
 
   @Post('multipart/complete')
-  @ApiOperation({ summary: 'Complete multipart upload', description: 'Finalize a multipart upload with part ETags' })
-  @ApiResponse({ status: 200, description: 'Multipart upload completed', type: StorageFile })
+  @ApiOperation({
+    summary: 'Complete multipart upload',
+    description: 'Finalize a multipart upload with part ETags',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Multipart upload completed',
+    type: StorageFile,
+  })
   async completeMultipartUpload(
     @Body() dto: CompleteMultipartUploadDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.completeMultipartUpload(dto.uploadId, dto.partETags, tenantId, userId);
+    return this.storageService.completeMultipartUpload(
+      dto.uploadId,
+      dto.partETags,
+      tenantId,
+      actor,
+    );
   }
 
   // ==================== FILE OPERATIONS ====================
 
   @Get('files')
-  @ApiOperation({ summary: 'List files', description: 'Search and list files with filters' })
+  @ApiOperation({
+    summary: 'List files',
+    description: 'Search and list files with filters',
+  })
   @ApiResponse({ status: 200, description: 'Files retrieved successfully' })
   @ApiQuery({ name: 'query', required: false, description: 'Search query' })
   @ApiQuery({ name: 'folder', required: false, description: 'Folder path' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page',
+  })
   async listFiles(
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
     @Query() query: SearchFilesDto,
   ): Promise<{ files: StorageFile[]; total: number }> {
     return this.storageService.searchFiles({
       tenantId,
+      // `actor` narrows an `own`-scope caller to their own files — see the
+      // doc comment on `FileSearchFilters.actor` and `searchFiles`. `actor`
+      // is `UserPayload`, which satisfies the `Actor` shape (`id`, `roles`,
+      // `email`) structurally.
+      actor,
       query: query.query,
       folder: query.folder,
       page: query.page,
@@ -140,70 +189,112 @@ export class StorageController {
   }
 
   @Get('files/:id')
-  @ApiOperation({ summary: 'Get file details', description: 'Retrieve file metadata and versions' })
-  @ApiResponse({ status: 200, description: 'File retrieved successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Get file details',
+    description: 'Retrieve file metadata and versions',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'File retrieved successfully',
+    type: StorageFile,
+  })
   @ApiResponse({ status: 404, description: 'File not found' })
   async getFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.getFile(fileId, tenantId, userId);
+    return this.storageService.getFile(fileId, tenantId, actor);
   }
 
   @Patch('files/:id')
-  @ApiOperation({ summary: 'Update file metadata', description: 'Update file metadata, tags, or storage class' })
-  @ApiResponse({ status: 200, description: 'File updated successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Update file metadata',
+    description: 'Update file metadata, tags, or storage class',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'File updated successfully',
+    type: StorageFile,
+  })
   async updateFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: UpdateFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    // This would need to be implemented in the service
-    throw new Error('Not implemented');
+    return this.storageService.updateFile(
+      fileId,
+      {
+        metadata: dto.metadata,
+        tags: dto.tags,
+        storageClass: dto.storageClass,
+        access: dto.access,
+        status: dto.status,
+      },
+      tenantId,
+      actor,
+    );
   }
 
   @Delete('files/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete file', description: 'Soft delete a file (can be restored)' })
+  @ApiOperation({
+    summary: 'Delete file',
+    description: 'Soft delete a file (can be restored)',
+  })
   @ApiResponse({ status: 204, description: 'File deleted successfully' })
-  @ApiQuery({ name: 'permanent', required: false, type: Boolean, description: 'Permanently delete file' })
+  @ApiQuery({
+    name: 'permanent',
+    required: false,
+    type: Boolean,
+    description: 'Permanently delete file',
+  })
   async deleteFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Query('permanent') permanent: boolean,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<void> {
-    await this.storageService.deleteFile(fileId, tenantId, userId, permanent);
+    await this.storageService.deleteFile(fileId, tenantId, actor, permanent);
   }
 
   @Post('files/:id/restore')
-  @ApiOperation({ summary: 'Restore deleted file', description: 'Restore a soft-deleted file' })
-  @ApiResponse({ status: 200, description: 'File restored successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Restore deleted file',
+    description: 'Restore a soft-deleted file',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'File restored successfully',
+    type: StorageFile,
+  })
   async restoreFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.restoreFile(fileId, tenantId, userId);
+    return this.storageService.restoreFile(fileId, tenantId, actor);
   }
 
   // ==================== DOWNLOAD ====================
 
   @Get('files/:id/download')
-  @ApiOperation({ summary: 'Get download URL', description: 'Get a presigned URL for file download' })
+  @ApiOperation({
+    summary: 'Get download URL',
+    description: 'Get a presigned URL for file download',
+  })
   @ApiResponse({ status: 200, description: 'Download URL generated' })
   async getDownloadUrl(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Query() dto: PresignedUrlDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<{ url: string; expiresIn: number }> {
     const url = await this.storageService.getPresignedUrl(fileId, {
       fileId,
       tenantId,
-      userId,
+      actor,
       expiresInSeconds: dto.expiresInSeconds,
       responseDisposition: dto.responseDisposition,
     });
@@ -214,77 +305,136 @@ export class StorageController {
   // ==================== VERSIONS ====================
 
   @Get('files/:id/versions')
-  @ApiOperation({ summary: 'List file versions', description: 'Get all versions of a file' })
-  @ApiResponse({ status: 200, description: 'Versions retrieved successfully', type: [FileVersion] })
+  @ApiOperation({
+    summary: 'List file versions',
+    description: 'Get all versions of a file',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Versions retrieved successfully',
+    type: [FileVersion],
+  })
   async getVersions(
     @Param('id', ParseUUIDPipe) fileId: string,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<FileVersion[]> {
-    return this.storageService.getVersions(fileId, tenantId, userId);
+    return this.storageService.getVersions(fileId, tenantId, actor);
   }
 
   @Post('files/:id/versions')
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Create new version', description: 'Upload a new version of an existing file' })
+  @ApiOperation({
+    summary: 'Create new version',
+    description: 'Upload a new version of an existing file',
+  })
   @ApiConsumes('multipart/form-data')
-  @ApiResponse({ status: 201, description: 'Version created successfully', type: FileVersion })
+  @ApiResponse({
+    status: 201,
+    description: 'Version created successfully',
+    type: FileVersion,
+  })
   async createVersion(
     @Param('id', ParseUUIDPipe) fileId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateVersionDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<FileVersion> {
-    return this.storageService.createVersion(fileId, file.buffer, dto.changeDescription, tenantId, userId);
+    return this.storageService.createVersion(
+      fileId,
+      file.buffer,
+      dto.changeDescription,
+      tenantId,
+      actor,
+    );
   }
 
   // ==================== FILE MANAGEMENT ====================
 
   @Post('files/:id/move')
-  @ApiOperation({ summary: 'Move file', description: 'Move a file to a different folder' })
-  @ApiResponse({ status: 200, description: 'File moved successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Move file',
+    description: 'Move a file to a different folder',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'File moved successfully',
+    type: StorageFile,
+  })
   async moveFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: MoveFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.moveFile(fileId, dto.destinationFolder, tenantId, userId);
+    return this.storageService.moveFile(
+      fileId,
+      dto.destinationFolder,
+      tenantId,
+      actor,
+    );
   }
 
   @Post('files/:id/copy')
-  @ApiOperation({ summary: 'Copy file', description: 'Create a copy of a file' })
-  @ApiResponse({ status: 201, description: 'File copied successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Copy file',
+    description: 'Create a copy of a file',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'File copied successfully',
+    type: StorageFile,
+  })
   async copyFile(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body() dto: CopyFileDto,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.copyFile(fileId, dto.destinationFolder, dto.newName, tenantId, userId);
+    return this.storageService.copyFile(
+      fileId,
+      dto.destinationFolder,
+      dto.newName,
+      tenantId,
+      actor,
+    );
   }
 
   @Patch('files/:id/storage-class')
-  @ApiOperation({ summary: 'Change storage class', description: 'Change the storage class of a file (Standard, Infrequent, Archive)' })
-  @ApiResponse({ status: 200, description: 'Storage class changed successfully', type: StorageFile })
+  @ApiOperation({
+    summary: 'Change storage class',
+    description:
+      'Change the storage class of a file (Standard, Infrequent, Archive)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Storage class changed successfully',
+    type: StorageFile,
+  })
   async changeStorageClass(
     @Param('id', ParseUUIDPipe) fileId: string,
     @Body('storageClass') storageClass: StorageClass,
     @TenantId() tenantId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() actor: UserPayload,
   ): Promise<StorageFile> {
-    return this.storageService.changeStorageClass(fileId, storageClass, tenantId, userId);
+    return this.storageService.changeStorageClass(
+      fileId,
+      storageClass,
+      tenantId,
+      actor,
+    );
   }
 
   // ==================== METRICS ====================
 
   @Get('metrics')
-  @ApiOperation({ summary: 'Get storage metrics', description: 'Retrieve storage usage metrics for the tenant' })
+  @ApiOperation({
+    summary: 'Get storage metrics',
+    description: 'Retrieve storage usage metrics for the tenant',
+  })
   @ApiResponse({ status: 200, description: 'Metrics retrieved successfully' })
-  async getMetrics(
-    @TenantId() tenantId: string,
-  ): Promise<StorageMetrics> {
+  async getMetrics(@TenantId() tenantId: string): Promise<StorageMetrics> {
     return this.storageService.getMetrics(tenantId);
   }
 }

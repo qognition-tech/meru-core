@@ -82,10 +82,15 @@ export class AuditLog {
   @Column({ type: 'enum', enum: AuditSeverity, default: AuditSeverity.INFO })
   severity: AuditSeverity;
 
-  @Column({ type: 'jsonb' })
+  // Genuinely nullable: a READ, LOGIN or EXPORT has no before/after state. The
+  // TS type already said `| null`, but without `nullable: true` the column was
+  // generated NOT NULL, so every such event failed the insert — including the
+  // CRITICAL entry `TenancyService.runAsGod` writes before a cross-tenant read,
+  // which made god-mode access impossible rather than merely audited.
+  @Column({ type: 'jsonb', nullable: true })
   beforeState: Record<string, any> | null;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'jsonb', nullable: true })
   afterState: Record<string, any> | null;
 
   @Column({ type: 'jsonb', default: {} })
@@ -128,7 +133,16 @@ export class AuditLog {
   };
 
   @Column({ type: 'text', nullable: true })
-  checksum: string; // For integrity verification
+  checksum: string; // SHA256 of this event's payload (for single-row verification)
+
+  // Hash chain fields — WORM tamper-evidence per CLAUDE.md §6.5.
+  // chainHash = SHA256(previousChainHash + tenantId + timestamp.toISO() + action + entityId + userId + checksum)
+  // The first log for a tenant uses the genesis hash as previousChainHash.
+  @Column({ type: 'char', length: 64, nullable: true })
+  previousChainHash: string; // chainHash of the immediately prior log for this tenant
+
+  @Column({ type: 'char', length: 64, nullable: true })
+  chainHash: string; // this log's position in the chain
 
   @Column({ default: false })
   archived: boolean;

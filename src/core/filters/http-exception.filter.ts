@@ -7,10 +7,167 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
+import {
+  ApiResponse,
+  MeruErrorCode,
+  MeruError,
+  ValidationErrorDetail,
+} from '../../common/types';
+
+/**
+ * Global exception filter that enforces the Meru API Response Envelope.
+ * All responses follow: { data: null, meta: { requestId, timestamp, version }, error: { code, message, details? } }
+ *
+ * Maps HTTP exceptions to Meru error codes per DESIGN_GUIDELINES.md:
+ *   400 → MER-VAL-0001 (Validation)
+ *   401 → MER-AUTH-0001 (Invalid Credentials) or MER-AUTH-0003 (Invalid Token)
+ *   403 → MER-AUTH-0008 (Forbidden)
+ *   404 → MER-RES-0001 (Not Found)
+ *   409 → MER-RES-0002 (Already Exists)
+ *   429 → MER-RATE-0001 (Rate Limit)
+ *   5xx → MER-SRV-0001 (Internal Server)
+ */
+/**
+ * Distinguish "a dependency is down or unconfigured" from "this request is
+ * broken".
+ *
+ * Both used to surface as 500, which is wrong in both directions: it tells the
+ * client they sent something invalid when they did not, and it tells whoever
+ * reads the alerts to hunt for a crash when the real answer is that
+ * Elasticsearch is unreachable. 503 is the honest code and the one a client
+ * should retry against.
+ *
+ * Matched on the driver's own connection-failure signals rather than on
+ * message text where possible; the string checks are the fallback for clients
+ * that only report a message.
+ */
+function isDependencyUnavailable(exception: unknown): boolean {
+  const err = exception as
+    | { code?: string; name?: string; message?: string }
+    | undefined;
+  if (!err) return false;
+
+  const code = err.code ?? '';
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code)) {
+    return true;
+  }
+
+  const name = err.name ?? '';
+  if (name === 'ConnectionError' || name === 'NoLivingConnectionsError') {
+    return true;
+  }
+
+  const message = (err.message ?? '').toLowerCase();
+  return (
+    message.includes('connect econnrefused') ||
+    message.includes('connection failed') ||
+    message.includes('no living connections')
+  );
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  /** Maps HTTP status codes to Meru error codes */
+  private mapStatusToErrorCode(
+    status: number,
+    exception: HttpException | null,
+  ): MeruErrorCode {
+    switch (status) {
+      case HttpStatus.BAD_REQUEST:
+        return MeruErrorCode.VALIDATION_ERROR;
+      case HttpStatus.UNAUTHORIZED:
+        // Distinguish expired vs invalid based on exception message
+        const msg = exception?.message?.toLowerCase() || '';
+        return msg.includes('expired')
+          ? MeruErrorCode.AUTH_TOKEN_EXPIRED
+          : MeruErrorCode.AUTH_INVALID_CREDENTIALS;
+      case HttpStatus.FORBIDDEN:
+        return MeruErrorCode.AUTH_FORBIDDEN;
+      case HttpStatus.PAYMENT_REQUIRED:
+        return MeruErrorCode.TENANT_MODULE_NOT_ENTITLED;
+      case HttpStatus.NOT_FOUND:
+        return MeruErrorCode.RESOURCE_NOT_FOUND;
+      case HttpStatus.CONFLICT:
+        return MeruErrorCode.RESOURCE_ALREADY_EXISTS;
+      case HttpStatus.TOO_MANY_REQUESTS:
+        return MeruErrorCode.RATE_LIMIT_EXCEEDED;
+      case HttpStatus.SERVICE_UNAVAILABLE:
+        return MeruErrorCode.SERVER_UNAVAILABLE;
+      case HttpStatus.GATEWAY_TIMEOUT:
+        return MeruErrorCode.SERVER_TIMEOUT;
+      default:
+        return status >= 500
+          ? MeruErrorCode.SERVER_INTERNAL
+          : MeruErrorCode.SERVER_INTERNAL;
+    }
+  }
+
+  /** Extracts validation details from class-validator errors */
+  private extractValidationDetails(
+    exceptionResponse: any,
+  ): ValidationErrorDetail[] | undefined {
+    if (Array.isArray(exceptionResponse?.message)) {
+      return exceptionResponse.message.map((msg: string) => {
+        // Parse class-validator format: "field - constraint message"
+        const match = msg.match(/^(\w+)\s*[-:]\s*(.+)$/);
+        return {
+          field: match?.[1] || 'unknown',
+          message: match?.[2] || msg,
+          code: 'VALIDATION',
+        };
+      });
+    }
+    return undefined;
+  }
+
+  /** Builds a MeruError from exception */
+  private buildError(exception: unknown, status: number): MeruError {
+    const httpException = exception instanceof HttpException ? exception : null;
+    let code = this.mapStatusToErrorCode(status, httpException);
+
+    let message = 'An unexpected error occurred';
+    let details: ValidationErrorDetail[] | undefined;
+
+    if (httpException) {
+      const response = httpException.getResponse();
+      if (typeof response === 'string') {
+        message = response;
+      } else if (typeof response === 'object' && response !== null) {
+        message = (response as any).message || message;
+        // Handle nested message arrays
+        if (Array.isArray(message)) {
+          message = message.join('; ');
+        }
+        details = this.extractValidationDetails(response);
+
+        // A thrower may name its own MeruErrorCode rather than accept the
+        // generic per-status default — e.g. a 409 that means "this connector
+        // is disabled", not "this resource already exists". Only a value that
+        // is actually one of ours is honoured, so every existing HttpException
+        // body (which never sets this field) keeps resolving through the
+        // status-based mapping exactly as before.
+        const explicitCode = (response as any).code;
+        if (
+          typeof explicitCode === 'string' &&
+          (Object.values(MeruErrorCode) as string[]).includes(explicitCode)
+        ) {
+          code = explicitCode as MeruErrorCode;
+        }
+      }
+    } else if (exception instanceof Error) {
+      message = exception.message;
+    }
+
+    return {
+      code,
+      message,
+      ...(details && { details }),
+      helpUrl: `https://docs.meru.dev/errors#${code.toLowerCase().replace(/-/g, '')}`,
+    };
+  }
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -20,29 +177,41 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : isDependencyUnavailable(exception)
+          ? HttpStatus.SERVICE_UNAVAILABLE
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : 'Internal server error';
+    const meruError = this.buildError(exception, status);
+    const requestId =
+      (request.headers['x-request-id'] as string) || randomUUID();
 
-    // Structured Logging
+    // Structured Logging with Meru error code
     this.logger.error(
-      `${request.method} ${request.url}`,
+      `[${meruError.code}] ${request.method} ${request.url}`,
       JSON.stringify({
+        requestId,
         status,
-        message,
+        errorCode: meruError.code,
+        message: meruError.message,
         timestamp: new Date().toISOString(),
         path: request.url,
+        method: request.method,
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+        ...(meruError.details && { details: meruError.details }),
       }),
     );
 
-    response.status(status).json({
-      statusCode: status,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      message: typeof message === 'string' ? message : (message as any).message,
-    });
+    const envelope: ApiResponse = {
+      data: null,
+      meta: {
+        requestId,
+        timestamp: new Date().toISOString(),
+        version: 'v1',
+      },
+      error: meruError,
+    };
+
+    response.status(status).json(envelope);
   }
 }

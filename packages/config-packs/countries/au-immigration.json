@@ -1,0 +1,926 @@
+{
+  "code": "au-immigration",
+  "name": "Australian Immigration",
+  "description": "Australian Immigration — country overlay on the immigration vertical.",
+  "version": "2.8.0",
+  "vertical": "immigration",
+  "country": "AU",
+  "extends": "immigration",
+  "locales": [
+    "en"
+  ],
+  "regulators": [
+    {
+      "id": "AU-HOMEAFFAIRS",
+      "name": "Department of Home Affairs",
+      "country": "AU",
+      "availability": "adapter",
+      "adapterId": "au-home-affairs"
+    },
+    {
+      "id": "AU-VEVO",
+      "name": "VEVO Visa Entitlement Verification",
+      "country": "AU",
+      "availability": "adapter",
+      "adapterId": "au-home-affairs"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "wf_visa_matter",
+      "name": "Visa matter — full lifecycle",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Intake and eligibility",
+          "description": "Qualify the enquiry and confirm the subclass before any fee is quoted.",
+          "type": "form",
+          "assignedRole": "migration_agent",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "cost_agreement",
+              "label": "Proceed to engagement"
+            }
+          ]
+        },
+        {
+          "id": "cost_agreement",
+          "name": "Cost agreement issued",
+          "description": "Generated from the pack template; acceptance recorded against the matter.",
+          "type": "document",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "requiredDocuments": [
+            "cost_agreement"
+          ],
+          "transitions": [
+            {
+              "to": "signup_payment",
+              "label": "Client accepted"
+            }
+          ]
+        },
+        {
+          "id": "signup_payment",
+          "name": "Signup payment",
+          "description": "The workflow engine blocks progress while this is in arrears.",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "portal_access",
+              "label": "Payment received"
+            }
+          ]
+        },
+        {
+          "id": "portal_access",
+          "name": "Portal access granted",
+          "type": "notification",
+          "assignedRole": "case_coordinator",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "document_request",
+              "label": "Client can log in"
+            }
+          ]
+        },
+        {
+          "id": "document_request",
+          "name": "Documents requested",
+          "description": "The checklist is resolved per subclass from documentTypes[].appliesWhen.",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 168,
+          "transitions": [
+            {
+              "to": "health_insurance",
+              "label": "Insurance required",
+              "condition": "matter.subclass in ['500','485']"
+            },
+            {
+              "to": "drafting",
+              "label": "No insurance step required",
+              "condition": "matter.subclass not in ['500','485']"
+            }
+          ]
+        },
+        {
+          "id": "health_insurance",
+          "name": "Health insurance evidence",
+          "description": "OSHC for a 500, OVHC for a 485. Conditional on subclass.",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "drafting",
+              "label": "Cover confirmed"
+            }
+          ]
+        },
+        {
+          "id": "drafting",
+          "name": "Application drafted",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "client_approval",
+              "label": "Ready for client review"
+            }
+          ]
+        },
+        {
+          "id": "client_approval",
+          "name": "Client approval",
+          "type": "review",
+          "assignedRole": "client_portal",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "apf",
+              "label": "Approved — APF applies",
+              "condition": "matter.subclass not in ['500','600']"
+            },
+            {
+              "to": "lodgement_fee",
+              "label": "Approved — no APF",
+              "condition": "matter.subclass in ['500','600']"
+            }
+          ]
+        },
+        {
+          "id": "apf",
+          "name": "Additional applicant / APF charges",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement_fee",
+              "label": "Charges settled"
+            }
+          ]
+        },
+        {
+          "id": "lodgement_fee",
+          "name": "Department charge paid",
+          "description": "Recorded as an outbound payment — the firm pays the Department, which is not revenue.",
+          "type": "payment",
+          "assignedRole": "case_coordinator",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodged",
+              "label": "Charge forwarded to the Department"
+            }
+          ]
+        },
+        {
+          "id": "lodged",
+          "name": "Lodged with the Department",
+          "description": "Every adapter is sandbox; a lodgement confirmation is generated from the pack template.",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Department decided"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Decision received",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "closed",
+              "label": "Granted"
+            },
+            {
+              "to": "art_review",
+              "label": "Refused — seek ART review"
+            },
+            {
+              "to": "closed",
+              "label": "Refused — client declines to proceed"
+            }
+          ]
+        },
+        {
+          "id": "art_review",
+          "name": "ART review",
+          "description": "Administrative Review Tribunal. Branches off a refusal.",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 720,
+          "transitions": [
+            {
+              "to": "closed",
+              "label": "Review concluded"
+            }
+          ]
+        },
+        {
+          "id": "closed",
+          "name": "Matter closed",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 24
+        }
+      ]
+    },
+    {
+      "id": "wf_student_500",
+      "name": "Student Visa (500)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_skilled_189",
+      "name": "Skilled Independent (189)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_graduate_485",
+      "name": "Temporary Graduate (485)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_visitor_600",
+      "name": "Visitor Visa (600)",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    }
+  ],
+  "alertRules": [
+    {
+      "key": "au_8503_no_further_stay",
+      "label": "Condition 8503 (No Further Stay) — a waiver must be requested before the visa expires",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.condition8503"
+              },
+              true
+            ]
+          },
+          {
+            "and": [
+              {
+                "<": [
+                  {
+                    "var": "matter.visaExpiry_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "matter.visaExpiry_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_485_lodgement_window",
+      "label": "Subclass 485 is lodged within 6 months of course completion — 2 months remain",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.subclass"
+              },
+              "485"
+            ]
+          },
+          {
+            ">": [
+              {
+                "var": "matter.courseCompletion_daysSince"
+              },
+              120
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_nomination_lapsing",
+      "label": "Employer nomination approval lapses 12 months after approval — 2 months remain",
+      "entityType": "case",
+      "when": {
+        ">": [
+          {
+            "var": "matter.nominationApproval_daysSince"
+          },
+          305
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "au_bridging_visa_expiry",
+      "label": "Bridging visa expiring — confirm the substantive application status",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "matter.bridgingVisaExpiry_daysUntil"
+              },
+              30
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "matter.bridgingVisaExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 48,
+      "escalateAfterHours": 96,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    }
+  ],
+  "fees": [
+    {
+      "key": "gov_482_primary",
+      "atStep": "lodgement_fee"
+    },
+    {
+      "key": "gov_482_dependent",
+      "atStep": "lodgement_fee"
+    },
+    {
+      "key": "disb_health_examination",
+      "atStep": "document_request"
+    },
+    {
+      "key": "disb_police_check",
+      "atStep": "document_request"
+    }
+  ],
+  "paymentPlans": [
+    {
+      "key": "staged_482",
+      "label": "Staged — engagement, lodgement, decision",
+      "type": "stage_gated",
+      "stages": [
+        {
+          "atStep": "signup_payment",
+          "portionBps": 3000,
+          "label": "On engagement"
+        },
+        {
+          "atStep": "lodgement_fee",
+          "portionBps": 5000,
+          "label": "On lodgement"
+        },
+        {
+          "atStep": "decision",
+          "portionBps": 2000,
+          "label": "On decision"
+        }
+      ],
+      "blockProgressOnArrears": true
+    }
+  ],
+  "documentTemplates": [
+    {
+      "key": "adm_disclosure",
+      "label": "Automated decision-making disclosure (APP 1.8)",
+      "fileName": "adm-disclosure-{{tenant.slug}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}} — Automated decision-making disclosure",
+      "footer": "{{tenant.name}}   ·   Prepared {{today}}",
+      "requires": [
+        "tenant.name"
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "text": "Automated decision-making disclosure",
+          "level": 1
+        },
+        {
+          "type": "paragraph",
+          "text": "This statement is made by {{tenant.name}} (\"we\", \"us\") for the purposes of Australian Privacy Principle 1.8, which takes effect on 10 December 2026 under the Privacy Act 1988 (Cth). It describes the kinds of personal information we use in automated decision-making, the kinds of decisions our systems make without a person deciding case-by-case, and the kinds of decisions a person makes with the help of an automated system. It is part of our privacy policy and does not replace the rest of it."
+        },
+        {
+          "type": "heading",
+          "text": "1. Kinds of personal information used",
+          "level": 2
+        },
+        {
+          "type": "list",
+          "items": [
+            "Identity and contact details: name, date of birth, nationality, aliases, identifying documents, contact details.",
+            "Matter and immigration details: visa subclass, sponsoring employer, occupation, English test result, prior visa refusal, whether the person is onshore or offshore, and the stage the matter has reached.",
+            "Financial and payment records: fees and disbursements invoiced, paid or outstanding, and which stage of the matter each relates to.",
+            "Engagement and communication history: when the person was last contacted."
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "2. Decisions made by an automated system",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "Two things in our case management system happen automatically, without a staff member approving that instance. Neither decides whether to accept a client, what to charge, or the outcome of a visa application."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pausing progress on unpaid fees: where a matter is on a staged payment plan that we have configured to require payment before the case advances, and an amount due at the current stage is unpaid, the system will not let the matter move to its next stage until that amount is recorded as paid. It only affects the internal stage of the case file, not whether we act for the person or what is charged.",
+            "Locking who pays a government charge once a matter is lodged: once a matter reaches the stage of being lodged, awaiting further information, granted or refused, the record of who is responsible for paying the relevant government visa application charge can no longer be changed by a person and any attempted change is refused. This preserves what was already agreed; it does not decide who is responsible in the first place."
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "3. Decisions substantially assisted by an automated system",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "In the following cases a staff member makes the decision and takes the action. An automated system produces information to help them, and does not itself accept, refuse or communicate an outcome."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Screening a name against sanctions, politically-exposed-person and other watchlists, using the name and, where held, aliases, date of birth, nationality and identifying documents. The system returns a score and the possible matches, with the reasoning behind each, for a staff member to review. If the watchlists it checks have not loaded, it refuses to produce a result rather than reporting the name as clear.",
+            "Prioritising and following up new enquiries, where we have configured this for our practice. A numeric score may be calculated from information such as whether a sponsoring employer is named, occupation, English test result, age, whether the person is already in Australia, any previous visa refusal, and how recently they were last contacted. Staff may use the score and the reasons behind it to help decide who to follow up and in what order. It does not accept, decline or price an engagement.",
+            "Drafting correspondence or summarising a document, where we use this. A response is produced only when it can be linked to the source it came from; otherwise none is given."
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "4. Questions about a decision",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "You may contact us using the details in our privacy policy or your engagement letter to ask about a decision described in this statement, including what personal information was used and whether a person or an automated system made it."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read.",
+    "workflowConditions": "The two conditional branches in wf_visa_matter (health_insurance for 500/485, apf for anything but 500/600) are recorded as prose in `transitions[].condition` and are NOT enforced. The pack schema types that field as a string, while WorkflowService.evaluateConditions reads a structured `{operator, rules[]}` object it never receives from a pack — so no pack-declared transition condition has ever been evaluated. Until that bridge exists the branches must be chosen by the caller, and a UI must not present them as automatic. Tracked in AGENTS.md.",
+    "statutoryConstraints": "Card surcharging: the RBA has banned merchant surcharging on eftpos, Mastercard and Visa from 1 October 2026. No pack on disk declares a surcharge fee, and `FeeSchema.kind` is deliberately closed to government|firm|disbursement — do not add a fourth kind or a sibling field to express one for an AU tenant. Meru records settlement (`payments.service.ts`); it never processes a card, so a firm's own terminal is outside this platform and this is an authoring constraint, not a runtime check. Verified zero 'surcharge' matches across src, packages and the ImmiStack app on 2026-09-08. APP 1.8 automated-decision transparency takes effect 10 December 2026. As of v2.8.0 this overlay carries a `documentTemplates[].adm_disclosure` a tenant can generate and publish, covering: the automatic arrears-progress block (`FeeScheduleService.arrearsBlocking`, opt-in per payment plan), the `vacSettlementMode` field lock post-lodgement (`lockedWhen`, `entityTypes[].case`), and the screening/scoring/AI surfaces that assist rather than decide. It does not cover `alertRules[]` (internal staff reminders, not a decision about the individual) or the subclass-based workflow branching in `workflows[].transitions[].condition` (deterministic routing on data already on file, not an inference). Whether a given tenant's generated statement is complete for its own privacy policy — contact details, complaints process, cross-border disclosure — is that tenant's to confirm; this pack supplies the APP 1.8 section only."
+  }
+}

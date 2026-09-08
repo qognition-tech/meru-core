@@ -40,7 +40,9 @@ export class FormField {
   @Column()
   formSchemaId: string;
 
-  @ManyToOne(() => FormSchema, schema => schema.fields, { onDelete: 'CASCADE' })
+  @ManyToOne(() => FormSchema, (schema) => schema.fields, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'formSchemaId' })
   formSchema: FormSchema;
 

@@ -3,16 +3,27 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { Actor, scopeOf } from '../common/access';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
+import * as https from 'https';
+import * as http from 'http';
+import * as crypto from 'crypto';
 import {
   Workflow,
   WorkflowStatus,
   WorkflowTrigger,
 } from './entities/workflow.entity';
 import { WorkflowState, StateType } from './entities/workflow-state.entity';
-import { WorkflowTransition, TransitionType } from './entities/workflow-transition.entity';
+import {
+  WorkflowTransition,
+  TransitionType,
+} from './entities/workflow-transition.entity';
 import {
   WorkflowInstance,
   InstanceStatus,
@@ -21,11 +32,35 @@ import { SearchService } from '../search/search.service';
 import { AiService } from '../ai/ai.service';
 import { DocumentHubService } from '../documents/document-hub.service';
 import { Document } from '../documents/entities/document.entity';
+import {
+  NotificationsService,
+  SendNotificationOptions,
+} from '../notifications/notifications.service';
+import {
+  NotificationType,
+  NotificationCategory,
+} from '../notifications/entities/notification.entity';
+import { TaskService, CreateTaskDto } from '../tasks/task.service';
+import { FeeScheduleService } from '../billing/fee-schedule.service';
+import { RuleEvaluatorService } from '../rules/rule-evaluator.service';
 
 export interface TransitionRequest {
   instanceId: string;
+  // Defence-in-depth: `transition` is staff-only at the controller
+  // (`@Roles`), so RLS plus the role gate already confine this, but every
+  // other tenant-scoped write in this file takes `tenantId` explicitly and
+  // this one previously did not.
+  tenantId: string;
   transitionId?: string;
   userId: string;
+  /**
+   * The roles the caller actually holds, for `checkPermissions`.
+   *
+   * Optional so existing callers keep compiling, but pass it: without it a
+   * transition whose `permissions.roles` names a real `PlatformRole` can never
+   * be satisfied, because there is nothing to match against.
+   */
+  userRoles?: string[];
   context?: Record<string, any>;
 }
 
@@ -66,10 +101,19 @@ export class WorkflowEngineService {
     private transitionRepo: Repository<WorkflowTransition>,
     @InjectRepository(WorkflowInstance)
     private instanceRepo: Repository<WorkflowInstance>,
+    @InjectRepository(UniversalEntity)
+    private entityRepo: Repository<UniversalEntity>,
     private dataSource: DataSource,
     private searchService: SearchService,
+    @Inject(forwardRef(() => AiService))
     private aiService: AiService,
+    @Inject(forwardRef(() => DocumentHubService))
     private documentHubService: DocumentHubService,
+    private notificationsService: NotificationsService,
+    private taskService: TaskService,
+    @Inject(forwardRef(() => FeeScheduleService))
+    private feeScheduleService: FeeScheduleService,
+    private readonly rules: RuleEvaluatorService,
   ) {}
 
   // ==================== WORKFLOW DEFINITION ====================
@@ -140,7 +184,7 @@ export class WorkflowEngineService {
       await queryRunner.commitTransaction();
       this.logger.log(`Workflow created: ${savedWorkflow.id}`);
 
-      return this.getWorkflow(savedWorkflow.id);
+      return this.getWorkflow(savedWorkflow.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -149,9 +193,13 @@ export class WorkflowEngineService {
     }
   }
 
-  async getWorkflow(id: string): Promise<Workflow> {
+  // Defence-in-depth: RLS already confines the connection to the tenant, but
+  // this took no `tenantId` at all — the only thing standing between a
+  // `GET /workflows/:id` from one tenant and another tenant's workflow
+  // *definition* (states, transitions, actions) was RLS alone.
+  async getWorkflow(id: string, tenantId: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['states', 'transitions'],
     });
 
@@ -162,6 +210,13 @@ export class WorkflowEngineService {
     return workflow;
   }
 
+  // Deliberately tenant-scoped only, same as `getWorkflow` above — a `Workflow`
+  // is a process *definition* (name, states, transitions), not a case record.
+  // It carries no `startedBy`/`assignedTo`-shaped ownership field for an `own`
+  // scope to narrow against, so there is nothing here for
+  // `assertInstanceOwnership`'s pattern to apply to. The per-caller narrowing
+  // belongs on `listInstances` below, where a "matter" — with a `context` and
+  // an owner — actually lives.
   async listWorkflows(
     tenantId: string,
     entityType?: string,
@@ -188,15 +243,13 @@ export class WorkflowEngineService {
     userId: string,
     context: Record<string, any> = {},
   ): Promise<WorkflowInstance> {
-    const workflow = await this.getWorkflow(workflowId);
+    const workflow = await this.getWorkflow(workflowId, tenantId);
 
     if (workflow.status !== WorkflowStatus.ACTIVE) {
       throw new BadRequestException('Workflow is not active');
     }
 
-    const startState = workflow.states.find(
-      s => s.type === StateType.START,
-    );
+    const startState = workflow.states.find((s) => s.type === StateType.START);
 
     if (!startState) {
       throw new BadRequestException('No start state defined');
@@ -206,9 +259,7 @@ export class WorkflowEngineService {
     let slaDeadline: Date | null = null;
     if (workflow.slaConfig?.enabled && startState.config?.slaHours) {
       slaDeadline = new Date();
-      slaDeadline.setHours(
-        slaDeadline.getHours() + startState.config.slaHours,
-      );
+      slaDeadline.setHours(slaDeadline.getHours() + startState.config.slaHours);
     }
 
     const instance = this.instanceRepo.create({
@@ -229,12 +280,20 @@ export class WorkflowEngineService {
     const saved = await this.instanceRepo.save(instance);
     this.logger.log(`Workflow instance started: ${saved.id}`);
 
-    return this.getInstance(saved.id);
+    // Trusted internal re-fetch of the row just started — not the
+    // actor-scoped `getInstance` below, on the same reasoning as
+    // `TaskService.createTask`: the starter (often staff, on a client's
+    // behalf) is not necessarily who `assertInstanceOwnership` would treat as
+    // the owner.
+    return this.findInstanceOrThrow(saved.id, tenantId);
   }
 
-  async getInstance(id: string): Promise<WorkflowInstance> {
+  private async findInstanceOrThrow(
+    id: string,
+    tenantId: string,
+  ): Promise<WorkflowInstance> {
     const instance = await this.instanceRepo.findOne({
-      where: { id },
+      where: { id, tenantId },
       relations: ['workflow', 'currentState'],
     });
 
@@ -245,17 +304,135 @@ export class WorkflowEngineService {
     return instance;
   }
 
+  /**
+   * The CRM records a caller owns, as ids — same field, same query
+   * `DocumentAccessService.ownedEntityIds` uses for documents, kept local
+   * here rather than shared because each domain's ownership rule is its own
+   * (workflow instances additionally check `startedBy`; documents check
+   * `uploadedById`).
+   */
+  private async ownedEntityIds(
+    tenantId: string,
+    actor: Actor,
+  ): Promise<string[]> {
+    // Two senses of ownership, matching `CrmAccessService.ownsEntity` and
+    // `DocumentAccessService.ownedEntityIds`. Staff own by assignment; an
+    // applicant owns by being the record's SUBJECT, because they are never
+    // the assignee of their own case.
+    //
+    // This read `assignedTo` alone, so the "client is tracking their own
+    // matter's stage" case the comment above describes returned nothing at
+    // all for every client — the same defect as `/crm/entities` and document
+    // access, in the third of four places it appeared.
+    const email = actor.email?.trim().toLowerCase();
+
+    const qb = this.entityRepo
+      .createQueryBuilder('e')
+      .select('e.id', 'id')
+      .where('e."tenantId" = :tenantId', { tenantId });
+
+    if (email) {
+      qb.andWhere(
+        '(e."assignedTo" = :userId OR LOWER(TRIM(e."subjectEmail")) = :email)',
+        { userId: actor.id, email },
+      );
+    } else {
+      qb.andWhere('e."assignedTo" = :userId', { userId: actor.id });
+    }
+
+    const rows = await qb.getRawMany<{ id: string }>();
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Refuses an instance that is neither this tenant's nor (for a non-staff
+   * caller) this caller's own matter.
+   *
+   * `getInstance`, `getAvailableTransitions` took no `tenantId` at all and
+   * checked no ownership — a `client` token that knew an instance id could
+   * read, and (before `transition` was staff-gated) advance, any matter in
+   * the tenant. `startedBy` covers a caller who began their own application;
+   * `entityId` against `ownedEntityIds` covers the more common case where
+   * staff started the case and the client is tracking their own matter's
+   * stage — same two-source ownership `DocumentAccessService` uses for a
+   * document's `uploadedById` and its `linkedEntityId`. 404, not 403, same
+   * precedent.
+   */
+  private async assertInstanceOwnership(
+    instance: WorkflowInstance,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<void> {
+    if (scopeOf(actor) !== 'own') return;
+    if (instance.startedBy === actor.id) return;
+
+    if (instance.entityId) {
+      const owned = await this.ownedEntityIds(tenantId, actor);
+      if (owned.includes(instance.entityId)) return;
+    }
+
+    throw new NotFoundException('Workflow instance not found');
+  }
+
+  async getInstance(
+    id: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<WorkflowInstance> {
+    const instance = await this.findInstanceOrThrow(id, tenantId);
+    await this.assertInstanceOwnership(instance, tenantId, actor);
+    return instance;
+  }
+
+  /**
+   * `GET /workflows` was fixed for tenant scope but `GET /workflows/instances`
+   * — this method — was the list route left behind: `assertInstanceOwnership`
+   * closed the singular `getInstance`/`getAvailableTransitions` routes, but a
+   * `client` token calling the list route still got `where: { tenantId }`
+   * only, i.e. every matter in the tenant, `context` included.
+   *
+   * Same two-source ownership as `assertInstanceOwnership`, expressed as a
+   * query rather than a per-row check: `startedBy = actor.id` OR `entityId`
+   * one of the caller's own CRM records. A caller filtering explicitly by
+   * `entityId` still only sees it if it is theirs: the requested id is
+   * intersected into the ownership branch below rather than spread on top of
+   * it, because `{ ...base, entityId: In(owned) }` would otherwise let the
+   * `In(owned)` key silently overwrite `base.entityId` and drop the filter.
+   */
   async listInstances(
     tenantId: string,
+    actor: Actor,
     status?: InstanceStatus,
     entityId?: string,
   ): Promise<WorkflowInstance[]> {
-    const where: any = { tenantId };
-    if (status) where.status = status;
-    if (entityId) where.entityId = entityId;
+    const base: any = { tenantId };
+    if (status) base.status = status;
+    if (entityId) base.entityId = entityId;
+
+    if (scopeOf(actor) === 'own') {
+      const owned = await this.ownedEntityIds(tenantId, actor);
+      // If the caller asked for a specific `entityId`, the ownership branch
+      // may only match when that id is actually theirs — never the full
+      // `owned` set, which would ignore the filter the moment it is combined
+      // with `In(...)` below.
+      const ownedForFilter = entityId
+        ? owned.filter((ownedId) => ownedId === entityId)
+        : owned;
+
+      const where: any[] = [{ ...base, startedBy: actor.id }];
+      if (ownedForFilter.length) {
+        where.push({ ...base, entityId: In(ownedForFilter) });
+      }
+
+      return this.instanceRepo.find({
+        where,
+        relations: ['workflow', 'currentState'],
+        order: { createdAt: 'DESC' },
+      });
+    }
 
     return this.instanceRepo.find({
-      where,
+      where: base,
       relations: ['workflow', 'currentState'],
       order: { createdAt: 'DESC' },
     });
@@ -263,9 +440,12 @@ export class WorkflowEngineService {
 
   // ==================== STATE TRANSITIONS ====================
 
-  async getAvailableTransitions(instanceId: string): Promise<WorkflowTransition[]> {
-    const instance = await this.getInstance(instanceId);
-    
+  /** Shared by the actor-scoped public method below and `transition`'s
+   * internal auto-transition lookup, which must not re-run the ownership
+   * check on an instance it already loaded via `findInstanceOrThrow`. */
+  private async computeAvailableTransitions(
+    instance: WorkflowInstance,
+  ): Promise<WorkflowTransition[]> {
     const transitions = await this.transitionRepo.find({
       where: {
         workflowId: instance.workflowId,
@@ -275,11 +455,29 @@ export class WorkflowEngineService {
       relations: ['fromState', 'toState'],
     });
 
-    return transitions.filter(t => this.evaluateConditions(t.conditions, instance.context));
+    return transitions.filter((t) =>
+      this.evaluateConditions(t.conditions, instance.context),
+    );
   }
 
+  async getAvailableTransitions(
+    instanceId: string,
+    tenantId: string,
+    actor: Actor,
+  ): Promise<WorkflowTransition[]> {
+    const instance = await this.getInstance(instanceId, tenantId, actor);
+    return this.computeAvailableTransitions(instance);
+  }
+
+  // Staff-only at the controller (`@Roles`) — a client advancing another
+  // applicant's case stage was the sharpest edge of this gap. `tenantId` is
+  // still required and checked here as defence-in-depth, same as every other
+  // mutation in this file.
   async transition(request: TransitionRequest): Promise<WorkflowInstance> {
-    const instance = await this.getInstance(request.instanceId);
+    const instance = await this.findInstanceOrThrow(
+      request.instanceId,
+      request.tenantId,
+    );
 
     if (instance.status !== InstanceStatus.ACTIVE) {
       throw new BadRequestException('Workflow instance is not active');
@@ -298,8 +496,10 @@ export class WorkflowEngineService {
       });
     } else {
       // Auto-transition: find first matching automatic transition
-      const transitions = await this.getAvailableTransitions(request.instanceId);
-      const autoTransition = transitions.find(t => t.type === TransitionType.AUTOMATIC);
+      const transitions = await this.computeAvailableTransitions(instance);
+      const autoTransition = transitions.find(
+        (t) => t.type === TransitionType.AUTOMATIC,
+      );
       transition = autoTransition || null;
     }
 
@@ -308,8 +508,41 @@ export class WorkflowEngineService {
     }
 
     // Check permissions
-    if (!this.checkPermissions(transition.permissions, request.userId)) {
+    if (
+      !this.checkPermissions(
+        transition.permissions,
+        request.userId,
+        request.userRoles ?? [],
+      )
+    ) {
       throw new BadRequestException('Insufficient permissions');
+    }
+
+    // The payment gate — "case freeze on non-payment" (parity map §5.1).
+    //
+    // The pack's `paymentPlans[].blockProgressOnArrears` declares it and WF
+    // enforces it here, keyed on the state being *left*: a stage-gated portion
+    // is due at a step, so progress past that step is what the arrears block.
+    // Silent unless a plan opts in, so a firm that never asked for frozen
+    // cases cannot have its workflows stopped by someone authoring a fee
+    // schedule.
+    //
+    // This relies on the workflow state's `name` being the pack step id it was
+    // built from. Where a workflow was created by hand with unrelated state
+    // names, no portion will match and the gate is inert rather than wrong.
+    const blocking = await this.feeScheduleService.arrearsBlocking(
+      instance.tenantId,
+      instance.vertical ?? null,
+      instance.entityId,
+      instance.currentState.name,
+    );
+    if (blocking.length) {
+      const total = blocking.reduce((sum, p) => sum + Number(p.amountMinor), 0);
+      throw new BadRequestException(
+        `Cannot progress past '${instance.currentState.name}': ` +
+          `${blocking.length} payment(s) totalling ${total} ${blocking[0].currency} ` +
+          `(minor units) are outstanding at this step.`,
+      );
     }
 
     // Execute transition
@@ -370,7 +603,7 @@ export class WorkflowEngineService {
         `Transition executed: ${instance.id} (${oldState.name} -> ${newState.name})`,
       );
 
-      return this.getInstance(instance.id);
+      return this.findInstanceOrThrow(instance.id, request.tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -394,7 +627,7 @@ export class WorkflowEngineService {
     for (const instance of violations) {
       const escalationLevel = instance.escalationLevel + 1;
       const escalation = instance.workflow.slaConfig?.escalationLevels?.find(
-        e => e.level === escalationLevel,
+        (e) => e.level === escalationLevel,
       );
 
       if (escalation) {
@@ -415,7 +648,30 @@ export class WorkflowEngineService {
           slaViolations: instance.slaViolations,
         });
 
-        // TODO: Send notifications based on escalation.notify
+        // Notify the escalation.notify list
+        if (escalation.notify?.length) {
+          for (const recipientId of escalation.notify as string[]) {
+            await this.notificationsService
+              .sendNotification({
+                tenantId: instance.tenantId,
+                type: NotificationType.IN_APP,
+                recipientId,
+                subject: `SLA Escalation Level ${escalationLevel}`,
+                content: `Workflow instance ${instance.id} has breached its SLA and has been escalated to level ${escalationLevel}.`,
+                category: NotificationCategory.WORKFLOW,
+                metadata: {
+                  workflowInstanceId: instance.id,
+                  escalationLevel,
+                  action: escalation.action,
+                },
+              })
+              .catch((e) =>
+                this.logger.error(
+                  `SLA notification failed for ${recipientId}: ${e}`,
+                ),
+              );
+          }
+        }
       }
     }
   }
@@ -423,14 +679,32 @@ export class WorkflowEngineService {
   // ==================== PRIVATE HELPERS ====================
 
   private evaluateConditions(
-    conditions: { operator: string; rules: any[] },
+    conditions: {
+      operator: string;
+      rules: any[];
+      jsonLogic?: unknown;
+      unevaluable?: string;
+    },
     context: Record<string, any>,
   ): boolean {
-    if (!conditions.rules || conditions.rules.length === 0) {
+    // A pack transition whose condition did not compile is never available.
+    // Opening it by default would be a silent wrong answer; closing it is a
+    // visible authoring error with the reason stored beside it.
+    if (conditions?.unevaluable) return false;
+
+    // Pack-declared conditions are JsonLogic, compiled by `compileCondition`
+    // and evaluated by the same whitelisted evaluator alert rules use. This is
+    // the first time a pack-declared transition condition has been evaluated
+    // at all — the legacy `rules[]` shape below is one no pack can express.
+    if (conditions?.jsonLogic !== undefined && conditions.jsonLogic !== true) {
+      if (!this.rules.matches(conditions.jsonLogic, context)) return false;
+    }
+
+    if (!conditions?.rules || conditions.rules.length === 0) {
       return true;
     }
 
-    const results = conditions.rules.map(rule => {
+    const results = conditions.rules.map((rule) => {
       const value = context[rule.field];
       switch (rule.operator) {
         case 'equals':
@@ -451,21 +725,82 @@ export class WorkflowEngineService {
     });
 
     return conditions.operator === 'AND'
-      ? results.every(r => r)
-      : results.some(r => r);
+      ? results.every((r) => r)
+      : results.some((r) => r);
   }
 
+  /**
+   * May this actor take this transition?
+   *
+   * **This function used to deny everyone, and materialising a pack armed it.**
+   * It read only `permissions.users`, so any transition carrying
+   * `permissions.roles` with an empty `users` list fell through to
+   * `return false` — for every caller, including `firm_admin` and
+   * `platform_admin`. `PackWorkflowService` writes exactly that shape
+   * (`{ roles: [step.assignedRole] }`, never `users`), and the AU immigration
+   * pack sets `assignedRole` on all 14 steps of `wf_visa_matter`. So one click
+   * of "Materialise all" in Settings → Workflows would have frozen every matter
+   * in that tenant at its current stage, permanently, with no error to read.
+   *
+   * The rules now, in order:
+   *
+   * 1. No constraint at all → allow. Unchanged.
+   * 2. The actor is named in `users` → allow. Unchanged.
+   * 3. The actor holds one of the required roles → allow. **This is the branch
+   *    that never existed**, and it is why the comment here used to say
+   *    "in production, check user roles".
+   * 4. The requirement names no role this system can evaluate → **allow, and
+   *    warn**. The pack's practice-role vocabulary (`migration_agent`,
+   *    `case_coordinator`, `client_portal`) has no carrier on `User` yet —
+   *    `User.roles` holds `PlatformRole` values only — so a pack role can
+   *    never match, and denying on it is denying on a rule we have not
+   *    implemented rather than one the actor failed.
+   *
+   * Rule 4 is the deliberate part. Every route reaching here is already
+   * `@Roles(STAFF, FIRM_ADMIN)` at the controller, so "allow" means "any staff
+   * member", which is exactly the behaviour of a tenant that has not
+   * materialised a pack. It loosens nothing relative to today; it only stops
+   * materialisation from silently removing access.
+   *
+   * It is also the opposite call from `compileCondition`, which stores an
+   * uncompilable *condition* as `conditions.unevaluable` so the transition
+   * never opens. That asymmetry is intended: a condition is business logic and
+   * failing closed is safe, whereas a permission failing closed locks the
+   * product. **When the practice-role model lands, rule 4 must be deleted** —
+   * at that point an unmatched role is a real denial, and leaving this branch
+   * in would silently grant what the pack meant to restrict.
+   */
   private checkPermissions(
     permissions: { roles?: string[]; users?: string[] },
     userId: string,
+    userRoles: string[] = [],
   ): boolean {
-    // Simplified permission check - in production, check user roles
     if (!permissions.roles?.length && !permissions.users?.length) {
       return true;
     }
     if (permissions.users?.includes(userId)) {
       return true;
     }
+
+    const required = permissions.roles ?? [];
+    if (required.length) {
+      if (required.some((r) => userRoles.includes(r))) {
+        return true;
+      }
+
+      const platformRoles = Object.values(PlatformRole) as string[];
+      const evaluable = required.some((r) => platformRoles.includes(r));
+      if (!evaluable) {
+        this.logger.warn(
+          `Transition requires role(s) [${required.join(', ')}], which are not ` +
+            `PlatformRole values and cannot be evaluated against this user. ` +
+            `Deferring to the controller's role guard. This is an authoring ` +
+            `gap, not a grant — see checkPermissions().`,
+        );
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -477,21 +812,181 @@ export class WorkflowEngineService {
       try {
         switch (action.type) {
           case 'notification':
-            this.logger.log(`Sending notification: ${action.config.message}`);
+            await this.executeNotificationAction(action.config, instance);
             break;
           case 'webhook':
-            this.logger.log(`Calling webhook: ${action.config.url}`);
+            await this.executeWebhookAction(action.config, instance);
             break;
           case 'task':
-            this.logger.log(`Creating task: ${action.config.title}`);
+            await this.executeTaskAction(action.config, instance);
             break;
           default:
-            this.logger.log(`Action type ${action.type} not implemented`);
+            this.logger.warn(`Unknown workflow action type: ${action.type}`);
         }
       } catch (error) {
-        this.logger.error(`Failed to execute action: ${action.type}`, error);
+        this.logger.error(
+          `Failed to execute action '${action.type}': ${error}`,
+        );
       }
     }
+  }
+
+  private async executeNotificationAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    const recipientId = config.recipientId ?? instance.startedBy;
+    if (!recipientId) return;
+
+    const options: SendNotificationOptions = {
+      tenantId: instance.tenantId,
+      type: (config.channel as NotificationType) ?? NotificationType.IN_APP,
+      recipientId,
+      subject: config.subject ?? 'Workflow Update',
+      content: this.interpolateTemplate(
+        config.message ?? config.content ?? 'Your workflow has been updated.',
+        instance.context,
+      ),
+      category:
+        (config.category as NotificationCategory) ??
+        NotificationCategory.WORKFLOW,
+      metadata: {
+        workflowInstanceId: instance.id,
+        workflowId: instance.workflowId,
+        entityId: instance.entityId,
+        entityType: instance.entityType,
+      },
+    };
+
+    await this.notificationsService.sendNotification(options);
+    this.logger.log(
+      `Workflow notification sent to ${recipientId} for instance ${instance.id}`,
+    );
+  }
+
+  private async executeWebhookAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    const { url, method = 'POST', headers = {}, secretHeader } = config;
+    if (!url) {
+      this.logger.warn(
+        `Webhook action missing url for instance ${instance.id}`,
+      );
+      return;
+    }
+
+    const payload = JSON.stringify({
+      event: 'workflow.action',
+      instanceId: instance.id,
+      workflowId: instance.workflowId,
+      tenantId: instance.tenantId,
+      entityId: instance.entityId,
+      entityType: instance.entityType,
+      currentState: instance.currentState?.name,
+      context: instance.context,
+      timestamp: new Date().toISOString(),
+    });
+
+    const requestHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(payload)),
+      'X-Meru-Source': 'workflow-engine',
+      ...headers,
+    };
+
+    if (secretHeader) {
+      const hmac = crypto
+        .createHmac('sha256', secretHeader)
+        .update(payload)
+        .digest('hex');
+      requestHeaders['X-Meru-Signature'] = `sha256=${hmac}`;
+    }
+
+    await this.fireWebhook(url, method, requestHeaders, payload);
+    this.logger.log(
+      `Webhook fired: ${method} ${url} for instance ${instance.id}`,
+    );
+  }
+
+  private fireWebhook(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const lib = parsed.protocol === 'https:' ? https : http;
+
+      const req = lib.request(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port,
+          path: parsed.pathname + parsed.search,
+          method: method.toUpperCase(),
+          headers,
+          timeout: 10_000,
+        },
+        (res) => {
+          res.resume(); // drain response
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`Webhook returned HTTP ${res.statusCode}`));
+          } else {
+            resolve();
+          }
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Webhook request timed out after 10s'));
+      });
+      req.on('error', reject);
+
+      req.write(body);
+      req.end();
+    });
+  }
+
+  private async executeTaskAction(
+    config: Record<string, any>,
+    instance: WorkflowInstance,
+  ): Promise<void> {
+    if (!config.title) {
+      this.logger.warn(`Task action missing title for instance ${instance.id}`);
+      return;
+    }
+
+    const taskDto: CreateTaskDto = {
+      title: this.interpolateTemplate(config.title, instance.context),
+      description: config.description
+        ? this.interpolateTemplate(config.description, instance.context)
+        : undefined,
+      assignedTo: config.assignedTo ?? instance.startedBy,
+      assignedBy: 'system',
+      entityId: instance.entityId,
+      entityType: instance.entityType,
+      workflowInstanceId: instance.id,
+      dueDate: config.dueDays
+        ? new Date(Date.now() + config.dueDays * 86_400_000)
+        : undefined,
+    };
+
+    await this.taskService.createTask(instance.tenantId, taskDto);
+    this.logger.log(
+      `Task created via workflow action for instance ${instance.id}`,
+    );
+  }
+
+  // Simple {{key}} template interpolation from workflow context
+  private interpolateTemplate(
+    template: string,
+    context: Record<string, any>,
+  ): string {
+    return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+      context?.[key] !== undefined ? String(context[key]) : `{{${key}}}`,
+    );
   }
 
   // ==================== SEARCH & AI INTEGRATION ====================
@@ -517,7 +1012,10 @@ export class WorkflowEngineService {
       await this.searchService.indexEntityData(searchableData);
       this.logger.debug(`Workflow instance indexed: ${instance.id}`);
     } catch (error) {
-      this.logger.error(`Failed to index workflow instance: ${instance.id}`, error);
+      this.logger.error(
+        `Failed to index workflow instance: ${instance.id}`,
+        error,
+      );
     }
   }
 
@@ -536,14 +1034,14 @@ export class WorkflowEngineService {
   ): Promise<any> {
     try {
       const workflows = await this.listWorkflows(tenantId, entityType);
-      
+
       const recommendation = await this.aiService.execute({
         category: 'workflow_decision' as any,
         key: 'workflow_recommendation',
         input: JSON.stringify({
           entityType,
           context,
-          availableWorkflows: workflows.map(w => ({
+          availableWorkflows: workflows.map((w) => ({
             id: w.id,
             name: w.name,
             description: w.description,
@@ -557,7 +1055,9 @@ export class WorkflowEngineService {
         recommendation: JSON.parse(recommendation.result),
       };
     } catch (error) {
-      this.logger.error(`Failed to get workflow recommendations: ${error.message}`);
+      this.logger.error(
+        `Failed to get workflow recommendations: ${error.message}`,
+      );
       return {
         success: false,
         recommendation: null,
@@ -580,29 +1080,41 @@ export class WorkflowEngineService {
         key: 'workflow_analysis',
         input: JSON.stringify({
           totalInstances: instances.length,
-          completedInstances: instances.filter(i => i.status === InstanceStatus.COMPLETED).length,
+          completedInstances: instances.filter(
+            (i) => i.status === InstanceStatus.COMPLETED,
+          ).length,
           averageCompletionTime: this.calculateAverageCompletionTime(instances),
-          slaViolations: instances.reduce((sum, i) => sum + (i.slaViolations?.length || 0), 0),
+          slaViolations: instances.reduce(
+            (sum, i) => sum + (i.slaViolations?.length || 0),
+            0,
+          ),
         }),
         context: { tenantId },
       });
 
       return JSON.parse(analysis.result);
     } catch (error) {
-      this.logger.error(`Failed to analyze workflow performance: ${error.message}`);
+      this.logger.error(
+        `Failed to analyze workflow performance: ${error.message}`,
+      );
       return null;
     }
   }
 
-  private calculateAverageCompletionTime(instances: WorkflowInstance[]): number {
+  private calculateAverageCompletionTime(
+    instances: WorkflowInstance[],
+  ): number {
     const completedInstances = instances.filter(
-      i => i.status === InstanceStatus.COMPLETED && i.completedAt && i.createdAt,
+      (i) =>
+        i.status === InstanceStatus.COMPLETED && i.completedAt && i.createdAt,
     );
-    
+
     if (completedInstances.length === 0) return 0;
 
     const totalTime = completedInstances.reduce((sum, instance) => {
-      const completionTime = new Date(instance.completedAt!).getTime() - new Date(instance.createdAt).getTime();
+      const completionTime =
+        new Date(instance.completedAt!).getTime() -
+        new Date(instance.createdAt).getTime();
       return sum + completionTime;
     }, 0);
 
@@ -615,7 +1127,10 @@ export class WorkflowEngineService {
     tenantId: string,
     workflowInstanceId: string,
   ): Promise<Document[]> {
-    return this.documentHubService.getWorkflowDocuments(tenantId, workflowInstanceId);
+    return this.documentHubService.getWorkflowDocuments(
+      tenantId,
+      workflowInstanceId,
+    );
   }
 
   async attachDocumentToWorkflow(
@@ -624,11 +1139,12 @@ export class WorkflowEngineService {
     documentId: string,
     userId: string,
   ): Promise<Document> {
-    const instance = await this.getInstance(workflowInstanceId);
-    
-    if (instance.tenantId !== tenantId) {
-      throw new BadRequestException('Access denied');
-    }
+    // `findInstanceOrThrow` filters by tenantId directly — no unreachable
+    // route currently calls this method, but the manual post-fetch
+    // `instance.tenantId !== tenantId` check it replaces was the same shape
+    // as the `getInstance()` gap elsewhere in this file: reachable without a
+    // tenant filter at the query itself.
+    await this.findInstanceOrThrow(workflowInstanceId, tenantId);
 
     return this.documentHubService.attachDocumentToEntity(
       documentId,
@@ -639,16 +1155,23 @@ export class WorkflowEngineService {
   }
 
   async processDocumentsWithAI(
+    tenantId: string,
     workflowInstanceId: string,
     documentIds: string[],
     extractionSchema: Record<string, any>,
   ): Promise<any> {
-    const instance = await this.getInstance(workflowInstanceId);
-    
+    const instance = await this.findInstanceOrThrow(
+      workflowInstanceId,
+      tenantId,
+    );
+
     const results = await Promise.all(
       documentIds.map(async (docId) => {
         try {
-          return await this.documentHubService.extractDocumentData(docId, extractionSchema);
+          return await this.documentHubService.extractDocumentData(
+            docId,
+            extractionSchema,
+          );
         } catch (error) {
           this.logger.error(`Failed to process document ${docId}:`, error);
           return { documentId: docId, success: false, error: error.message };
@@ -658,7 +1181,7 @@ export class WorkflowEngineService {
 
     // Update workflow context with extracted data
     const extractedData = results
-      .filter(r => r.success)
+      .filter((r) => r.success)
       .reduce((acc, r) => ({ ...acc, ...r.extractedData }), {});
 
     instance.context = {
@@ -672,8 +1195,8 @@ export class WorkflowEngineService {
     return {
       workflowInstanceId,
       processedDocuments: results.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
+      successful: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
       extractedData,
     };
   }
@@ -683,13 +1206,9 @@ export class WorkflowEngineService {
     workflowInstanceId: string,
     query: string,
   ): Promise<any[]> {
-    return this.documentHubService.searchDocuments(
-      tenantId,
-      query,
-      {
-        entityType: 'workflow_instance',
-        entityId: workflowInstanceId,
-      },
-    );
+    return this.documentHubService.searchDocuments(tenantId, query, {
+      entityType: 'workflow_instance',
+      entityId: workflowInstanceId,
+    });
   }
 }

@@ -6,10 +6,20 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
-import { BillingPlan, BillingModel, PlanInterval } from './entities/billing-plan.entity';
-import { Subscription, SubscriptionStatus } from './entities/subscription.entity';
+import {
+  BillingPlan,
+  BillingModel,
+  PlanInterval,
+} from './entities/billing-plan.entity';
+import {
+  Subscription,
+  SubscriptionStatus,
+} from './entities/subscription.entity';
 import { UsageRecord, UsageType } from './entities/usage-record.entity';
-import { CreditLedger, CreditTransactionType } from './entities/credit-ledger.entity';
+import {
+  CreditLedger,
+  CreditTransactionType,
+} from './entities/credit-ledger.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { InvoiceItem, InvoiceItemType } from './entities/invoice-item.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -74,7 +84,10 @@ export class BillingService {
     return saved;
   }
 
-  async getPlans(tenantId: string, billingModel?: BillingModel): Promise<BillingPlan[]> {
+  async getPlans(
+    tenantId: string,
+    billingModel?: BillingModel,
+  ): Promise<BillingPlan[]> {
     const where: any = { tenantId, status: 'active' };
     if (billingModel) {
       where.billingModel = billingModel;
@@ -109,7 +122,9 @@ export class BillingService {
       entityId: dto.entityId,
       entityType: dto.entityType,
       planId: dto.planId,
-      status: trialEndsAt ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE,
+      status: trialEndsAt
+        ? SubscriptionStatus.TRIALING
+        : SubscriptionStatus.ACTIVE,
       trialEndsAt,
       currentPeriodStart: now,
       currentPeriodEnd,
@@ -142,20 +157,26 @@ export class BillingService {
     tenantId: string,
     dto: RecordUsageDto,
   ): Promise<UsageRecord> {
-    const subscription = await this.getSubscription(dto.subscriptionId, tenantId);
+    const subscription = await this.getSubscription(
+      dto.subscriptionId,
+      tenantId,
+    );
 
     if (subscription.status !== SubscriptionStatus.ACTIVE) {
       throw new BadRequestException('Subscription is not active');
     }
 
     // Check if subscription has credit balance
-    const creditBalance = await this.getCreditBalance(dto.subscriptionId);
-    
+    const creditBalance = await this.getCreditBalance(
+      dto.subscriptionId,
+      tenantId,
+    );
+
     // Calculate price based on plan's metered pricing
     let unitPrice = 0;
     if (subscription.plan.meteredPricing?.enabled) {
       const metric = subscription.plan.meteredPricing.metrics.find(
-        m => m.name === dto.usageType,
+        (m) => m.name === dto.usageType,
       );
       if (metric) {
         unitPrice = metric.pricePerUnit;
@@ -179,14 +200,25 @@ export class BillingService {
     const saved = await this.usageRepo.save(usage);
 
     // Update subscription usage
-    await this.updateSubscriptionUsage(dto.subscriptionId, dto.usageType, dto.quantity);
+    await this.updateSubscriptionUsage(
+      dto.subscriptionId,
+      dto.usageType,
+      dto.quantity,
+    );
 
     // If using credits, deduct from ledger
     if (creditBalance > 0 && amount > 0) {
-      await this.deductCreditsForUsage(dto.subscriptionId, amount, saved.id);
+      await this.deductCreditsForUsage(
+        tenantId,
+        dto.subscriptionId,
+        amount,
+        saved.id,
+      );
     }
 
-    this.logger.log(`Usage recorded: ${saved.id} - ${dto.usageType}: ${dto.quantity}`);
+    this.logger.log(
+      `Usage recorded: ${saved.id} - ${dto.usageType}: ${dto.quantity}`,
+    );
     return saved;
   }
 
@@ -196,8 +228,14 @@ export class BillingService {
     tenantId: string,
     dto: AddCreditsDto,
   ): Promise<CreditLedger> {
-    const subscription = await this.getSubscription(dto.subscriptionId, tenantId);
-    const currentBalance = await this.getCreditBalance(dto.subscriptionId);
+    const subscription = await this.getSubscription(
+      dto.subscriptionId,
+      tenantId,
+    );
+    const currentBalance = await this.getCreditBalance(
+      dto.subscriptionId,
+      tenantId,
+    );
 
     const transaction = this.creditRepo.create({
       tenantId,
@@ -211,33 +249,60 @@ export class BillingService {
     });
 
     const saved = await this.creditRepo.save(transaction);
-    this.logger.log(`Credits added: ${dto.amount} to subscription ${dto.subscriptionId}`);
+    this.logger.log(
+      `Credits added: ${dto.amount} to subscription ${dto.subscriptionId}`,
+    );
 
     return saved;
   }
 
-  async getCreditBalance(subscriptionId: string): Promise<number> {
+  /**
+   * `tenantId` is required, not optional — this used to be
+   * `findOne({ where: { subscriptionId } })` with no tenant filter, so a
+   * `subscriptionId` from any tenant resolved a balance. Every caller already
+   * holds a `tenantId` (from its own required parameter, or from a
+   * tenant-scoped `Subscription` row it already fetched), so an optional
+   * parameter here would only be a way for the next caller to forget it — see
+   * `FormBuilderService.getSubmission` for the identical fix and its own note
+   * on why.
+   */
+  async getCreditBalance(
+    subscriptionId: string,
+    tenantId: string,
+  ): Promise<number> {
     const lastTransaction = await this.creditRepo.findOne({
-      where: { subscriptionId },
+      where: { subscriptionId, tenantId },
       order: { createdAt: 'DESC' },
     });
 
     return lastTransaction?.balance || 0;
   }
 
+  /**
+   * `tenantId` added for the same reason as `getCreditBalance`, which this
+   * calls. It also replaces the unscoped `subscriptionRepo.findOne({ where: {
+   * id: subscriptionId } })` this method used to run just to discover the
+   * ledger row's `tenantId` — an unscoped lookup of exactly the shape this
+   * hardening pass exists to remove — with the tenantId the caller already
+   * has.
+   */
   async deductCredits(
     subscriptionId: string,
+    tenantId: string,
     amount: number,
     description: string,
   ): Promise<CreditLedger> {
-    const currentBalance = await this.getCreditBalance(subscriptionId);
-    
+    const currentBalance = await this.getCreditBalance(
+      subscriptionId,
+      tenantId,
+    );
+
     if (currentBalance < amount) {
       throw new BadRequestException('Insufficient credit balance');
     }
 
     const transaction = this.creditRepo.create({
-      tenantId: (await this.subscriptionRepo.findOne({ where: { id: subscriptionId } }))?.tenantId || '',
+      tenantId,
       subscriptionId,
       transactionType: CreditTransactionType.USAGE,
       amount: -amount,
@@ -288,13 +353,27 @@ export class BillingService {
 
   // ==================== INVOICING ====================
 
+  /**
+   * `tenantId` is required, not optional — this used to be
+   * `findOne({ where: { id: subscriptionId } })` with no tenant filter, so a
+   * `subscriptionId` from any tenant produced a real invoice: `billing.controller.ts`
+   * compensated by calling the tenant-scoped `getSubscription` first, which is
+   * exactly the pattern that has failed this codebase repeatedly — the check
+   * lives in the caller, not the callee, until a later caller reaches the
+   * service directly and it is not there. Filtering the query itself is the
+   * fix; the compensating call in the controller is now redundant and has
+   * been removed. `processDailyBilling` (its only other caller) already loops
+   * over tenant-scoped `Subscription` rows and has `subscription.tenantId` on
+   * hand.
+   */
   async generateInvoice(
     subscriptionId: string,
+    tenantId: string,
     periodStart: Date,
     periodEnd: Date,
   ): Promise<Invoice> {
     const subscription = await this.subscriptionRepo.findOne({
-      where: { id: subscriptionId },
+      where: { id: subscriptionId, tenantId },
       relations: ['plan'],
     });
 
@@ -307,9 +386,15 @@ export class BillingService {
     await queryRunner.startTransaction();
 
     try {
-      // Get un-invoiced usage records
+      // Get un-invoiced usage records. `tenantId` here is belt-and-braces
+      // alongside the tenant-scoped `subscription` fetch above (CLAUDE.md
+      // §7 — "use both" where both database- and application-level scoping
+      // are available): every `UsageRecord` is written with the same
+      // `tenantId` as the subscription it belongs to, so this can never
+      // narrow the result differently, only fail closed if it ever did.
       const usageRecords = await this.usageRepo.find({
         where: {
+          tenantId,
           subscriptionId,
           timestamp: Between(periodStart, periodEnd),
           invoiced: false,
@@ -317,11 +402,13 @@ export class BillingService {
       });
 
       // Calculate totals
-      let subtotal = subscription.plan.basePrice;
+      const subtotal = subscription.plan.basePrice;
       let usageTotal = 0;
 
       // Create invoice
-      const invoiceNumber = await this.generateInvoiceNumber(subscription.tenantId);
+      const invoiceNumber = await this.generateInvoiceNumber(
+        subscription.tenantId,
+      );
       const invoice = queryRunner.manager.create(Invoice, {
         tenantId: subscription.tenantId,
         invoiceNumber,
@@ -350,7 +437,7 @@ export class BillingService {
       // Add usage items
       for (const usage of usageRecords) {
         usageTotal += Number(usage.amount);
-        
+
         await queryRunner.manager.save(InvoiceItem, {
           invoiceId: savedInvoice.id,
           type: InvoiceItemType.METERED,
@@ -379,7 +466,10 @@ export class BillingService {
 
       // Update invoice totals
       const total = subtotal + usageTotal + taxAmount;
-      const creditBalance = await this.getCreditBalance(subscriptionId);
+      const creditBalance = await this.getCreditBalance(
+        subscriptionId,
+        tenantId,
+      );
       const creditApplied = Math.min(creditBalance, total);
       const amountDue = total - creditApplied;
 
@@ -390,7 +480,10 @@ export class BillingService {
       savedInvoice.amountDue = amountDue;
       savedInvoice.taxDetails = {
         jurisdiction: subscription.metadata?.billingAddress?.country || 'US',
-        taxRate: subscription.plan.taxConfig?.vatRate || subscription.plan.taxConfig?.gstRate || 0,
+        taxRate:
+          subscription.plan.taxConfig?.vatRate ||
+          subscription.plan.taxConfig?.gstRate ||
+          0,
         taxAmount,
         breakdown,
       };
@@ -399,7 +492,12 @@ export class BillingService {
 
       // Deduct applied credits
       if (creditApplied > 0) {
-        await this.deductCredits(subscriptionId, creditApplied, `Invoice ${invoiceNumber}`);
+        await this.deductCredits(
+          subscriptionId,
+          tenantId,
+          creditApplied,
+          `Invoice ${invoiceNumber}`,
+        );
       }
 
       await queryRunner.commitTransaction();
@@ -437,6 +535,7 @@ export class BillingService {
         // Generate invoice for the period
         await this.generateInvoice(
           subscription.id,
+          subscription.tenantId,
           subscription.currentPeriodStart,
           subscription.currentPeriodEnd,
         );
@@ -453,7 +552,10 @@ export class BillingService {
 
         await this.subscriptionRepo.save(subscription);
       } catch (error) {
-        this.logger.error(`Failed to process billing for subscription ${subscription.id}:`, error);
+        this.logger.error(
+          `Failed to process billing for subscription ${subscription.id}:`,
+          error,
+        );
       }
     }
   }
@@ -478,7 +580,7 @@ export class BillingService {
 
   private initializeUsage(plan: BillingPlan): Record<string, any> {
     const usage: Record<string, any> = {};
-    
+
     if (plan.features?.limits) {
       for (const [key, limit] of Object.entries(plan.features.limits)) {
         usage[key] = {
@@ -508,12 +610,14 @@ export class BillingService {
   }
 
   private async deductCreditsForUsage(
+    tenantId: string,
     subscriptionId: string,
     amount: number,
     usageRecordId: string,
   ): Promise<void> {
     await this.deductCredits(
       subscriptionId,
+      tenantId,
       amount,
       `Usage record: ${usageRecordId}`,
     );
@@ -527,7 +631,11 @@ export class BillingService {
 
   // ==================== ANALYTICS ====================
 
-  async getBillingMetrics(tenantId: string, startDate: Date, endDate: Date): Promise<any> {
+  async getBillingMetrics(
+    tenantId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<any> {
     const invoices = await this.invoiceRepo.find({
       where: {
         tenantId,
@@ -540,15 +648,19 @@ export class BillingService {
       where: { tenantId, status: SubscriptionStatus.ACTIVE },
     });
 
-    const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.total), 0);
-    const averageInvoice = invoices.length > 0 ? totalRevenue / invoices.length : 0;
+    const totalRevenue = invoices.reduce(
+      (sum, inv) => sum + Number(inv.total),
+      0,
+    );
+    const averageInvoice =
+      invoices.length > 0 ? totalRevenue / invoices.length : 0;
 
     return {
       totalRevenue,
       invoiceCount: invoices.length,
       averageInvoice,
       activeSubscriptions: subscriptions,
-      mrr: this.calculateMRR(tenantId),
+      mrr: await this.calculateMRR(tenantId),
     };
   }
 

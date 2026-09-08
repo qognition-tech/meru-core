@@ -1,0 +1,460 @@
+{
+  "code": "uk-immigration",
+  "name": "UK Immigration",
+  "description": "UK Immigration — country overlay on the immigration vertical.",
+  "version": "2.4.0",
+  "vertical": "immigration",
+  "country": "GB",
+  "extends": "immigration",
+  "locales": [
+    "en"
+  ],
+  "regulators": [
+    {
+      "id": "UK-HOMEOFFICE",
+      "name": "UK Home Office",
+      "country": "GB",
+      "availability": "adapter",
+      "adapterId": "uk-home-office"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "wf_skilled_worker",
+      "name": "Skilled Worker Visa",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_student_uk",
+      "name": "Student Visa",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    },
+    {
+      "id": "wf_ilr",
+      "name": "Indefinite Leave to Remain",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Eligibility & Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "payment",
+              "label": "Proceed"
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Fees",
+          "type": "payment",
+          "assignedRole": "firm_admin",
+          "slaHours": 120,
+          "transitions": [
+            {
+              "to": "documents",
+              "label": "Fees settled"
+            }
+          ]
+        },
+        {
+          "id": "documents",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "case_coordinator",
+          "slaHours": 336,
+          "transitions": [
+            {
+              "to": "review",
+              "label": "Complete"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "name": "Agent Review",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for lodgement"
+            },
+            {
+              "to": "documents",
+              "label": "Send back"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "transitions": [
+            {
+              "to": "decision",
+              "label": "Lodged"
+            }
+          ]
+        },
+        {
+          "id": "decision",
+          "name": "Awaiting Decision",
+          "type": "decision",
+          "assignedRole": "migration_agent",
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Granted",
+          "type": "notification"
+        },
+        {
+          "id": "refused",
+          "name": "Refused",
+          "type": "notification"
+        }
+      ]
+    }
+  ],
+  "alertRules": [
+    {
+      "key": "uk_cos_unused",
+      "label": "Certificate of Sponsorship is used within 3 months of assignment — 1 month remains",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            ">": [
+              {
+                "var": "matter.cosAssigned_daysSince"
+              },
+              60
+            ]
+          },
+          {
+            "!": [
+              {
+                "var": "matter.applicationLodged"
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "uk_leave_expiring",
+      "label": "Leave to remain expiring — an in-time application preserves continuity",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "matter.leaveExpiry_daysUntil"
+              },
+              60
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "matter.leaveExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 72,
+      "escalateAfterHours": 168,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "uk_atas_outstanding",
+      "label": "ATAS certificate outstanding and the course starts soon",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "==": [
+              {
+                "var": "matter.atasRequired"
+              },
+              true
+            ]
+          },
+          {
+            "!": [
+              {
+                "var": "matter.atasCertificateReceived"
+              }
+            ]
+          },
+          {
+            "and": [
+              {
+                "<": [
+                  {
+                    "var": "matter.courseStart_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "matter.courseStart_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    }
+  ],
+  "metadata": {
+    "alertRulesReview": "Authored from published guidance and MUST be confirmed by a registered practitioner for this jurisdiction before a firm relies on them. Every rule fires EARLIER than the deadline it watches, so a wrong threshold surfaces work sooner rather than missing it. The variables are the ones RuleEvaluatorService actually derives — `<dateField>_daysUntil` and `_daysSince` — because a threshold baked into the variable name resolves to undefined and the rule silently never fires. The matter must carry these date attributes for the rules to have anything to read."
+  }
+}

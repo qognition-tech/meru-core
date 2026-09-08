@@ -30,8 +30,16 @@ export class FixVerticalsAndColumns1738479999999 implements MigrationInterface {
       ALTER TABLE "universal_entities" ADD COLUMN IF NOT EXISTS "relationships" jsonb DEFAULT '[]'
     `);
 
+    // Drop the scalar default before changing type — a text default ('user')
+    // cannot be cast automatically to text[].
+    await queryRunner.query(`
+      ALTER TABLE "users" ALTER COLUMN "roles" DROP DEFAULT
+    `);
     await queryRunner.query(`
       ALTER TABLE "users" ALTER COLUMN "roles" TYPE text[] USING string_to_array(roles, ',')
+    `);
+    await queryRunner.query(`
+      ALTER TABLE "users" ALTER COLUMN "roles" SET DEFAULT '{user}'
     `);
   }
 
@@ -63,7 +71,13 @@ export class FixVerticalsAndColumns1738479999999 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
+      ALTER TABLE "users" ALTER COLUMN "roles" DROP DEFAULT
+    `);
+    await queryRunner.query(`
       ALTER TABLE "users" ALTER COLUMN "roles" TYPE text USING array_to_string(roles, ',')
+    `);
+    await queryRunner.query(`
+      ALTER TABLE "users" ALTER COLUMN "roles" SET DEFAULT 'user'
     `);
   }
 }

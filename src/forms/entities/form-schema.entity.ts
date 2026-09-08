@@ -57,7 +57,7 @@ export class FormSchema {
   @Column({ type: 'int', default: 1 })
   version: number;
 
-  @OneToMany(() => FormField, field => field.formSchema, { cascade: true })
+  @OneToMany(() => FormField, (field) => field.formSchema, { cascade: true })
   fields: FormField[];
 
   @Column({ type: 'jsonb', default: {} })

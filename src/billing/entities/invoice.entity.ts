@@ -43,7 +43,7 @@ export class Invoice {
   @Column()
   subscriptionId: string;
 
-  @ManyToOne(() => Subscription, subscription => subscription.invoices)
+  @ManyToOne(() => Subscription, (subscription) => subscription.invoices)
   @JoinColumn({ name: 'subscriptionId' })
   subscription: Subscription;
 
@@ -104,7 +104,7 @@ export class Invoice {
     notes?: string;
   };
 
-  @OneToMany(() => InvoiceItem, item => item.invoice)
+  @OneToMany(() => InvoiceItem, (item) => item.invoice)
   items: InvoiceItem[];
 
   @CreateDateColumn()

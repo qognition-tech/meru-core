@@ -1,45 +1,122 @@
 import * as Joi from 'joi';
 
+/**
+ * Every entry below is `.empty('')`, which converts an empty string to
+ * undefined so the declared `.default()` applies.
+ *
+ * This is not cosmetic. Joi's `.default()` only fires for *undefined*; an env
+ * var that exists but is empty is a defined empty string and fails
+ * validation ("is not allowed to be empty", or the `.valid()` list for enums).
+ * ConfigModule throws that at startup, Nest never finishes booting, and every
+ * route — including /health — answers 500. A deployment platform writing an
+ * empty value for an optional variable should degrade to its default, not
+ * take the whole API down.
+ *
+ * JWT_SECRET deliberately keeps failing on empty: booting with no signing
+ * secret is worse than not booting.
+ */
 export const validationSchema = Joi.object({
-  NODE_ENV: Joi.string()
+  NODE_ENV: Joi.string().empty('')
     .valid('development', 'production', 'test')
     .default('development'),
-  PORT: Joi.number().default(3000),
-  VERTICAL: Joi.string().valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal').default('core'),
+  PORT: Joi.number().empty('').default(3000),
+  VERTICAL: Joi.string().empty('')
+    .valid('core', 'immigration', 'grc', 'labour', 'fintech', 'legal')
+    .default('core'),
+
+  // CORS
+  CORS_ALLOWED_ORIGINS: Joi.string().empty('').default(
+    'http://localhost:3000,http://localhost:3001,http://localhost:3002',
+  ),
+
+  // Rate Limiting
+  RATE_LIMIT_TTL_MS: Joi.number().empty('').default(60000),
+  RATE_LIMIT_MAX_GLOBAL: Joi.number().empty('').default(100),
+  RATE_LIMIT_MAX_IMMIGRATION: Joi.number().empty('').default(100),
+  RATE_LIMIT_MAX_BANKING: Joi.number().empty('').default(50),
 
   // AWS Secrets Manager
-  AWS_REGION: Joi.string().default('ap-south-1'),
-  AWS_RDS_SECRET_NAME: Joi.string().required(),
+  AWS_REGION: Joi.string().empty('').default('ap-south-1'),
 
-  // Database (loaded from Secrets Manager)
-  DATABASE_HOST: Joi.string().optional(),
-  DATABASE_PORT: Joi.number().default(5432),
-  DATABASE_USERNAME: Joi.string().optional(),
-  DATABASE_PASSWORD: Joi.string().optional(),
-  DATABASE_NAME: Joi.string().required(),
+  // Database — DATABASE_URL (Neon) takes precedence over the discrete vars.
+  DATABASE_URL: Joi.string().empty('').optional(),
+  DATABASE_HOST: Joi.string().empty('').optional(),
+  DATABASE_PORT: Joi.number().empty('').default(5432),
+  DATABASE_USERNAME: Joi.string().empty('').optional(),
+  DATABASE_PASSWORD: Joi.string().empty('').optional(),
+  DATABASE_NAME: Joi.string().empty('').optional(),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
-  JWT_EXPIRATION: Joi.string().default('1h'),
+  JWT_EXPIRATION: Joi.string().empty('').default('1h'),
+  CRON_SECRET: Joi.string().empty('').optional(),
 
   // Cache (Redis URL optional, falls back to memory)
-  REDIS_HOST: Joi.string().optional(),
-  REDIS_PORT: Joi.number().optional(),
+  REDIS_HOST: Joi.string().empty('').optional(),
+  REDIS_PORT: Joi.number().empty('').optional(),
 
   // AWS S3
-  AWS_ACCESS_KEY_ID: Joi.string().required(),
-  AWS_SECRET_ACCESS_KEY: Joi.string().required(),
-  AWS_S3_BUCKET: Joi.string().default('meru-documents'),
+  AWS_ACCESS_KEY_ID: Joi.string().empty('').optional().allow(''),
+  AWS_SECRET_ACCESS_KEY: Joi.string().empty('').optional().allow(''),
+  AWS_S3_BUCKET: Joi.string().empty('').default('meru-documents'),
 
   // Documents
-  DOCUMENT_ENCRYPTION_KEY: Joi.string().default('default-encryption-key-32-chars!'),
-  MAX_FILE_SIZE: Joi.number().default(52428800),
+  DOCUMENT_ENCRYPTION_KEY: Joi.string().empty('').default(
+    'default-encryption-key-32-chars!',
+  ),
+  MAX_FILE_SIZE: Joi.number().empty('').default(52428800),
 });
+
+/**
+ * Strip `sslmode` (and `channel_binding`) from a Postgres URL.
+ *
+ * `pg` now warns that it treats sslmode=require as **verify-full**, and under
+ * verify-full the driver validates the server certificate chain itself —
+ * overriding the explicit `ssl: { rejectUnauthorized: false }` the DataSource
+ * passes. On a serverless runtime whose CA bundle does not satisfy the Neon
+ * chain, every connection attempt then fails, TypeORM burns its retry budget,
+ * and the function exits non-zero, so EVERY route answers 500 including
+ * /health.
+ *
+ * Removing the parameter leaves TLS on (the explicit ssl option still
+ * applies) while keeping verification behaviour in one place — the code —
+ * instead of split between the code and a query string.
+ */
+const stripSslMode = (url?: string): string | undefined => {
+  if (!url) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete('sslmode');
+    parsed.searchParams.delete('channel_binding');
+    return parsed.toString();
+  } catch {
+    // Not a parsable URL (discrete-var setups); hand it back untouched.
+    return url;
+  }
+};
 
 export const configuration = () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   vertical: process.env.VERTICAL || 'core',
   database: {
+    // Runtime connects as the non-BYPASSRLS `meru_app` role so tenant policies
+    // are actually enforced; DATABASE_URL (owner) is reserved for migrations and
+    // is only used at runtime as a fallback when the app role is not provisioned.
+    // See scripts/provision-rls-role.js.
+    url: stripSslMode(
+      process.env.DATABASE_APP_URL || process.env.DATABASE_URL,
+    ),
+    migrationUrl: stripSslMode(process.env.DATABASE_URL),
+    // Per-vertical databases (the three-DB split: `meru` control plane,
+    // `govx`, `immistack` — CLAUDE.md §6 and §8.3).
+    // Unset ⇒ that vertical shares the default (control-plane) database, so
+    // the split can roll out one environment at a time without downtime.
+    govxUrl: stripSslMode(
+      process.env.GOVX_DB_APP_URL || process.env.GOVX_DB_URL,
+    ),
+    immistackUrl: stripSslMode(
+      process.env.IMMISTACK_DB_APP_URL || process.env.IMMISTACK_DB_URL,
+    ),
     host: process.env.DATABASE_HOST || 'localhost',
     port: parseInt(process.env.DATABASE_PORT || '5432', 10),
     username: process.env.DATABASE_USERNAME || 'postgres',
@@ -48,7 +125,6 @@ export const configuration = () => ({
   },
   aws: {
     region: process.env.AWS_REGION || 'ap-south-1',
-    rdsSecretName: process.env.AWS_RDS_SECRET_NAME,
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     s3Bucket: process.env.AWS_S3_BUCKET || 'meru-documents',
@@ -63,7 +139,8 @@ export const configuration = () => ({
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
   },
   documents: {
-    encryptionKey: process.env.DOCUMENT_ENCRYPTION_KEY || 'default-encryption-key-32-chars!',
+    encryptionKey:
+      process.env.DOCUMENT_ENCRYPTION_KEY || 'default-encryption-key-32-chars!',
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '52428800', 10),
   },
 });

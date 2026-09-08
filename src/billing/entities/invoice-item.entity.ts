@@ -24,7 +24,7 @@ export class InvoiceItem {
   @Column()
   invoiceId: string;
 
-  @ManyToOne(() => Invoice, invoice => invoice.items)
+  @ManyToOne(() => Invoice, (invoice) => invoice.items)
   @JoinColumn({ name: 'invoiceId' })
   invoice: Invoice;
 

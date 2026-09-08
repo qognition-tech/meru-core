@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm run build",
+  "installCommand": "pnpm install --frozen-lockfile --prod=false",
+  "framework": null,
+  "outputDirectory": "public",
+  "regions": ["sin1"],
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "{packages/config-packs/**,node_modules/swagger-ui-dist/**}"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "crons": [
+    { "path": "/api/v1/jobs/tick?scope=daily", "schedule": "0 2 * * *" },
+    { "path": "/api/v1/jobs/tick?scope=fast", "schedule": "0 3 * * *" }
+  ]
+}

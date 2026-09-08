@@ -21,7 +21,11 @@ export class CreateJobDto {
   @IsObject()
   payload: Record<string, any>;
 
-  @ApiPropertyOptional({ description: 'Job priority', enum: JobPriority, default: JobPriority.NORMAL })
+  @ApiPropertyOptional({
+    description: 'Job priority',
+    enum: JobPriority,
+    default: JobPriority.NORMAL,
+  })
   @IsOptional()
   @IsEnum(JobPriority)
   priority?: JobPriority;
@@ -66,11 +70,19 @@ export class ScheduleJobDto extends CreateJobDto {
 }
 
 export class JobFilterDto {
-  @ApiPropertyOptional({ description: 'Filter by status', enum: JobStatus, isArray: true })
+  @ApiPropertyOptional({
+    description: 'Filter by status',
+    enum: JobStatus,
+    isArray: true,
+  })
   @IsOptional()
   status?: JobStatus | JobStatus[];
 
-  @ApiPropertyOptional({ description: 'Filter by type', enum: JobType, isArray: true })
+  @ApiPropertyOptional({
+    description: 'Filter by type',
+    enum: JobType,
+    isArray: true,
+  })
   @IsOptional()
   type?: JobType | JobType[];
 
@@ -125,8 +137,3 @@ export class RetryJobDto {
   delay?: number;
 }
 
-export class UpdateWorkerDto {
-  @ApiProperty({ description: 'Worker status', enum: ['active', 'paused', 'stopped'] })
-  @IsEnum(['active', 'paused', 'stopped'])
-  status: 'active' | 'paused' | 'stopped';
-}

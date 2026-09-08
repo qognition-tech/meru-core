@@ -1,0 +1,2837 @@
+{
+  "code": "immigration",
+  "name": "Immigration Practice Management",
+  "description": "Shared immigration vocabulary — every country overlay inherits this.",
+  "version": "2.6.0",
+  "vertical": "immigration",
+  "locales": [
+    "en"
+  ],
+  "roles": [
+    {
+      "key": "firm_admin",
+      "label": "Firm Administrator",
+      "permissions": [
+        "tenant:manage",
+        "cases:all",
+        "users:manage",
+        "billing:view",
+        "reports:all"
+      ]
+    },
+    {
+      "key": "migration_agent",
+      "label": "Migration Agent",
+      "permissions": [
+        "cases:read",
+        "cases:write",
+        "cases:submit",
+        "documents:all",
+        "clients:read",
+        "clients:write"
+      ]
+    },
+    {
+      "key": "case_coordinator",
+      "label": "Case Coordinator",
+      "permissions": [
+        "cases:read",
+        "cases:write",
+        "documents:read",
+        "documents:upload",
+        "clients:read"
+      ]
+    },
+    {
+      "key": "client_portal",
+      "label": "Client (Self-Service)",
+      "permissions": [
+        "cases:own:read",
+        "documents:own:upload",
+        "profile:own:edit"
+      ]
+    }
+  ],
+  "documentTypes": [
+    {
+      "key": "passport",
+      "label": "Passport",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "jpeg",
+        "png"
+      ],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "passportNumber",
+          "firstName",
+          "lastName",
+          "dateOfBirth",
+          "nationality",
+          "issueDate",
+          "expiryDate",
+          "mrz"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "cost_agreement",
+      "label": "Signed cost agreement",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "form_956",
+      "label": "Form 956 — appointment of a registered migration agent",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": false
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "identity_photo",
+      "label": "Passport-style photograph",
+      "required": false,
+      "acceptedFormats": [
+        "jpg",
+        "jpeg",
+        "png"
+      ],
+      "maxSizeMb": 5,
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": false
+      }
+    },
+    {
+      "key": "skills_assessment",
+      "label": "Skills Assessment",
+      "required": false,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "assessingBody",
+          "occupation",
+          "anzscoCode",
+          "assessmentDate",
+          "outcome"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      },
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "employment_contract",
+      "label": "Employment Contract / Sponsorship Letter",
+      "required": false,
+      "acceptedFormats": [
+        "pdf",
+        "docx"
+      ],
+      "maxSizeMb": 15,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "employerName",
+          "employerAbn",
+          "positionTitle",
+          "anzscoCode",
+          "salary",
+          "startDate",
+          "fullTime"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": true
+      },
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "nomination_approval",
+      "label": "Employer nomination approval",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "english_test",
+      "label": "English language test result (IELTS/PTE/TOEFL)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "482",
+            "186",
+            "187",
+            "189",
+            "190",
+            "485"
+          ]
+        ]
+      },
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "testType",
+          "overallScore",
+          "testDate"
+        ]
+      }
+    },
+    {
+      "key": "coe",
+      "label": "Confirmation of Enrolment (CoE)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      },
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "coeNumber",
+          "providerName",
+          "courseName",
+          "courseStart",
+          "courseEnd"
+        ]
+      }
+    },
+    {
+      "key": "gs_statement",
+      "label": "Genuine Student statement",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "doc",
+        "docx"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "financial_capacity",
+      "label": "Evidence of financial capacity",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500",
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "oshc",
+      "label": "Overseas Student Health Cover (OSHC)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "500"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "guardian_consent",
+      "label": "Parental or guardian consent",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "matter.subclass"
+              },
+              [
+                "500"
+              ]
+            ]
+          },
+          {
+            "<": [
+              {
+                "var": "applicant.age"
+              },
+              18
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "completion_letter",
+      "label": "Completion letter from the education provider",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "academic_transcript",
+      "label": "Academic transcript",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "afp_check",
+      "label": "Australian Federal Police check",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485",
+            "186",
+            "187",
+            "189",
+            "190"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "ovhc",
+      "label": "Overseas Visitor Health Cover (OVHC)",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "appliesWhen": {
+        "in": [
+          {
+            "var": "matter.subclass"
+          },
+          [
+            "485",
+            "482"
+          ]
+        ]
+      }
+    },
+    {
+      "key": "health_assessment",
+      "label": "Health Assessment (HAP ID)",
+      "required": false,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "hapId",
+          "examinationDate",
+          "outcome"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": false,
+        "duplicateHash": true,
+        "fontConsistency": false
+      },
+      "appliesWhen": {
+        "!": {
+          "in": [
+            {
+              "var": "matter.subclass"
+            },
+            [
+              "600"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "police_clearance",
+      "label": "Police Clearance Certificate",
+      "required": false,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 10,
+      "aiExtraction": {
+        "enabled": true,
+        "fields": [
+          "issueCountry",
+          "issueDate",
+          "applicantName",
+          "outcome"
+        ]
+      },
+      "fraudChecks": {
+        "exifAnalysis": true,
+        "duplicateHash": true,
+        "fontConsistency": true
+      },
+      "appliesWhen": {
+        "!": {
+          "in": [
+            {
+              "var": "matter.subclass"
+            },
+            [
+              "600"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "relationship_evidence",
+      "label": "Evidence of relationship",
+      "required": true,
+      "acceptedFormats": [
+        "pdf"
+      ],
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        ">": [
+          {
+            "var": "applicant.dependents"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "key": "dependent_passports",
+      "label": "Passports of accompanying dependents",
+      "required": true,
+      "acceptedFormats": [
+        "pdf",
+        "jpg",
+        "jpeg",
+        "png"
+      ],
+      "maxSizeMb": 20,
+      "appliesWhen": {
+        ">": [
+          {
+            "var": "applicant.dependents"
+          },
+          0
+        ]
+      }
+    }
+  ],
+  "workflows": [
+    {
+      "id": "482-tss-employer-sponsored",
+      "name": "482 TSS Visa — Employer Sponsored",
+      "entityType": "case",
+      "steps": [
+        {
+          "id": "intake",
+          "name": "Client Intake",
+          "type": "form",
+          "assignedRole": "case_coordinator",
+          "slaHours": 24,
+          "formFields": [
+            {
+              "key": "applicantFirstName",
+              "label": "First Name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "applicantLastName",
+              "label": "Last Name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "passportNumber",
+              "label": "Passport Number",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "nationality",
+              "label": "Nationality",
+              "type": "country",
+              "required": true
+            },
+            {
+              "key": "dateOfBirth",
+              "label": "Date of Birth",
+              "type": "date",
+              "required": true
+            },
+            {
+              "key": "currentVisaType",
+              "label": "Current Visa Subclass",
+              "type": "text"
+            },
+            {
+              "key": "targetOccupation",
+              "label": "Nominated Occupation",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "anzscoCode",
+              "label": "ANZSCO Code",
+              "type": "text"
+            },
+            {
+              "key": "sponsorAbn",
+              "label": "Sponsor ABN",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "transitions": [
+            {
+              "to": "eligibility_check",
+              "label": "Proceed to Eligibility"
+            }
+          ]
+        },
+        {
+          "id": "eligibility_check",
+          "name": "Eligibility Assessment",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 48,
+          "transitions": [
+            {
+              "to": "document_collection",
+              "label": "Eligible — Collect Documents"
+            },
+            {
+              "to": "intake",
+              "label": "Return — More Info Needed"
+            }
+          ]
+        },
+        {
+          "id": "document_collection",
+          "name": "Document Collection",
+          "type": "document",
+          "assignedRole": "client_portal",
+          "slaHours": 168,
+          "requiredDocuments": [
+            "passport",
+            "employment_contract",
+            "skills_assessment"
+          ],
+          "transitions": [
+            {
+              "to": "agent_review",
+              "label": "Documents Submitted"
+            }
+          ]
+        },
+        {
+          "id": "agent_review",
+          "name": "Agent Review & Lodgement Prep",
+          "type": "review",
+          "assignedRole": "migration_agent",
+          "slaHours": 72,
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Approve for Lodgement"
+            },
+            {
+              "to": "document_collection",
+              "label": "Request More Docs"
+            }
+          ]
+        },
+        {
+          "id": "lodgement",
+          "name": "Visa Application Lodgement",
+          "type": "api_call",
+          "assignedRole": "migration_agent",
+          "slaHours": 24,
+          "apiAction": {
+            "adapterId": "au-home-affairs",
+            "method": "lodgeApplication",
+            "params": {
+              "visaSubclass": "482",
+              "stream": "short-term"
+            }
+          },
+          "transitions": [
+            {
+              "to": "dha_processing",
+              "label": "Lodged Successfully"
+            }
+          ]
+        },
+        {
+          "id": "dha_processing",
+          "name": "DHA Processing",
+          "type": "review",
+          "slaHours": 2160,
+          "transitions": [
+            {
+              "to": "granted",
+              "label": "Visa Granted"
+            },
+            {
+              "to": "refused",
+              "label": "Visa Refused"
+            }
+          ]
+        },
+        {
+          "id": "granted",
+          "name": "Visa Granted",
+          "type": "notification",
+          "transitions": []
+        },
+        {
+          "id": "refused",
+          "name": "Visa Refused — Review Options",
+          "type": "review",
+          "transitions": [
+            {
+              "to": "lodgement",
+              "label": "Re-apply"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "screening": {
+    "enabled": false,
+    "lists": [
+      "ofac",
+      "un"
+    ],
+    "threshold": 0.85,
+    "autoEscalate": true,
+    "pepCheck": false,
+    "adverseMedia": false
+  },
+  "compliance": {
+    "dataResidency": "AU",
+    "retentionYears": 7,
+    "encryptionRequired": true,
+    "auditRequired": true,
+    "regulatoryFrameworks": [
+      "Migration Act 1958",
+      "Privacy Act 1988",
+      "GDPR-adjacent"
+    ],
+    "reportingObligations": [
+      {
+        "trigger": "visa_lodged",
+        "reportType": "sponsorship_notification",
+        "deadline": "within_5_days",
+        "regulatorId": "au-home-affairs"
+      }
+    ]
+  },
+  "kpis": [
+    {
+      "key": "active_cases",
+      "label": "Active Cases",
+      "unit": "count",
+      "metric": {
+        "source": "case",
+        "aggregate": "count",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "open",
+              "in_progress",
+              "blocked"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "avg_processing_days",
+      "label": "Avg. Processing Days",
+      "unit": "days",
+      "target": 90,
+      "alert": {
+        "threshold": 120,
+        "direction": "above"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "average_days",
+        "field": "createdAt",
+        "when": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        },
+        "until": "updatedAt"
+      }
+    },
+    {
+      "key": "grant_rate",
+      "label": "Grant Rate",
+      "unit": "percentage",
+      "target": 95,
+      "alert": {
+        "threshold": 85,
+        "direction": "below"
+      },
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "status"
+            },
+            "resolved"
+          ]
+        },
+        "of": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "sla_compliance",
+      "label": "SLA Compliance",
+      "unit": "percentage",
+      "target": 95,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "or": [
+            {
+              "==": [
+                {
+                  "var": "dueDate"
+                },
+                null
+              ]
+            },
+            {
+              ">=": [
+                {
+                  "var": "dueDate_daysUntil"
+                },
+                0
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": "document_completeness",
+      "label": "Document Completeness",
+      "unit": "percentage",
+      "target": 100,
+      "metric": {
+        "source": "case",
+        "aggregate": "percentage",
+        "when": {
+          "==": [
+            {
+              "var": "documentsComplete"
+            },
+            true
+          ]
+        }
+      }
+    }
+  ],
+  "uiConfig": {
+    "primaryColor": "#0052A5",
+    "supportEmail": "support@immistack.com",
+    "termsUrl": "https://immistack.com/terms",
+    "helpUrl": "https://help.immistack.com/au"
+  },
+  "metadata": {
+    "author": "Meru Platform Team",
+    "lastReviewedAt": "2026-05-01T00:00:00Z",
+    "regulatoryReference": "Migration Regulations 1994, Schedule 2, Subclass 482"
+  },
+  "prompts": [
+    {
+      "key": "entity_summary",
+      "category": "entity_analysis",
+      "description": "Plain-language summary of one immigration case management record for a staff member.",
+      "prompt": "You are a immigration case management operations assistant. Summarise the record below for a staff member who has thirty seconds to read it. Lead with what needs a decision, then state the current status, then anything overdue. Do not speculate about facts that are not in the record; say \"not recorded\" instead.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "risk_review",
+      "category": "entity_analysis",
+      "description": "Flag concerns on a record without inventing severity.",
+      "prompt": "Review this immigration case management record and list only concerns that are evidenced by the data provided. For each concern give: what it is, the field or value that evidences it, and what a reviewer should do next. If a value is absent, say the value is absent — an absent value is not a low-risk value.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nRecord:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "document_review",
+      "category": "document_processing",
+      "description": "Assess a supplied document against what the record expects.",
+      "prompt": "Assess the document text below. State: what type of document it appears to be, which of the expected fields are present, which are missing, and any internal inconsistency (dates that cannot both be true, totals that do not add up, names that differ between sections). Report only what the text supports. You are not authenticating the document — do not state that it is genuine or forged.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nExpected fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.1,
+      "maxTokens": 900,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "document_extraction",
+      "category": "data_extraction",
+      "description": "Structured field extraction. Keyed by AiService.extractFromDocument.",
+      "prompt": "Extract the requested fields from the document text and return ONLY a JSON object whose keys are exactly the requested field names. Use null for any field the text does not contain — never guess, never infer a value from a similar field, and never return a partially-read number. Dates as YYYY-MM-DD. Do not wrap the JSON in prose or code fences.\n\nRequested fields: {{FIELDS}}\n\nDocument text:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "maxTokens": 1200,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "form_validation",
+      "category": "validation",
+      "description": "Explain validation failures in human terms. Keyed by AiService.validateFormData.",
+      "prompt": "The submitted form data failed one or more validation rules. For each failure, explain in one sentence what is wrong and what the person should change, addressed to them, in plain language and without jargon. Do not invent rules that are not in the list.\n\nRules:\n{{VALIDATIONRULES}}\n\nSubmitted data:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 700,
+      "requireCitations": false,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "next_action",
+      "category": "workflow_decision",
+      "description": "Recommend the next workflow step. Advisory only.",
+      "prompt": "Given the case state and the available transitions, recommend which transition to take and why, in at most three sentences. Recommend only from the transitions listed. If the state does not justify any of them, say so and say what is missing. You are advising a human who decides — do not phrase this as an instruction or imply the transition has happened.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nCase state:\n{{INPUT}}\n\nAvailable transitions: {{TRANSITIONS}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 500,
+      "requireCitations": true,
+      "isCategoryDefault": true
+    },
+    {
+      "key": "assistant_command",
+      "category": "entity_analysis",
+      "description": "The command-bar assistant (CLAUDE.md 6.2). Answers about the data it is given.",
+      "prompt": "You are the immigration case management assistant in a staff console. Answer the question using only the context provided. If the context does not answer it, say exactly what is missing and which screen or record would have it — do not answer from general knowledge, and do not state counts, totals or statuses that are not in the context. Never fabricate operational figures.\n\nExamples of questions you handle: \"what is outstanding on this case\", \"which clients have a visa expiring in 60 days\", \"summarise this applicant\"\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nContext:\n{{CONTEXT}}\n\nQuestion:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.3,
+      "maxTokens": 1000,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "visa_eligibility_note",
+      "category": "entity_analysis",
+      "description": "Draft an eligibility note for an applicant against a visa subclass.",
+      "prompt": "Draft an internal eligibility note for this applicant against the named visa subclass. Cover, in order: the criteria the applicant appears to meet, the criteria not yet evidenced, and the documents still required. This is an internal working note for a registered migration agent — it is not advice to the applicant, and it must not state that a visa will be granted.\n\nEvery factual or regulatory claim MUST end with a citation in the exact form [Source: <title>|<url>], pointing at official regulator material. If you cannot cite an official source for a claim, omit the claim. If you can cite nothing at all, reply only with: I don't have a verified source for this.\n\nSubclass: {{SUBCLASS}}\n\nApplicant:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "maxTokens": 1200,
+      "requireCitations": true,
+      "isCategoryDefault": false
+    },
+    {
+      "key": "client_status_update",
+      "category": "workflow_decision",
+      "description": "Draft a client-facing status update from case state.",
+      "prompt": "Write a short, warm status update to the client about their application, using only the case state below. Say where the application is, what happens next, and what (if anything) you need from them. Do not estimate a decision date, do not predict an outcome, and do not mention internal notes or staff names.\n\nCase state:\n{{INPUT}}",
+      "provider": "openai",
+      "model": "gpt-4o-mini",
+      "temperature": 0.4,
+      "maxTokens": 600,
+      "requireCitations": false,
+      "isCategoryDefault": false
+    }
+  ],
+  "messaging": {
+    "templates": [
+      {
+        "key": "user_invite",
+        "name": "Team invitation",
+        "channel": "email",
+        "subject": "You have been invited to {{firmName}}",
+        "body": "Hello {{firstName}},\n\n{{inviterName}} has invited you to join {{firmName}} on {{productName}}.\n\nSet your password and sign in here:\n{{inviteUrl}}\n\nThis link expires in {{expiryHours}} hours. If it has expired, ask {{inviterName}} to send a new invitation — the link cannot be reused.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "inviterName",
+          "productName",
+          "inviteUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "password_reset",
+        "name": "Password reset",
+        "channel": "email",
+        "subject": "Reset your {{productName}} password",
+        "body": "Hello {{firstName}},\n\nUse this link to set a new password:\n{{resetUrl}}\n\nIt expires in {{expiryHours}} hours and can be used once.\n\nIf you did not ask for this, you can ignore this email — your password has not changed. If you get these repeatedly, tell your administrator.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "productName",
+          "resetUrl",
+          "expiryHours"
+        ]
+      },
+      {
+        "key": "task_assigned",
+        "name": "Task assigned",
+        "channel": "email",
+        "subject": "{{taskTitle}} — assigned to you",
+        "body": "Hello {{firstName}},\n\n{{assignerName}} assigned you: {{taskTitle}}\nDue: {{dueDate}}\nRelated to: {{entityLabel}}\n\n{{taskDescription}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "taskDescription",
+          "assignerName",
+          "dueDate",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "task_overdue",
+        "name": "Task overdue",
+        "channel": "email",
+        "subject": "Overdue: {{taskTitle}}",
+        "body": "Hello {{firstName}},\n\n{{taskTitle}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nRelated to: {{entityLabel}}\n\nOpen it here: {{taskUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "taskTitle",
+          "dueDate",
+          "daysOverdue",
+          "entityLabel",
+          "taskUrl"
+        ]
+      },
+      {
+        "key": "document_request",
+        "name": "Documents requested",
+        "channel": "email",
+        "subject": "{{firmName}} needs {{documentCount}} document(s) from you",
+        "body": "Hello {{firstName}},\n\nTo move forward with {{entityLabel}} we still need:\n\n{{documentList}}\n\nYou can upload them here: {{uploadUrl}}\n\nIf you have already sent any of these another way, reply and tell us — it may not have been recorded against your file.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "documentCount",
+          "documentList",
+          "uploadUrl"
+        ]
+      },
+      {
+        "key": "document_received",
+        "name": "Document received",
+        "channel": "email",
+        "subject": "We received {{documentName}}",
+        "body": "Hello {{firstName}},\n\n{{documentName}} has been received and recorded against {{entityLabel}}. It has not been reviewed yet — we will contact you if anything is unclear.\n\n{{outstandingLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "documentName",
+          "entityLabel",
+          "outstandingLine"
+        ]
+      },
+      {
+        "key": "payment_due",
+        "name": "Payment due",
+        "channel": "email",
+        "subject": "{{firmName}} — {{amountFormatted}} due {{dueDate}}",
+        "body": "Hello {{firstName}},\n\n{{description}}\n\nAmount: {{amountFormatted}}\nDue: {{dueDate}}\nReference: {{reference}}\n\nPlease quote the reference when you pay so we can match it to your file.\nPayment details: {{paymentInstructions}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "reference",
+          "paymentInstructions"
+        ]
+      },
+      {
+        "key": "payment_overdue",
+        "name": "Payment overdue",
+        "channel": "email",
+        "subject": "Overdue: {{amountFormatted}} — {{reference}}",
+        "body": "Hello {{firstName}},\n\n{{amountFormatted}} for {{description}} was due {{dueDate}} and is now {{daysOverdue}} day(s) overdue.\nReference: {{reference}}\n\nIf you have already paid, reply with the date and we will trace it. If you need to arrange a different schedule, reply and tell us — tell us before the work stops rather than after.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "dueDate",
+          "daysOverdue",
+          "reference"
+        ]
+      },
+      {
+        "key": "payment_received",
+        "name": "Payment receipt",
+        "channel": "email",
+        "subject": "Receipt — {{amountFormatted}} received",
+        "body": "Hello {{firstName}},\n\nWe have recorded {{amountFormatted}} received on {{paidDate}} for {{description}}.\nReference: {{reference}}\n\n{{balanceLine}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "description",
+          "amountFormatted",
+          "paidDate",
+          "reference",
+          "balanceLine"
+        ]
+      },
+      {
+        "key": "status_change",
+        "name": "Case status change",
+        "channel": "email",
+        "subject": "{{entityLabel}} is now {{newStatus}}",
+        "body": "Hello {{firstName}},\n\n{{entityLabel}} moved from {{oldStatus}} to {{newStatus}} on {{changedAt}}.\n\n{{nextStepLine}}\n\nView it here: {{entityUrl}}\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "oldStatus",
+          "newStatus",
+          "changedAt",
+          "nextStepLine",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "sla_breach_internal",
+        "name": "SLA breach (internal)",
+        "channel": "email",
+        "subject": "SLA breached: {{entityLabel}} at {{stepName}}",
+        "body": "{{entityLabel}} has been at {{stepName}} for {{hoursElapsed}} hours against an SLA of {{slaHours}} hours.\n\nAssigned to: {{assigneeName}}\nEscalation: {{escalationTarget}}\n\nOpen it here: {{entityUrl}}",
+        "variables": [
+          "entityLabel",
+          "stepName",
+          "hoursElapsed",
+          "slaHours",
+          "assigneeName",
+          "escalationTarget",
+          "entityUrl"
+        ]
+      },
+      {
+        "key": "welcome_client",
+        "name": "Client portal welcome",
+        "channel": "email",
+        "subject": "Welcome to the {{firmName}} client portal",
+        "body": "Hello {{firstName}},\n\nYour client portal is ready. You can see the status of {{entityLabel}}, upload documents, and see what you owe.\n\nSign in: {{portalUrl}}\n\nYour contact at {{firmName}} is {{contactName}} ({{contactEmail}}).\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "entityLabel",
+          "portalUrl",
+          "contactName",
+          "contactEmail"
+        ]
+      },
+      {
+        "key": "generic_notification_sms",
+        "name": "Short notification (SMS)",
+        "channel": "sms",
+        "subject": "",
+        "body": "{{firmName}}: {{message}} {{shortUrl}}",
+        "variables": [
+          "firmName",
+          "message",
+          "shortUrl"
+        ]
+      },
+      {
+        "key": "visa_expiry_warning",
+        "name": "Visa expiry warning",
+        "channel": "email",
+        "subject": "Your visa expires on {{expiryDate}} ({{daysRemaining}} days)",
+        "body": "Hello {{firstName}},\n\nOur records show your {{visaSubclass}} visa expires on {{expiryDate}} — {{daysRemaining}} days from today.\n\nIf you intend to stay, a new application usually needs to be lodged before that date. Reply to this email or contact {{contactName}} to discuss your options.\n\nPlease check the expiry date against your own visa grant notice. If it differs from the date above, tell us — treat your grant notice as correct, not this email.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "visaSubclass",
+          "expiryDate",
+          "daysRemaining",
+          "contactName"
+        ]
+      },
+      {
+        "key": "lodgement_confirmation",
+        "name": "Application lodged",
+        "channel": "email",
+        "subject": "{{visaSubclass}} application lodged — {{referenceNumber}}",
+        "body": "Hello {{firstName}},\n\nYour {{visaSubclass}} application was lodged on {{lodgedDate}}.\nDepartment reference: {{referenceNumber}}\n\nProcessing times are set by the Department and we cannot influence or predict them. We will tell you as soon as there is any change or the Department asks for more information.\n\n— {{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName",
+          "visaSubclass",
+          "lodgedDate",
+          "referenceNumber"
+        ]
+      },
+      {
+        "key": "document_chase_reminder",
+        "name": "Outstanding documents reminder (sequence)",
+        "channel": "email",
+        "subject": "Reminder: documents still outstanding for your application",
+        "body": "Hello {{firstName}},\n\nWe are still waiting on the documents needed to progress your application. Until they arrive we cannot move to the next stage.\n\nPlease sign in to your client portal to see exactly what is outstanding and to upload it.\n\nIf you have already sent these to us, or you no longer wish to proceed, reply to this email and we will stop the reminders.\n\n{{firmName}}",
+        "variables": [
+          "firstName",
+          "firmName"
+        ]
+      }
+    ],
+    "sequences": [
+      {
+        "key": "chase_outstanding_documents",
+        "label": "Chase outstanding documents",
+        "trigger": {
+          "entityType": "case",
+          "when": {
+            "and": [
+              {
+                "var": "documentsRequestedAt"
+              },
+              {
+                "!": {
+                  "var": "documentsReceivedAt"
+                }
+              }
+            ]
+          }
+        },
+        "steps": [
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 72
+          },
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 168
+          },
+          {
+            "templateKey": "document_chase_reminder",
+            "afterHours": 336
+          }
+        ],
+        "stopWhen": {
+          "in": [
+            {
+              "var": "status"
+            },
+            [
+              "resolved",
+              "closed",
+              "cancelled"
+            ]
+          ]
+        },
+        "stopOnReply": true,
+        "maxMessages": 3
+      }
+    ]
+  },
+  "alertRules": [
+    {
+      "key": "visa_expiring_30d",
+      "label": "Visa expires within 30 days",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "visaExpiry_daysUntil"
+              },
+              30
+            ]
+          },
+          {
+            ">=": [
+              {
+                "var": "visaExpiry_daysUntil"
+              },
+              0
+            ]
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [],
+      "createTask": true,
+      "cooldownHours": 168,
+      "escalateAfterHours": 336,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "visa_expired",
+      "label": "Visa has expired",
+      "entityType": "case",
+      "when": {
+        "<": [
+          {
+            "var": "visaExpiry_daysUntil"
+          },
+          0
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [
+        "migration_agent",
+        "firm_admin"
+      ],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 24,
+      "escalateToRoles": [
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "case_past_due",
+      "label": "Case is past its due date",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "<": [
+              {
+                "var": "dueDate_daysUntil"
+              },
+              0
+            ]
+          },
+          {
+            "!": {
+              "in": [
+                {
+                  "var": "status"
+                },
+                [
+                  "resolved",
+                  "closed",
+                  "cancelled"
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "severity": "critical",
+      "notifyRoles": [],
+      "createTask": true,
+      "cooldownHours": 24,
+      "escalateAfterHours": 48,
+      "escalateToRoles": [
+        "case_coordinator",
+        "firm_admin"
+      ]
+    },
+    {
+      "key": "documents_outstanding_14d",
+      "label": "Requested documents outstanding for 14 days",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "var": "documentsRequestedAt"
+          },
+          {
+            ">=": [
+              {
+                "var": "documentsRequestedAt_daysSince"
+              },
+              14
+            ]
+          },
+          {
+            "!": {
+              "var": "documentsReceivedAt"
+            }
+          }
+        ]
+      },
+      "severity": "warning",
+      "notifyRoles": [
+        "migration_agent"
+      ],
+      "createTask": false,
+      "cooldownHours": 72,
+      "escalateAfterHours": null,
+      "escalateToRoles": []
+    },
+    {
+      "key": "vac_unverified_after_lodgement",
+      "label": "Government charge not verified on a lodged matter",
+      "entityType": "case",
+      "when": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          },
+          {
+            "!=": [
+              {
+                "var": "vacStatus"
+              },
+              "verified"
+            ]
+          }
+        ]
+      },
+      "severity": "critical",
+      "createTask": true
+    }
+  ],
+  "fees": [
+    {
+      "key": "gov_482_primary",
+      "label": "Subclass 482 application charge — primary applicant",
+      "kind": "government",
+      "amountMinor": 305000,
+      "currency": "AUD",
+      "basis": "per_case",
+      "refundable": false,
+      "reference": "Migration Regulations 1994, Schedule 1, item 1237",
+      "atStep": "lodgement"
+    },
+    {
+      "key": "gov_482_dependent",
+      "label": "Subclass 482 application charge — each dependent",
+      "kind": "government",
+      "amountMinor": 153000,
+      "currency": "AUD",
+      "basis": "per_dependent",
+      "refundable": false,
+      "reference": "Migration Regulations 1994, Schedule 1, item 1237",
+      "atStep": "lodgement"
+    },
+    {
+      "key": "firm_professional_482",
+      "label": "Professional fees — subclass 482",
+      "kind": "firm",
+      "amountMinor": 350000,
+      "currency": "AUD",
+      "basis": "per_case",
+      "refundable": true
+    },
+    {
+      "key": "disb_health_examination",
+      "label": "Health examination (panel physician)",
+      "kind": "disbursement",
+      "amountMinor": 40000,
+      "currency": "AUD",
+      "basis": "per_applicant",
+      "refundable": false,
+      "atStep": "document_collection"
+    },
+    {
+      "key": "disb_police_check",
+      "label": "Police clearance certificate",
+      "kind": "disbursement",
+      "amountMinor": 5200,
+      "currency": "AUD",
+      "basis": "per_applicant",
+      "refundable": false,
+      "atStep": "document_collection"
+    }
+  ],
+  "paymentPlans": [
+    {
+      "key": "upfront",
+      "label": "Pay in full on engagement",
+      "type": "upfront",
+      "blockProgressOnArrears": false
+    },
+    {
+      "key": "staged_482",
+      "label": "Staged — engagement, lodgement, decision",
+      "type": "stage_gated",
+      "stages": [
+        {
+          "atStep": "intake",
+          "portionBps": 3000,
+          "label": "On engagement"
+        },
+        {
+          "atStep": "lodgement",
+          "portionBps": 5000,
+          "label": "On lodgement"
+        },
+        {
+          "atStep": "dha_processing",
+          "portionBps": 2000,
+          "label": "On decision"
+        }
+      ],
+      "blockProgressOnArrears": true
+    },
+    {
+      "key": "three_monthly",
+      "label": "Three monthly instalments",
+      "type": "installments",
+      "installmentCount": 3,
+      "intervalDays": 30,
+      "blockProgressOnArrears": false
+    }
+  ],
+  "scoringModels": [
+    {
+      "key": "lead_score",
+      "label": "Lead quality",
+      "entityType": "lead",
+      "factors": [
+        {
+          "key": "has_sponsor",
+          "label": "Has a sponsoring employer",
+          "when": {
+            "var": "sponsorId"
+          },
+          "weight": 30
+        },
+        {
+          "key": "occupation_on_list",
+          "label": "Occupation on a skilled list",
+          "when": {
+            "var": "occupationOnSkilledList"
+          },
+          "weight": 25
+        },
+        {
+          "key": "english_competent",
+          "label": "Competent English or better",
+          "when": {
+            ">=": [
+              {
+                "var": "ieltsOverall"
+              },
+              6
+            ]
+          },
+          "weight": 20
+        },
+        {
+          "key": "under_45",
+          "label": "Under 45 at application",
+          "when": {
+            "<": [
+              {
+                "var": "age"
+              },
+              45
+            ]
+          },
+          "weight": 15
+        },
+        {
+          "key": "onshore",
+          "label": "Already onshore",
+          "when": {
+            "==": [
+              {
+                "var": "location"
+              },
+              "onshore"
+            ]
+          },
+          "weight": 10
+        },
+        {
+          "key": "previous_refusal",
+          "label": "Previous visa refusal",
+          "when": {
+            "var": "previousRefusal"
+          },
+          "weight": -20
+        },
+        {
+          "key": "no_contact_30d",
+          "label": "No contact in 30 days",
+          "when": {
+            ">=": [
+              {
+                "var": "lastContactedAt_daysSince"
+              },
+              30
+            ]
+          },
+          "weight": -10
+        }
+      ],
+      "bands": [
+        {
+          "key": "cold",
+          "label": "Cold",
+          "minScore": -30,
+          "color": "#94a3b8"
+        },
+        {
+          "key": "warm",
+          "label": "Warm",
+          "minScore": 40,
+          "color": "#f59e0b"
+        },
+        {
+          "key": "hot",
+          "label": "Hot",
+          "minScore": 70,
+          "color": "#10b981"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "key": "dependent_of",
+      "label": "Dependent of",
+      "fromType": "person",
+      "toType": "case",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Dependents",
+      "blocksCompletion": false
+    },
+    {
+      "key": "sponsored_by",
+      "label": "Sponsored by",
+      "fromType": "case",
+      "toType": "organization",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Sponsored cases",
+      "blocksCompletion": false
+    },
+    {
+      "key": "supporting_note",
+      "label": "Supporting note",
+      "fromType": "case",
+      "toType": "note",
+      "cardinality": "one_to_many",
+      "inverseLabel": "Attached to",
+      "blocksCompletion": false
+    }
+  ],
+  "navigation": [
+    {
+      "key": "home",
+      "label": "Dashboard",
+      "path": "/",
+      "icon": "layout-dashboard",
+      "portal": "staff",
+      "order": 10,
+      "roles": []
+    },
+    {
+      "key": "leads",
+      "label": "Leads",
+      "path": "/leads",
+      "icon": "user-plus",
+      "portal": "staff",
+      "order": 20,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "clients",
+      "label": "Clients",
+      "path": "/clients",
+      "icon": "users",
+      "portal": "staff",
+      "order": 30,
+      "module": "crm",
+      "roles": []
+    },
+    {
+      "key": "cases",
+      "label": "Cases",
+      "path": "/cases",
+      "icon": "briefcase",
+      "portal": "staff",
+      "order": 40,
+      "module": "cases",
+      "roles": []
+    },
+    {
+      "key": "documents",
+      "label": "Documents",
+      "path": "/documents",
+      "icon": "folder",
+      "portal": "staff",
+      "order": 50,
+      "module": "documents",
+      "roles": []
+    },
+    {
+      "key": "tasks",
+      "label": "Tasks",
+      "path": "/tasks",
+      "icon": "check-square",
+      "portal": "staff",
+      "order": 60,
+      "module": "tasks",
+      "roles": []
+    },
+    {
+      "key": "payments",
+      "label": "Payments",
+      "path": "/payments",
+      "icon": "credit-card",
+      "portal": "staff",
+      "order": 70,
+      "module": "payments",
+      "roles": []
+    },
+    {
+      "key": "communications",
+      "label": "Communications",
+      "path": "/communications",
+      "icon": "mail",
+      "portal": "staff",
+      "order": 80,
+      "module": "communications",
+      "roles": []
+    },
+    {
+      "key": "screening",
+      "label": "Applicant Screening",
+      "path": "/screening",
+      "icon": "shield-check",
+      "portal": "staff",
+      "order": 90,
+      "roles": []
+    },
+    {
+      "key": "forms",
+      "label": "Forms",
+      "path": "/forms",
+      "icon": "file-text",
+      "portal": "staff",
+      "order": 100,
+      "module": "forms",
+      "roles": []
+    },
+    {
+      "key": "workflows",
+      "label": "Workflows",
+      "path": "/workflows",
+      "icon": "git-branch",
+      "portal": "staff",
+      "order": 110,
+      "roles": []
+    },
+    {
+      "key": "reports",
+      "label": "Reports",
+      "path": "/reports",
+      "icon": "bar-chart-3",
+      "portal": "staff",
+      "order": 120,
+      "roles": []
+    },
+    {
+      "key": "settings",
+      "label": "Settings",
+      "path": "/admin/settings",
+      "icon": "settings",
+      "portal": "admin",
+      "order": 900,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "branding",
+      "label": "Branding",
+      "path": "/admin/branding",
+      "icon": "palette",
+      "portal": "admin",
+      "order": 910,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "users",
+      "label": "Staff & Roles",
+      "path": "/admin/users",
+      "icon": "users",
+      "portal": "admin",
+      "order": 920,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "billing",
+      "label": "Billing",
+      "path": "/admin/billing",
+      "icon": "receipt",
+      "portal": "admin",
+      "order": 930,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "connectors",
+      "label": "Regulator Connectors",
+      "path": "/admin/connectors",
+      "icon": "plug",
+      "portal": "admin",
+      "order": 940,
+      "roles": [
+        "firm_admin",
+        "platform_admin"
+      ]
+    },
+    {
+      "key": "my_application",
+      "label": "My Application",
+      "path": "/client",
+      "icon": "file-check",
+      "portal": "client",
+      "order": 10,
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_documents",
+      "label": "My Documents",
+      "path": "/client/documents",
+      "icon": "upload",
+      "portal": "client",
+      "order": 20,
+      "module": "documents",
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_payments",
+      "label": "My Payments",
+      "path": "/client/payments",
+      "icon": "credit-card",
+      "portal": "client",
+      "order": 30,
+      "module": "payments",
+      "roles": [
+        "client"
+      ]
+    },
+    {
+      "key": "my_messages",
+      "label": "Messages",
+      "path": "/client/messages",
+      "icon": "mail",
+      "portal": "client",
+      "order": 40,
+      "module": "communications",
+      "roles": [
+        "client"
+      ]
+    }
+  ],
+  "dashboards": [
+    {
+      "key": "firm_home",
+      "label": "Firm Overview",
+      "portal": "staff",
+      "roles": [],
+      "widgets": [
+        {
+          "key": "active_cases",
+          "label": "Active Cases",
+          "type": "kpi",
+          "source": "active_cases",
+          "span": 3
+        },
+        {
+          "key": "processing",
+          "label": "Avg. Processing Days",
+          "type": "kpi",
+          "source": "avg_processing_days",
+          "span": 3
+        },
+        {
+          "key": "grant_rate",
+          "label": "Grant Rate",
+          "type": "kpi",
+          "source": "grant_rate",
+          "span": 3
+        },
+        {
+          "key": "sla",
+          "label": "SLA Compliance",
+          "type": "kpi",
+          "source": "sla_compliance",
+          "span": 3
+        },
+        {
+          "key": "new_leads",
+          "label": "Leads This Month",
+          "type": "count",
+          "source": "lead",
+          "when": {
+            "<=": [
+              {
+                "var": "createdAt_daysSince"
+              },
+              30
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "visa_expiring",
+          "label": "Visas Expiring in 90 Days",
+          "type": "count",
+          "source": "case",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "visaExpiry_daysUntil"
+                  },
+                  90
+                ]
+              },
+              {
+                ">=": [
+                  {
+                    "var": "visaExpiry_daysUntil"
+                  },
+                  0
+                ]
+              }
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "unpaid",
+          "label": "Cases Awaiting Payment",
+          "type": "count",
+          "source": "case",
+          "when": {
+            "==": [
+              {
+                "var": "status"
+              },
+              "blocked"
+            ]
+          },
+          "span": 4
+        },
+        {
+          "key": "cases_by_status",
+          "label": "Cases by Status",
+          "type": "chart",
+          "source": "case",
+          "groupBy": "status",
+          "span": 6
+        },
+        {
+          "key": "due_soon",
+          "label": "Due This Week",
+          "type": "list",
+          "source": "case",
+          "when": {
+            "and": [
+              {
+                "<=": [
+                  {
+                    "var": "dueDate_daysUntil"
+                  },
+                  7
+                ]
+              },
+              {
+                "!=": [
+                  {
+                    "var": "status"
+                  },
+                  "closed"
+                ]
+              }
+            ]
+          },
+          "limit": 10,
+          "span": 6
+        }
+      ]
+    },
+    {
+      "key": "client_home",
+      "label": "My Application",
+      "portal": "client",
+      "roles": [
+        "client"
+      ],
+      "widgets": [
+        {
+          "key": "my_cases",
+          "label": "My Applications",
+          "type": "list",
+          "source": "case",
+          "limit": 5,
+          "span": 12
+        },
+        {
+          "key": "required_docs",
+          "label": "Documents You Will Need",
+          "type": "checklist",
+          "source": "documentTypes",
+          "span": 12
+        }
+      ]
+    }
+  ],
+  "entityTypes": [
+    {
+      "type": "lead",
+      "label": "Lead",
+      "pluralLabel": "Leads",
+      "module": "crm",
+      "workable": true,
+      "statusLabels": {
+        "open": "New",
+        "in_progress": "Contacted",
+        "blocked": "Unqualified",
+        "resolved": "Qualified",
+        "closed": "Converted",
+        "cancelled": "Lost"
+      },
+      "fields": [
+        {
+          "key": "source",
+          "label": "Source",
+          "type": "select",
+          "options": [
+            "website",
+            "referral",
+            "whatsapp",
+            "agent",
+            "event",
+            "social",
+            "other"
+          ],
+          "required": true
+        },
+        {
+          "key": "visaInterest",
+          "label": "Visa Interest",
+          "type": "text"
+        },
+        {
+          "key": "nationality",
+          "label": "Nationality",
+          "type": "country"
+        },
+        {
+          "key": "destinationCountry",
+          "label": "Destination",
+          "type": "country"
+        },
+        {
+          "key": "score",
+          "label": "Lead Score",
+          "type": "number"
+        },
+        {
+          "key": "consultationBookedAt",
+          "label": "Consultation Booked",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "type": "person",
+      "label": "Client",
+      "pluralLabel": "Clients",
+      "module": "crm",
+      "workable": false,
+      "fields": [
+        {
+          "key": "passportNumber",
+          "label": "Passport Number",
+          "type": "text"
+        },
+        {
+          "key": "nationality",
+          "label": "Nationality",
+          "type": "country",
+          "required": true
+        },
+        {
+          "key": "dateOfBirth",
+          "label": "Date of Birth",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "currentVisa",
+          "label": "Current Visa",
+          "type": "text"
+        },
+        {
+          "key": "visaExpiry",
+          "label": "Visa Expiry",
+          "type": "date"
+        },
+        {
+          "key": "preferredLanguage",
+          "label": "Preferred Language",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "case",
+      "label": "Application",
+      "pluralLabel": "Applications",
+      "module": "cases",
+      "workable": true,
+      "statusLabels": {
+        "open": "Preparing",
+        "in_progress": "Lodged",
+        "blocked": "Awaiting Payment / Documents",
+        "resolved": "Granted",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "visaSubclass",
+          "label": "Visa Subclass",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "applicantId",
+          "label": "Applicant",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "lodgedAt",
+          "label": "Lodged",
+          "type": "date"
+        },
+        {
+          "key": "decisionDueAt",
+          "label": "Decision Due",
+          "type": "date"
+        },
+        {
+          "key": "visaExpiry",
+          "label": "Visa Expiry",
+          "type": "date"
+        },
+        {
+          "key": "documentsComplete",
+          "label": "Documents Complete",
+          "type": "boolean"
+        },
+        {
+          "key": "sponsorName",
+          "label": "Sponsor",
+          "type": "text"
+        },
+        {
+          "key": "governmentRef",
+          "label": "Government Reference",
+          "type": "text"
+        },
+        {
+          "key": "vacSettlementMode",
+          "label": "Who pays the government charge",
+          "type": "select",
+          "options": [
+            "firm_pays_on_behalf",
+            "client_pays_direct",
+            "client_card_agent_enters",
+            "third_party_payer"
+          ],
+          "lockedWhen": {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "rfi",
+      "label": "Document Request",
+      "pluralLabel": "Document Requests",
+      "module": "forms",
+      "workable": true,
+      "statusLabels": {
+        "open": "Requested",
+        "in_progress": "Partially Supplied",
+        "blocked": "Overdue",
+        "resolved": "Supplied",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "caseId",
+          "label": "Application",
+          "type": "entityRef",
+          "required": true
+        },
+        {
+          "key": "requestedDocuments",
+          "label": "Documents Requested",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "dueAt",
+          "label": "Due",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "chaseCount",
+          "label": "Times Chased",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "obligation",
+      "label": "Sponsor Obligation",
+      "pluralLabel": "Sponsor Obligations",
+      "module": "cases",
+      "workable": true,
+      "statusLabels": {
+        "open": "Active",
+        "in_progress": "In Progress",
+        "blocked": "At Risk",
+        "resolved": "Met",
+        "closed": "Closed",
+        "cancelled": "Withdrawn"
+      },
+      "fields": [
+        {
+          "key": "sponsorName",
+          "label": "Sponsor",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "obligationType",
+          "label": "Obligation",
+          "type": "select",
+          "options": [
+            "market_salary",
+            "record_keeping",
+            "training_levy",
+            "notify_changes",
+            "no_recovery_of_costs"
+          ],
+          "required": true
+        },
+        {
+          "key": "nextDueAt",
+          "label": "Next Due",
+          "type": "date",
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": "knowledge_article",
+      "label": "Guidance Note",
+      "pluralLabel": "Knowledge Base",
+      "module": "knowledge_base",
+      "workable": false,
+      "fields": [
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "text"
+        },
+        {
+          "key": "sourceUrl",
+          "label": "Official Source",
+          "type": "text"
+        },
+        {
+          "key": "lastReviewedAt",
+          "label": "Last Reviewed",
+          "type": "date"
+        }
+      ]
+    }
+  ],
+  "importMappings": [
+    {
+      "key": "leads_csv",
+      "label": "Leads (CSV)",
+      "source": "csv",
+      "targetEntityType": "lead",
+      "fields": [
+        {
+          "from": "First Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Last Name",
+          "to": "lastName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "required": true,
+          "transform": "lowercase"
+        },
+        {
+          "from": "Phone",
+          "to": "phoneNumber",
+          "transform": "phone_e164"
+        },
+        {
+          "from": "Nationality",
+          "to": "nationality",
+          "transform": "country_iso2"
+        },
+        {
+          "from": "Visa Interest",
+          "to": "visaInterest"
+        },
+        {
+          "from": "Source",
+          "to": "source"
+        }
+      ],
+      "dedupeOn": [
+        "email"
+      ]
+    },
+    {
+      "key": "clients_csv",
+      "label": "Clients (CSV)",
+      "source": "csv",
+      "targetEntityType": "person",
+      "fields": [
+        {
+          "from": "First Name",
+          "to": "firstName",
+          "required": true
+        },
+        {
+          "from": "Last Name",
+          "to": "lastName",
+          "required": true
+        },
+        {
+          "from": "Email",
+          "to": "email",
+          "required": true,
+          "transform": "lowercase"
+        },
+        {
+          "from": "Passport Number",
+          "to": "passportNumber"
+        },
+        {
+          "from": "Date of Birth",
+          "to": "dateOfBirth",
+          "transform": "date_iso"
+        },
+        {
+          "from": "Visa Expiry",
+          "to": "visaExpiry",
+          "transform": "date_iso"
+        },
+        {
+          "from": "Nationality",
+          "to": "nationality",
+          "transform": "country_iso2"
+        }
+      ],
+      "dedupeOn": [
+        "email"
+      ]
+    }
+  ],
+  "documentTemplates": [
+    {
+      "key": "cost_agreement",
+      "label": "Cost agreement and engagement letter",
+      "documentTypeKey": "cost_agreement",
+      "fileName": "cost-agreement-{{client.lastName}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}} — Cost agreement",
+      "footer": "{{tenant.name}}   ·   Prepared {{today}}",
+      "requires": [
+        "client.fullName",
+        "paymentsTotal"
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "text": "Cost agreement and engagement letter",
+          "level": 1
+        },
+        {
+          "type": "paragraph",
+          "text": "This agreement is made on {{today}} between {{tenant.name}} (\"we\", \"us\") and {{client.fullName}} of {{client.email}} (\"you\", \"the client\")."
+        },
+        {
+          "type": "heading",
+          "text": "1. Scope of work",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "We will act as your registered migration agent in relation to the visa application identified below, and will advise you on eligibility, prepare and lodge your application, and correspond with the Department on your behalf until a decision is made."
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Client",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Contact email",
+              "value": "{{client.email}}"
+            },
+            {
+              "label": "Contact number",
+              "value": "{{client.phoneNumber}}"
+            },
+            {
+              "label": "Matter reference",
+              "value": "{{client.id}}"
+            },
+            {
+              "label": "Visa subclass",
+              "value": "{{client.attributes.matter.subclass}}"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "2. Fees and disbursements",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "Our professional fees and the disbursements payable in your matter are set out below. Department of Home Affairs charges are set by the Australian Government and are not within our control."
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Item",
+            "Reference",
+            "Due",
+            "Amount"
+          ],
+          "from": "{{payments}}",
+          "cells": [
+            "{{item.description}}",
+            "{{item.reference}}",
+            "{{item.dueDate}}",
+            "{{item.amount}}"
+          ],
+          "widths": [
+            3.1,
+            1.5,
+            1.2,
+            1.2
+          ]
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Total",
+              "value": "{{paymentsTotal}}"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "3. Your obligations",
+          "level": 2
+        },
+        {
+          "type": "list",
+          "items": [
+            "Give us complete and accurate information, and tell us promptly if your circumstances change.",
+            "Provide requested documents by the dates we specify — many are subject to Department deadlines we cannot extend.",
+            "Pay fees and disbursements when they fall due. We cannot lodge an application until the relevant Department charge is paid."
+          ]
+        },
+        {
+          "type": "heading",
+          "text": "4. No guarantee of outcome",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "We cannot and do not guarantee that your application will be successful. The decision is made by the Department of Home Affairs applying the Migration Act 1958 and the Migration Regulations 1994. Our fees are payable for the work performed regardless of the outcome."
+        },
+        {
+          "type": "heading",
+          "text": "5. Acceptance",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "By signing below you confirm that you have read and understood this agreement, including the fees payable and the statement that no outcome is guaranteed."
+        },
+        {
+          "type": "signature",
+          "signatories": [
+            "{{client.fullName}} (client)",
+            "For and on behalf of {{tenant.name}}"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "tax_invoice",
+      "label": "Tax invoice",
+      "fileName": "invoice-{{client.lastName}}-{{today}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}} — Tax invoice",
+      "footer": "{{tenant.name}}",
+      "requires": [
+        "client.fullName",
+        "paymentsTotal"
+      ],
+      "blocks": [
+        {
+          "type": "heading",
+          "text": "Tax invoice",
+          "level": 1
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Issued to",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Email",
+              "value": "{{client.email}}"
+            },
+            {
+              "label": "Invoice date",
+              "value": "{{today}}"
+            },
+            {
+              "label": "Matter reference",
+              "value": "{{client.id}}"
+            }
+          ]
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "table",
+          "columns": [
+            "Description",
+            "Reference",
+            "Status",
+            "Amount"
+          ],
+          "from": "{{payments}}",
+          "cells": [
+            "{{item.description}}",
+            "{{item.reference}}",
+            "{{item.status}}",
+            "{{item.amount}}"
+          ],
+          "widths": [
+            3.1,
+            1.5,
+            1.2,
+            1.2
+          ]
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Total",
+              "value": "{{paymentsTotal}}"
+            }
+          ]
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "Payment is due by the date shown against each item. Please quote the matter reference when paying. This invoice is issued by {{tenant.name}}; amounts marked as Department charges are collected on your behalf and remitted to the Department of Home Affairs."
+        }
+      ]
+    },
+    {
+      "key": "lodgement_confirmation",
+      "label": "Lodgement confirmation letter",
+      "fileName": "lodgement-{{client.lastName}}",
+      "pageSize": "A4",
+      "header": "{{tenant.name}}",
+      "footer": "{{tenant.name}}   ·   {{today}}",
+      "requires": [
+        "client.fullName"
+      ],
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "{{today}}"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{client.fullName}}\n{{client.email}}"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "heading",
+          "text": "Your application has been lodged",
+          "level": 2
+        },
+        {
+          "type": "paragraph",
+          "text": "Dear {{client.firstName}},"
+        },
+        {
+          "type": "paragraph",
+          "text": "We confirm that your application was lodged with the Department of Home Affairs. The details we hold are set out below. Please check them and tell us immediately if anything is incorrect."
+        },
+        {
+          "type": "keyValue",
+          "rows": [
+            {
+              "label": "Applicant",
+              "value": "{{client.fullName}}"
+            },
+            {
+              "label": "Visa subclass",
+              "value": "{{client.attributes.matter.subclass}}"
+            },
+            {
+              "label": "Department reference",
+              "value": "{{client.attributes.matter.departmentReference}}"
+            },
+            {
+              "label": "Lodged",
+              "value": "{{client.attributes.matter.lodgedAt}}"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Processing times are published by the Department and vary by subclass and by individual circumstances. We will contact you if the Department requests further information. You do not need to do anything further at this stage."
+        },
+        {
+          "type": "paragraph",
+          "text": "Yours sincerely,"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "paragraph",
+          "text": "{{tenant.name}}"
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "key": "case_no_subject_email",
+      "label": "Applicant cannot see this case",
+      "description": "A case with no subject email is invisible to the applicant it is about: the client portal scopes a client-role caller to records whose subjectEmail matches their own address. The applicant will see 'no case yet' and will not know why. Set the applicant's email on the case.",
+      "when": {
+        "==": [
+          {
+            "var": "subjectEmail"
+          },
+          null
+        ]
+      },
+      "message": "No applicant email is recorded on this case, so the applicant cannot see it in their portal.",
+      "severity": "warning"
+    },
+    {
+      "key": "case_unassigned",
+      "label": "No staff member owns this case",
+      "description": "An unassigned case has nobody accountable for its deadlines. Distinct from the alert rules, which watch dates: this is a fact about the record itself and is true the moment it is created.",
+      "when": {
+        "==": [
+          {
+            "var": "assignedTo"
+          },
+          null
+        ]
+      },
+      "message": "This case has no assigned staff member.",
+      "severity": "warning"
+    },
+    {
+      "key": "vac_unverified_at_or_beyond_lodgement",
+      "label": "Lodged without verified payment of the government charge",
+      "description": "An application is not validly made unless the Visa Application Charge has been paid. A matter that believes it is lodged when the charge was never paid is the single most damaging state this product can create. `vacStatus` must be `verified` — meaning a staff member opened the receipt or the TRN and confirmed it — before the case sits at or beyond lodgement. `evidence_pending` is NOT payment: it means an artifact exists that nobody has checked. Scoped to the kanban `stage` vocabulary because that is the one every case row carries. The matter lifecycle keeps its own stage under `matter.stage`, and a rule naming both would be skipped entirely on any case missing either — `missingVariables` skips on ANY absent variable. Unifying the two vocabularies is tracked separately; until then this rule does not see matters tracked only in the lifecycle.",
+      "when": {
+        "and": [
+          {
+            "in": [
+              {
+                "var": "stage"
+              },
+              [
+                "submitted",
+                "additional_info",
+                "granted",
+                "refused"
+              ]
+            ]
+          },
+          {
+            "!=": [
+              {
+                "var": "vacStatus"
+              },
+              "verified"
+            ]
+          }
+        ]
+      },
+      "message": "This case is at stage {{stage}} but the government charge is recorded as {{vacStatus}}, not verified. Confirm the ImmiAccount receipt or the TRN before relying on this application being validly made.",
+      "severity": "error"
+    }
+  ]
+}

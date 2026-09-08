@@ -56,7 +56,11 @@ export class WorkflowInstance {
   @JoinColumn({ name: 'currentStateId' })
   currentState: WorkflowState;
 
-  @Column({ type: 'enum', enum: InstanceStatus, default: InstanceStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: InstanceStatus,
+    default: InstanceStatus.ACTIVE,
+  })
   status: InstanceStatus;
 
   @Column({ type: 'jsonb', default: {} })

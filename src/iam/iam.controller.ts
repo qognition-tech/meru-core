@@ -5,6 +5,13 @@ import {
   UseGuards,
   Request,
   Get,
+  Query,
+  Res,
+  HttpCode,
+  HttpStatus,
+  Delete,
+  Param,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -12,20 +19,33 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { IamService } from './iam.service';
+import { SamlService } from './services/saml.service';
 import { PolicyGuard } from './guards/policy.guard';
-import { Roles } from './decorators/roles.decorator';
-import type { CreateUserInput } from '../common/types';
+import { Public } from './decorators/public.decorator';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { VerifyMfaLoginDto, VerifyMfaSetupDto } from './dto/mfa.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
+import { sessionContextFrom } from './session-context.util';
+import { SamlCallbackDto } from './dto/saml-callback.dto';
 
 @Controller('auth')
 @ApiTags('auth')
 export class IamController {
-  constructor(private iamService: IamService) {}
+  constructor(
+    private iamService: IamService,
+    private samlService: SamlService,
+  ) {}
 
   @Post('login')
-  @UseGuards(AuthGuard('local')) // Requires local.strategy.ts (omitted for brevity, standard impl)
+  @Public() // credential check is AuthGuard('local'), not the global JWT guard
+  @UseGuards(AuthGuard('local')) // See ./strategies/local.strategy.ts
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({
     schema: {
@@ -39,37 +59,310 @@ export class IamController {
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async login(@Request() req) {
-    return this.iamService.login(req.user);
+    return this.iamService.login(req.user, sessionContextFrom(req));
   }
 
+  // This is the "me" endpoint — every authenticated user must be able to read
+  // their own profile. It was `@Roles('admin')`, a role no user has ever held,
+  // so it returned 403 to everyone including admins; the portals worked around
+  // it by hydrating the user off the login response. Authentication is the only
+  // requirement here, so there is no @Roles at all.
   @Get('profile')
   @UseGuards(AuthGuard('jwt'), PolicyGuard)
-  @Roles('admin')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Get user profile' })
+  @ApiOperation({ summary: 'Get the authenticated user’s own profile' })
   @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
   getProfile(@Request() req) {
     return req.user;
   }
 
-  @Post('register')
-  @ApiOperation({ summary: 'Register a new user' })
+  // POST /auth/register was removed 2026-09-04. It was @Public(), keyed only
+  // on an anonymously-enumerable tenant slug (POST /tenants/check-slug has no
+  // guard), and the write ran outside the runAsSystem bypass that wrapped its
+  // two reads — so on this deployment it 500'd on the RLS WITH CHECK for every
+  // caller ("new row violates row-level security policy for table users").
+  // Repairing the RLS scoping alone would have made a worse bug live: a fixed
+  // version self-provisions a caller into ANY existing tenant they can guess
+  // the slug of, including another firm's or bank's, with no role or tenant
+  // gate. No product app has ever shipped a signup page against this route —
+  // grep of all three portals' (auth) route groups turns up login/forgot/reset
+  // only — and the two supported ways to get a user into a tenant already
+  // exist and are correctly scoped: POST /tenants/signup (new workspace + its
+  // first firm_admin) and POST /iam/users/invite (firm_admin/platform_admin
+  // inviting into their own tenant, authenticated, audited). Do not re-add
+  // self-registration into an existing tenant without a per-tenant opt-in gate
+  // — that is a new contract decision, not a bug fix.
+
+  // ── Session lifecycle ─────────────────────────────────────────────────────
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange an opaque refresh token for a new token pair',
+    description:
+      'Validates the refresh token against its active session, revokes that ' +
+      'session (rotation), and issues a fresh access/refresh pair. Returns ' +
+      'the same payload shape as POST /auth/login.',
+  })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        tenantSlug: { type: 'string', example: 'acme-immigration' },
-        email: { type: 'string', example: 'user@example.com' },
-        password: { type: 'string', example: 'password123' },
+        refresh_token: { type: 'string', example: 'e3b0c44298fc1c14…' },
       },
-      required: ['tenantSlug', 'email', 'password'],
+      required: ['refresh_token'],
     },
   })
-  @ApiResponse({ status: 201, description: 'User registered successfully' })
+  @ApiResponse({ status: 200, description: 'Tokens refreshed successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  async register(@Body() createUserDto: CreateUserInput) {
-    return this.iamService.register(createUserDto);
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
+  async refresh(@Request() req, @Body() refreshTokenDto: RefreshTokenDto) {
+    return this.iamService.refreshTokens(
+      refreshTokenDto.refresh_token,
+      sessionContextFrom(req),
+    );
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Revoke the session behind a refresh token',
+    description:
+      'Revokes the single session identified by the supplied refresh token. ' +
+      'Idempotent — an unknown or already-revoked token still returns 200 so ' +
+      'clients can always clear stale credentials.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        refresh_token: { type: 'string', example: 'e3b0c44298fc1c14…' },
+      },
+      required: ['refresh_token'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  async logout(@Body() logoutDto: LogoutDto) {
+    return this.iamService.logoutSession(logoutDto.refresh_token);
+  }
+
+  // ── Credential recovery ───────────────────────────────────────────────────
+
+  @Post('forgot-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request a password-reset link',
+    description:
+      'Always returns 200, whether or not the address belongs to an account. ' +
+      'Reporting "no such user" would make this a free membership oracle for ' +
+      'anyone holding a list of email addresses. Any previously issued reset ' +
+      'link for the same user is invalidated.',
+  })
+  @ApiResponse({ status: 200, description: 'Request accepted' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.iamService.requestPasswordReset(dto.email);
+  }
+
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Set a password using a reset or invite token',
+    description:
+      'Handles both flows — the token type decides which. Accepting an invite ' +
+      'also moves the user from `invited` to `active`. Every existing session ' +
+      'is revoked afterwards, since a password change is the standard response ' +
+      'to a suspected compromise.',
+  })
+  @ApiResponse({ status: 200, description: 'Password set; sessions revoked' })
+  @ApiResponse({ status: 400, description: 'Token invalid, used or expired' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.iamService.resetPassword(dto.token, dto.password);
+  }
+
+  // ── Session management ────────────────────────────────────────────────────
+  //
+  // Concurrent sessions are allowed by design: ImmiStack, the Meru Dashboard
+  // and GovernanceX are three separate products one person holds open at once,
+  // often on more than one device. Revoking every other session on login would
+  // mean signing into one silently signs you out of the other two. The trade is
+  // that they must be individually visible and revocable — that is what these
+  // three routes are for.
+
+  @Get('sessions')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'List your own active sessions',
+    description:
+      'One row per live sign-in, labelled with the product that opened it, ' +
+      'the IP and the user agent, newest first. The session backing the ' +
+      'current request is flagged `current: true`. No token material is ' +
+      'returned — a session is identified only by its id.',
+  })
+  @ApiResponse({ status: 200, description: 'Sessions retrieved' })
+  async listSessions(@Request() req) {
+    return this.iamService.listSessions(req.user.id, req.user.sessionId);
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Revoke one of your own sessions',
+    description:
+      'Signs a single device or product out. Scoped to the caller — a session ' +
+      'id alone is never enough to revoke somebody else’s session.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  @ApiResponse({ status: 404, description: 'Not yours, or already revoked' })
+  async revokeSession(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    return this.iamService.revokeSessionById(req.user.id, id);
+  }
+
+  @Post('logout-all')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Sign out everywhere',
+    description:
+      'Revokes every session the caller holds, across all three portals and ' +
+      'every device — including this one. The right response to a suspected ' +
+      'credential compromise.',
+  })
+  @ApiResponse({ status: 200, description: 'All sessions revoked' })
+  async logoutAll(@Request() req) {
+    return this.iamService.revokeAllSessions(req.user.id);
+  }
+
+  // ── Multi-factor authentication ───────────────────────────────────────────
+  //
+  // None of these were routed. `login()` has always been able to answer
+  // `requiresMfa: true`, but with no endpoint to complete the challenge that
+  // response was a dead end — enabling MFA locked the user out permanently.
+
+  @Post('mfa/verify')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Complete an MFA login',
+    description:
+      'Second leg of the login flow. Exchanges the short-lived ' +
+      '`temporaryToken` from POST /auth/login plus a TOTP code for a full ' +
+      'token pair. Returns the same payload shape as POST /auth/login.',
+  })
+  @ApiResponse({ status: 200, description: 'MFA accepted — tokens issued' })
+  @ApiResponse({ status: 400, description: 'MFA not configured for this user' })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid code, or expired challenge',
+  })
+  async verifyMfaLogin(@Request() req, @Body() dto: VerifyMfaLoginDto) {
+    return this.iamService.verifyMfaLogin(
+      dto.temporaryToken,
+      dto.token,
+      sessionContextFrom(req),
+    );
+  }
+
+  @Post('mfa/setup')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Begin TOTP enrolment for the authenticated user',
+    description:
+      'Generates a secret and returns it with a QR code. MFA is not active ' +
+      'until POST /auth/mfa/setup/verify confirms a code from the authenticator.',
+  })
+  @ApiResponse({ status: 200, description: 'Secret and QR code returned' })
+  @ApiResponse({ status: 400, description: 'MFA is already enabled' })
+  async setupMfa(@Request() req) {
+    return this.iamService.setupMfa(req.user.id);
+  }
+
+  @Post('mfa/setup/verify')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Confirm TOTP enrolment and switch MFA on' })
+  @ApiResponse({ status: 200, description: 'MFA enabled' })
+  @ApiResponse({ status: 400, description: 'Invalid verification code' })
+  async verifyMfaSetup(@Request() req, @Body() dto: VerifyMfaSetupDto) {
+    return this.iamService.verifyMfaSetup(req.user.id, dto.token);
+  }
+
+  @Post('mfa/disable')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Turn MFA off for the authenticated user' })
+  @ApiResponse({ status: 200, description: 'MFA disabled' })
+  async disableMfa(@Request() req) {
+    return this.iamService.disableMfa(req.user.id);
+  }
+
+  // ── SAML SSO endpoints ────────────────────────────────────────────────────
+
+  @Get('saml/initiate')
+  @Public() // browser redirect to the IdP happens pre-authentication
+  @ApiOperation({
+    summary: 'Initiate SAML SSO — redirects to the tenant IdP',
+    description:
+      'Generates a SAML AuthnRequest and redirects the browser to the ' +
+      'configured Identity Provider. Requires ssoConfig.provider=saml and ' +
+      'ssoConfig.entryPoint to be set on the tenant.',
+  })
+  @ApiQuery({ name: 'tenantSlug', required: true, example: 'acme-banking' })
+  @ApiResponse({ status: 302, description: 'Redirect to IdP' })
+  @ApiResponse({ status: 400, description: 'Tenant not configured for SAML' })
+  async samlInitiate(
+    @Query('tenantSlug') tenantSlug: string,
+    @Res() res: Response,
+  ) {
+    const { redirectUrl } = await this.samlService.initiateLogin(tenantSlug);
+    return res.redirect(HttpStatus.FOUND, redirectUrl);
+  }
+
+  @Post('saml/callback')
+  @Public() // the IdP posts the assertion; the assertion itself is the credential
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'SAML SSO callback — receives assertion from IdP',
+    description:
+      'The IdP POSTs the SAMLResponse here after authentication. ' +
+      'Validates the assertion and returns a Meru JWT access token on success.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        SAMLResponse: {
+          type: 'string',
+          description: 'Base64-encoded SAMLResponse from IdP',
+        },
+        RelayState: { type: 'string' },
+      },
+      required: ['SAMLResponse'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'SAML login successful — JWT returned',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid SAML assertion' })
+  async samlCallback(@Body() dto: SamlCallbackDto) {
+    return this.samlService.handleCallback(
+      dto.SAMLResponse,
+      dto.RelayState ?? '',
+    );
   }
 }

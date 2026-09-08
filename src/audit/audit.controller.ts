@@ -1,13 +1,42 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  Res,
+  ParseEnumPipe,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiParam,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
 import type { Response } from 'express';
+import { paginated } from '../common/paginated';
+import { DateRangeQueryDto } from '../common/dto/date-range.dto';
+import { ExportLogsDto } from './dto/export-logs.dto';
+import { ComplianceStandard } from './entities/audit-log.entity';
 
+// The audit trail is IPs, user-agents and other users' record ids — none of
+// it is a `client`'s own record, even the entries about their own case,
+// because every row also names the staff member who touched it. Staff-only,
+// class-wide.
 @ApiTags('audit')
 @Controller('audit')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
+@Roles(PlatformRole.PLATFORM_ADMIN, PlatformRole.FIRM_ADMIN)
 @ApiBearerAuth('JWT-auth')
 export class AuditController {
   constructor(private auditService: AuditService) {}
@@ -23,10 +52,10 @@ export class AuditController {
   @ApiQuery({ name: 'severity', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'offset', required: false })
-  async queryLogs(
-    @Request() req,
-    @Query() query: any,
-  ) {
+  async queryLogs(@Request() req, @Query() query: any) {
+    const limit = query.limit ? parseInt(query.limit, 10) : 100;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+
     const result = await this.auditService.queryLogs({
       tenantId: req.user.tenantId,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
@@ -36,10 +65,18 @@ export class AuditController {
       entityType: query.entityType,
       entityId: query.entityId,
       severity: query.severity,
-      limit: query.limit ? parseInt(query.limit) : 100,
-      offset: query.offset ? parseInt(query.offset) : 0,
+      limit,
+      offset,
     });
-    return { success: true, data: result.logs, meta: { total: result.total } };
+
+    // The total used to ride along inside the payload, where the envelope
+    // buried it; it now lands in `meta.pagination` as the contract specifies.
+    return paginated(
+      result.logs,
+      result.total,
+      Math.floor(offset / (limit || 1)) + 1,
+      limit,
+    );
   }
 
   @Get('logs/entity/:entityType/:entityId')
@@ -54,40 +91,61 @@ export class AuditController {
       entityType,
       entityId,
     );
-    return { success: true, data: logs };
+    return logs;
   }
 
   @Get('logs/user/:userId')
   @ApiOperation({ summary: 'Get user activity' })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
+  @ApiResponse({ status: 400, description: 'Missing or malformed date range' })
   async getUserActivity(
     @Request() req,
     @Param('userId') userId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    @Query() range: DateRangeQueryDto,
   ) {
     const logs = await this.auditService.getUserActivity(
       req.user.tenantId,
       userId,
-      new Date(startDate),
-      new Date(endDate),
+      new Date(range.startDate),
+      new Date(range.endDate),
     );
-    return { success: true, data: logs };
+    return logs;
   }
 
   @Post('logs/verify')
-  @ApiOperation({ summary: 'Verify log integrity' })
+  @ApiOperation({ summary: 'Verify per-row checksums for all tenant logs' })
   async verifyIntegrity(@Request() req) {
     const result = await this.auditService.verifyTenantLogs(req.user.tenantId);
-    return { success: true, data: result };
+    return result;
+  }
+
+  @Get('logs/verify-chain')
+  @ApiOperation({
+    summary: 'Verify tamper-evident hash chain for this tenant',
+    description:
+      'Walks every audit log in chronological order and verifies the SHA-256 chain is intact. Returns status=tampered if any log was modified or deleted.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chain verification result',
+    schema: {
+      example: {
+        status: 'valid',
+        total: 142,
+        valid: 142,
+        details: 'Chain intact (142 logs verified)',
+      },
+    },
+  })
+  async verifyChain(@Request() req) {
+    const result = await this.auditService.verifyChain(req.user.tenantId);
+    return result;
   }
 
   @Post('logs/export')
   @ApiOperation({ summary: 'Export audit logs' })
   async exportLogs(
     @Request() req,
-    @Body() body: { startDate: string; endDate: string; format: 'json' | 'csv' | 'xml' },
+    @Body() body: ExportLogsDto,
     @Res() res: Response,
   ) {
     const { data, filename } = await this.auditService.exportLogs(
@@ -97,27 +155,33 @@ export class AuditController {
       body.format,
     );
 
-    res.setHeader('Content-Type', body.format === 'json' ? 'application/json' : 'text/plain');
+    res.setHeader(
+      'Content-Type',
+      body.format === 'json' ? 'application/json' : 'text/plain',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(data);
   }
 
   @Get('compliance/:standard')
   @ApiOperation({ summary: 'Get compliance report' })
-  @ApiQuery({ name: 'startDate', required: true })
-  @ApiQuery({ name: 'endDate', required: true })
+  @ApiParam({ name: 'standard', enum: ComplianceStandard })
+  @ApiResponse({ status: 400, description: 'Unknown standard, or bad dates' })
   async getComplianceReport(
     @Request() req,
-    @Param('standard') standard: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
+    // Validated against the enum. An unknown value used to reach Postgres and
+    // 500 with `invalid input value for enum
+    // audit_logs_compliancestandard_enum: "..."`.
+    @Param('standard', new ParseEnumPipe(ComplianceStandard))
+    standard: ComplianceStandard,
+    @Query() range: DateRangeQueryDto,
   ) {
     const report = await this.auditService.getComplianceReport(
       req.user.tenantId,
-      standard as any,
-      new Date(startDate),
-      new Date(endDate),
+      standard,
+      new Date(range.startDate),
+      new Date(range.endDate),
     );
-    return { success: true, data: report };
+    return report;
   }
 }

@@ -52,7 +52,11 @@ export class Workflow {
   @Column({ type: 'enum', enum: WorkflowStatus, default: WorkflowStatus.DRAFT })
   status: WorkflowStatus;
 
-  @Column({ type: 'enum', enum: WorkflowTrigger, default: WorkflowTrigger.MANUAL })
+  @Column({
+    type: 'enum',
+    enum: WorkflowTrigger,
+    default: WorkflowTrigger.MANUAL,
+  })
   trigger: WorkflowTrigger;
 
   @Column({ type: 'jsonb', default: {} })
@@ -65,10 +69,12 @@ export class Workflow {
   @Column({ type: 'int', default: 1 })
   version: number;
 
-  @OneToMany(() => WorkflowState, state => state.workflow, { cascade: true })
+  @OneToMany(() => WorkflowState, (state) => state.workflow, { cascade: true })
   states: WorkflowState[];
 
-  @OneToMany(() => WorkflowTransition, transition => transition.workflow, { cascade: true })
+  @OneToMany(() => WorkflowTransition, (transition) => transition.workflow, {
+    cascade: true,
+  })
   transitions: WorkflowTransition[];
 
   @Column({ type: 'jsonb', default: {} })

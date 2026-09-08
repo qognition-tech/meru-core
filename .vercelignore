@@ -1,0 +1,32 @@
+# Keep the lambda small — it must fit well under Vercel's size limit alongside
+# aws-sdk, @elastic/elasticsearch and openai.
+.git
+.github
+# pnpm-lock.yaml is NOT ignored. It is now the only lockfile and the build runs
+# `pnpm install --frozen-lockfile`, which needs it present — excluding it makes
+# the install fail with ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE, whose
+# wording ("lockfile needs updates") describes a stale lockfile rather than a
+# missing one and reads as a problem with the committed file.
+docs
+infra
+test
+scripts
+coverage
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose*.yml
+fly.toml
+render.yaml
+**/*.spec.ts
+**/*.e2e-spec.ts
+**/*.test.ts
+.next
+node_modules/.cache
+# macOS/iCloud duplicate copies ("file 2.ts"). Anything under api/ is deployed
+# as its own serverless function, so a stray `api/index 2.js` ships a second,
+# unreachable lambda; the src/ copies just bloat dist/.
+**/* 2.*

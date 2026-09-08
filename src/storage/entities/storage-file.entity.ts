@@ -10,7 +10,12 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
-import { StorageProvider, StorageClass, FileStatus, FileAccess } from '../interfaces/storage.interface';
+import {
+  StorageProvider,
+  StorageClass,
+  FileStatus,
+  FileAccess,
+} from '../interfaces/storage.interface';
 
 @Entity('storage_files')
 @Index(['tenantId', 'status'])
@@ -105,7 +110,7 @@ export class StorageFile {
   @Column({ type: 'int', default: 0 })
   accessCount: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   folder: string | null;
 
   @OneToMany(() => FileVersion, (version) => version.file, { cascade: true })

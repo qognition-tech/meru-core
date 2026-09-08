@@ -5,7 +5,7 @@ export class AddWorkflowFormsTasksModules1743900000000 implements MigrationInter
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ==================== WORKFLOW TABLES ====================
-    
+
     // Create workflows table
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS workflows (
@@ -429,7 +429,9 @@ export class AddWorkflowFormsTasksModules1743900000000 implements MigrationInter
     await queryRunner.query(`DROP TABLE IF EXISTS form_fields CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS form_schemas CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS workflow_instances CASCADE`);
-    await queryRunner.query(`DROP TABLE IF EXISTS workflow_transitions CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS workflow_transitions CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS workflow_states CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS workflows CASCADE`);
   }

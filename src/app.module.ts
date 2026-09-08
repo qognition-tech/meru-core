@@ -1,16 +1,28 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { TenancyModule } from './core/tenancy/tenancy.module';
+import { MailModule } from './core/mail/mail.module';
+import { TenantAlsMiddleware } from './core/tenancy/tenant-als.middleware';
+import { TenantBindingInterceptor } from './core/tenancy/tenant-binding.interceptor';
+import { GlobalAuthGuard } from './core/auth/global-auth.guard';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/config.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { IamModule } from './iam/iam.module';
+import { OperatorModule } from './iam/operator.module';
 import { TenantModule } from './tenant/tenant.module';
 import { CrmModule } from './crm/crm.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
+
 import { DocumentsModule } from './documents/documents.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { RulesModule } from './rules/rules.module';
 import { FormsModule } from './forms/forms.module';
 import { TasksModule } from './tasks/tasks.module';
 import { BillingModule } from './billing/billing.module';
@@ -19,61 +31,13 @@ import { AuditModule } from './audit/audit.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { StorageModule } from './storage/storage.module';
 import { QueueModule } from './queue/queue.module';
-import { ElasticsearchModule } from './elasticsearch/elasticsearch.module';
+import { ElasticsearchModule } from './search/elasticsearch/elasticsearch.module';
+import { IntegrationsModule } from './integrations/integrations.module';
+import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
-import { User } from './iam/entities/user.entity';
-import { Tenant } from './iam/entities/tenant.entity';
-import { TenantSetting } from './tenant/entities/tenant-setting.entity';
-import { UniversalEntity } from './crm/entities/universal-entity.entity';
-import { SearchIndex } from './search/entities/search-index.entity';
-import { AiPrompt, AiEmbedding } from './ai/entities/ai-prompt.entity';
-import { Document } from './documents/entities/document.entity';
-import { DocumentVersion } from './documents/entities/document-version.entity';
-import { DocumentMetadata } from './documents/entities/document-metadata.entity';
-
-// Workflow entities
-import { Workflow } from './workflow/entities/workflow.entity';
-import { WorkflowState } from './workflow/entities/workflow-state.entity';
-import { WorkflowTransition } from './workflow/entities/workflow-transition.entity';
-import { WorkflowInstance } from './workflow/entities/workflow-instance.entity';
-
-// Forms entities
-import { FormSchema } from './forms/entities/form-schema.entity';
-import { FormField } from './forms/entities/form-field.entity';
-import { FormSubmission } from './forms/entities/form-submission.entity';
-
-// Tasks entities
-import { Task } from './tasks/entities/task.entity';
-import { TaskComment } from './tasks/entities/task-comment.entity';
-import { RecurringJob } from './tasks/entities/recurring-job.entity';
-
-// Billing entities
-import { BillingPlan } from './billing/entities/billing-plan.entity';
-import { Subscription } from './billing/entities/subscription.entity';
-import { UsageRecord } from './billing/entities/usage-record.entity';
-import { CreditLedger } from './billing/entities/credit-ledger.entity';
-import { Invoice } from './billing/entities/invoice.entity';
-import { InvoiceItem } from './billing/entities/invoice-item.entity';
-
-// Analytics entities
-import { Report } from './analytics/entities/report.entity';
-import { ReportExecution } from './analytics/entities/report-execution.entity';
-import { DashboardWidget } from './analytics/entities/dashboard-widget.entity';
-
-// Audit entities
-import { AuditLog } from './audit/entities/audit-log.entity';
-
-// Notifications entities
-import { Notification, NotificationPreference, NotificationTemplate } from './notifications/entities/notification.entity';
-
-// Storage entities
-import { StorageFile, FileVersion, MultipartUpload } from './storage/entities/storage-file.entity';
-
-// Queue entities
-import { QueueJob, QueueJobLog, QueueScheduledJob, QueueWorker } from './queue/entities/job.entity';
-
-// Elasticsearch entities
-import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } from './elasticsearch/entities/search-index.entity';
+import { ALL_ENTITIES } from './config/entities';
 
 @Module({
   imports: [
@@ -83,89 +47,79 @@ import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } fro
     // 2. Event Emitter for @OnEvent decorators
     EventEmitterModule.forRoot(),
 
-    // 3. Database Setup (Connecting all modules)
+    // 3. Scheduler for @Cron/@Interval decorators
+    ScheduleModule.forRoot(),
+
+    // 4. Database Setup (Connecting all modules)
     TypeOrmModule.forRootAsync({
       imports: [AppConfigModule],
       useFactory: (configService: ConfigService): any => {
         const isDevelopment = configService.get('NODE_ENV') === 'development';
+        const isServerless = !!process.env.VERCEL;
+
+        // Neon hands out a single connection string; prefer it when present and
+        // fall back to the discrete vars for local/legacy setups.
+        const databaseUrl = configService.get('database.url');
+        const connection = databaseUrl
+          ? { url: databaseUrl }
+          : {
+              host: configService.get('database.host'),
+              port: configService.get('database.port'),
+              username: configService.get('database.username'),
+              password: configService.get('database.password'),
+              database: configService.get('database.name'),
+            };
 
         return {
           type: 'postgres' as const,
-          host: configService.get('database.host'),
-          port: configService.get('database.port'),
-          username: configService.get('database.username'),
-          password: configService.get('database.password'),
-          database: configService.get('database.name'),
+          ...connection,
 
-          // CRITICAL: All entities from all modules must be listed here
-          // so TypeORM can manage them and create tables (if synchronize: true)
-          entities: [
-            User,
-            Tenant,
-            TenantSetting,
-            UniversalEntity,
-            SearchIndex,
-            AiPrompt,
-            AiEmbedding,
-            Document,
-            DocumentVersion,
-            DocumentMetadata,
-            Workflow,
-            WorkflowState,
-            WorkflowTransition,
-            WorkflowInstance,
-            FormSchema,
-            FormField,
-            FormSubmission,
-            Task,
-            TaskComment,
-            RecurringJob,
-            BillingPlan,
-            Subscription,
-            UsageRecord,
-            CreditLedger,
-            Invoice,
-            InvoiceItem,
-            Report,
-            ReportExecution,
-            DashboardWidget,
-            AuditLog,
-            // Notifications entities
-            Notification,
-            NotificationPreference,
-            NotificationTemplate,
-            // Storage entities
-            StorageFile,
-            FileVersion,
-            MultipartUpload,
-            // Queue entities
-            QueueJob,
-            QueueJobLog,
-            QueueScheduledJob,
-            QueueWorker,
-            // Elasticsearch entities
-            ElasticsearchIndex,
-            ElasticsearchDocument,
-            ElasticsearchSearchLog,
-          ],
+          // CRITICAL: the shared catalogue in config/entities.ts — the same
+          // list every per-vertical DataSource loads, so schemas cannot drift.
+          entities: ALL_ENTITIES,
 
           // WARNING: synchronize: true is for DEVELOPMENT ONLY.
           // It automatically creates/updates tables. Disable for Production!
           synchronize: false, // Disabled for production - use migrations
 
           logging: isDevelopment,
+
+          // Serverless gets ONE attempt. TypeORM funnels every DataSource
+          // failure — including non-retryable ones like a bad entity
+          // definition — through the same retry loop, logging each as
+          // "Unable to connect to the database. Retrying (n)...". Ten attempts
+          // at 3s spends 30s+ before the real error is ever thrown, which on a
+          // 60s-maxDuration function means the platform kills the process
+          // first: no stack, no log, just FUNCTION_INVOCATION_FAILED. That
+          // masked a DataTypeNotSupportedError as a connection fault and cost
+          // hours of downtime chasing TLS and env vars. Retrying also buys
+          // nothing here — a cold start that cannot reach Postgres should fail
+          // fast and let the next invocation try, not hold the caller open.
+          retryAttempts: isServerless ? 1 : isDevelopment ? 3 : 10,
+          retryDelay: 3000,
+          ssl: { rejectUnauthorized: false },
+
+          // Serverless: every lambda instance gets its own pool, so cap it at 1
+          // connection. Without this each cold start opens pg's default pool of
+          // 10 and exhausts Neon's connection limit under any real concurrency.
+          extra: isServerless
+            ? { max: 1, connectionTimeoutMillis: 10000 }
+            : { max: 10 },
         };
       },
       inject: [ConfigService],
     }),
 
     IamModule,
+    OperatorModule,
     TenantModule,
     CrmModule,
     SearchModule,
     AiModule,
+    OrchestrationModule,
     DocumentsModule,
     WorkflowModule,
+    RulesModule,
     FormsModule,
     TasksModule,
     BillingModule,
@@ -175,6 +129,34 @@ import { ElasticsearchIndex, ElasticsearchDocument, ElasticsearchSearchLog } fro
     StorageModule,
     QueueModule,
     ElasticsearchModule,
+    IntegrationsModule,
+    HealthModule,
+    JobsModule,
+    WebhooksModule,
+    TenancyModule,
+    MailModule,
+  ],
+  // AppController serves GET /api/v1/ (the root status route). It existed but
+  // was never registered in any module, so the route 404'd and was missing from
+  // the OpenAPI document despite carrying @ApiTags('app').
+  controllers: [AppController],
+  providers: [
+    AppService,
+    // Binds the authenticated tenant into the ALS context for every request.
+    // Global (rather than per-controller) because a route that silently misses
+    // this would run against an unbound connection — CLAUDE.md §6.4 admits no
+    // opt-in surface for tenant isolation.
+    { provide: APP_INTERCEPTOR, useClass: TenantBindingInterceptor },
+    // Default-deny authentication: every route requires a JWT unless it
+    // declares @Public(). Same rationale as the interceptor above — auth,
+    // like tenancy, admits no opt-in surface.
+    { provide: APP_GUARD, useClass: GlobalAuthGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Must be the outermost middleware: it opens the AsyncLocalStorage context
+    // that everything downstream — guards, interceptors, repositories — reads.
+    consumer.apply(TenantAlsMiddleware).forRoutes('*');
+  }
+}

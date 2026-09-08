@@ -46,7 +46,11 @@ export class FormSubmission {
   @Column({ nullable: true })
   entityId: string; // ID of the entity this submission is for (if editing existing)
 
-  @Column({ type: 'enum', enum: SubmissionStatus, default: SubmissionStatus.DRAFT })
+  @Column({
+    type: 'enum',
+    enum: SubmissionStatus,
+    default: SubmissionStatus.DRAFT,
+  })
   status: SubmissionStatus;
 
   @Column({ type: 'jsonb' })

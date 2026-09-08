@@ -2,6 +2,15 @@
 /dist
 /node_modules
 /build
+.next/
+
+# pnpm is the package manager (see package.json "packageManager"). A stray
+# package-lock.json makes the deployed dependency tree ambiguous: Vercel picks
+# an installer by sniffing lockfiles, so two of them means the build can
+# resolve a different graph than anyone tested. Ignored so `npm install` run by
+# habit cannot quietly reintroduce one.
+package-lock.json
+yarn.lock
 
 # Logs
 logs
@@ -35,8 +44,10 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# dotenv environment variable files
+# dotenv environment variable files (NEVER commit anything but .env.example)
 .env
+.env.*
+!.env.example
 .env.development.local
 .env.test.local
 .env.production.local
@@ -54,3 +65,13 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+.vercel
+
+# Product/reference documents (client proposals, BRDs) — not source code
+claude-documents/
+
+# Generated demo artefacts. `scripts/seed-demo-documents.js --dry-run` writes
+# specimen PDFs here for inspection; they are regenerated on demand and must
+# not be committed — a passport lookalike in git history is exactly the sort of
+# file that gets mistaken for a fixture and then for evidence.
+/tmp/

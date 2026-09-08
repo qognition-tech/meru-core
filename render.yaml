@@ -1,0 +1,55 @@
+# Render Blueprint for Meru Core (api.meru.com)
+# Deploys the NestJS backend as a persistent web service (keeps BullMQ
+# workers + @nestjs/schedule cron running, unlike serverless).
+#
+# Usage: push to GitHub, then Render Dashboard -> New -> Blueprint -> pick repo.
+# Set the secret env vars (marked sync:false) in the Render dashboard.
+services:
+  - type: web
+    name: meru-core-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: VERTICAL
+        value: core
+      # --- Neon Postgres: two roles, on purpose (see DEPLOY.md / DATABASE.md) ---
+      # Owner role — migrations / DDL only.
+      - key: DATABASE_URL
+        sync: false
+      # meru_app (NOBYPASSRLS) — application runtime. REQUIRED: the app refuses
+      # to start in production without it, because RLS is inert for an owner role.
+      - key: DATABASE_APP_URL
+        sync: false
+      # --- Cache (optional) — the job queue is Postgres-backed, not Redis.
+      # Unset means in-memory caching; add REDIS_HOST/REDIS_PORT to use Redis.
+      # --- Auth / app secrets ---
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRATION
+        value: 1h
+      - key: DOCUMENT_ENCRYPTION_KEY
+        generateValue: true
+      # --- CORS (set to your frontend origins) ---
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://app.immistack.com,https://app.governancex.com
+      # --- Optional integrations ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-south-1
+      - key: AWS_S3_BUCKET
+        value: meru-documents
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: SKIP_CONFIG_PACK_LOADER
+        value: false

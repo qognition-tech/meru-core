@@ -1,0 +1,759 @@
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { WatchlistIngestService } from './watchlist-ingest.service';
+// Classical string metrics from `talisman` rather than hand-rolled copies.
+// CommonJS on purpose (see scripts/check-cjs-deps.js); `require` because the
+// package ships no bundled type declarations.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const jaroWinklerSimilarity: (
+  a: string,
+  b: string,
+) => number = require('talisman/metrics/jaro-winkler');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const levenshteinDistance: (
+  a: string,
+  b: string,
+) => number = require('talisman/metrics/levenshtein');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const soundexCode: (
+  s: string,
+) => string = require('talisman/phonetics/soundex');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const doubleMetaphoneCodes: (
+  s: string,
+) => [string, string] = require('talisman/phonetics/double-metaphone');
+import * as crypto from 'crypto';
+
+/**
+ * Minimum **Levenshtein** ratio before a phonetic code match may contribute.
+ *
+ * Phonetic codes over a full name are lossy enough that unrelated strings
+ * collide routinely, so they corroborate a near-miss rather than count as
+ * evidence on their own.
+ *
+ * Levenshtein specifically, NOT Jaro-Winkler. Jaro-Winkler weights a shared
+ * prefix heavily, which is exactly the wrong property here: two unrelated
+ * people sharing a forename score high on it. Measured against the real OFAC
+ * list, the surviving false positives were
+ *   "Margarethe Vandersloot"      vs "MARGARITA 1"        jw 0.840 / lev 0.364
+ *   "Dmitri Kowalczyk Rutherford" vs "DMITRIEV, Kirill …" jw 0.820 / lev 0.333
+ * while the transliteration cases these algorithms exist for were
+ *   "mohammed ali"   vs "muhammad ali"   jw 0.870 / lev 0.833
+ *   "mohamad hassan" vs "muhammad hasan" jw 0.914 / lev 0.786
+ *   "abdul rahman"   vs "abdulrahman"    jw 0.983 / lev 0.917
+ *
+ * Jaro-Winkler cannot separate those two groups; Levenshtein separates them
+ * cleanly, with every true case above 0.78 and every false one below 0.51.
+ * 0.70 sits in that gap with margin on both sides.
+ */
+const PHONETIC_CORROBORATION_FLOOR = 0.7;
+
+// ── Public types ──────────────────────────────────────────────────────────
+
+export interface ScreeningRequest {
+  tenantId: string;
+  entityId?: string;
+  entityName: string;
+  entityType: 'individual' | 'organization' | 'vessel' | 'transaction';
+  screeningTypes: ScreeningType[];
+  metadata?: Record<string, any>;
+  identities?: Array<{
+    field: string;
+    value: string;
+    type:
+      | 'name'
+      | 'alias'
+      | 'document'
+      | 'address'
+      | 'date_of_birth'
+      | 'nationality';
+  }>;
+  // Allow caller to supply a custom watchlist for this request
+  customWatchlist?: WatchlistEntry[];
+}
+
+export type ScreeningType =
+  | 'sanctions'
+  | 'pep'
+  | 'adverse_media'
+  | 'watchlist'
+  | 'criminal'
+  | 'financial'
+  | 'identity_verification'
+  | 'document_verification'
+  | 'custom';
+
+export interface ScreeningResult {
+  screeningId: string;
+  entityId?: string;
+  status: 'clear' | 'hit' | 'review_required' | 'escalated' | 'error';
+  /**
+   * Whether ingested sanctions lists were actually screened against. Always
+   * `true` on a result the engine returns — when it would be `false` the
+   * engine throws 503 instead (`ScreeningListsUnavailableException`), so a
+   * caller never receives a `clear` that was computed over nothing.
+   */
+  listsLoaded: true;
+  /** Rows in the ingested lists this screen ran against (custom excluded). */
+  listEntries: number;
+  riskScore: number; // 0-100
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  hits: ScreeningHit[];
+  summary: string;
+  recommendation?: string;
+  completedAt: Date;
+  durationMs: number;
+}
+
+export interface ScreeningHit {
+  type: ScreeningType;
+  source: string;
+  matchName: string;
+  matchScore: number; // 0-1
+  algorithm:
+    | 'exact'
+    | 'token_set'
+    | 'levenshtein'
+    | 'double_metaphone'
+    | 'jaro_winkler'
+    | 'soundex'
+    | 'transliteration';
+  details: string;
+  severity: 'info' | 'warning' | 'alert';
+  listEntry?: WatchlistEntry;
+  timestamp: Date;
+}
+
+export interface WatchlistEntry {
+  id: string;
+  name: string;
+  aliases?: string[];
+  type: 'individual' | 'organization' | 'vessel';
+  listSource: 'ofac' | 'eu' | 'un' | 'uk_hmt' | 'uae_local' | 'custom';
+  country?: string;
+  dateOfBirth?: string;
+  identifiers?: Array<{ type: string; value: string }>;
+  programs?: string[];
+  remarks?: string;
+}
+
+// ── Watchlist source ──────────────────────────────────────────────────────
+//
+// There is deliberately no built-in sample list here any more. A dozen
+// hardcoded names (Al-Shabaab, Hezbollah, Kim Jong Un…) used to stand in when
+// `watchlist_entries` was empty, and the effect in production was that every
+// real counterparty screened `clear` against six organisations and one
+// person — indistinguishable from a genuine no-hit. A screen against no list
+// is not a screen, and the engine now refuses rather than pretends.
+
+/**
+ * 503 with an explicit body. `listsLoaded: false` is the field a UI keys on;
+ * `unavailableReason` is the sentence to show. Neither looks like a no-hit.
+ */
+export class ScreeningListsUnavailableException extends ServiceUnavailableException {
+  constructor(unavailableReason: string) {
+    super({
+      statusCode: 503,
+      error: 'Service Unavailable',
+      message: unavailableReason,
+      listsLoaded: false,
+      unavailableReason,
+    });
+  }
+}
+
+// ── ScreeningEngine ───────────────────────────────────────────────────────
+
+@Injectable()
+export class ScreeningEngine {
+  private readonly logger = new Logger(ScreeningEngine.name);
+
+  // Sub-200ms p95 target: all matching is in-process (no network I/O per name).
+  // Ingested lists are therefore cached in memory and refreshed on a TTL —
+  // reloading ~17k OFAC rows per screening request would miss that budget by
+  // orders of magnitude.
+  private cache: { entries: WatchlistEntry[]; expires: number } | null = null;
+  private static readonly CACHE_TTL_MS = 10 * 60_000;
+
+  constructor(private readonly watchlistIngest: WatchlistIngestService) {}
+
+  /**
+   * The lists to screen against.
+   *
+   * Ingested rows (OFAC SDN, UN, EU CFSP, UK OFSI) and nothing else. An empty
+   * table or a failed read throws `ScreeningListsUnavailableException` (503)
+   * — a fresh install that silently cleared every name was the most dangerous
+   * failure mode this engine has had, and it is the one §5.2 of CLAUDE.md is
+   * about.
+   */
+  private async loadWatchlist(): Promise<WatchlistEntry[]> {
+    if (this.cache && this.cache.expires > Date.now()) return this.cache.entries;
+
+    let rows: Awaited<ReturnType<WatchlistIngestService['loadAll']>>;
+    try {
+      rows = await this.watchlistIngest.loadAll();
+    } catch (err) {
+      // Unknown is never clear. A database fault must surface as "could not
+      // screen", not as "no hits" — and not as a screen against a sample list.
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Watchlist load failed: ${message}`);
+      throw new ScreeningListsUnavailableException(
+        `The sanctions lists could not be read (${message}). Nothing was screened.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      // Not cached: the moment the ingest lands, the next request must see it.
+      this.logger.error(
+        'watchlist_entries is EMPTY — refusing to screen. Run the ' +
+          'watchlist-ingest job (POST /jobs/watchlist-ingest with the ' +
+          'CRON_SECRET bearer) to load OFAC / UN / EU / UK.',
+      );
+      throw new ScreeningListsUnavailableException(
+        'No sanctions lists are loaded (watchlist_entries is empty), so no ' +
+          'name can match and a "clear" result would be meaningless. Run ' +
+          'POST /jobs/watchlist-ingest with the CRON_SECRET bearer, then retry.',
+      );
+    }
+
+    const entries: WatchlistEntry[] = rows.map((r) => ({
+      id: `${r.listSource}-${r.externalId}`,
+      name: r.name,
+      aliases: r.aliases ?? [],
+      type: (r.entityType === 'individual'
+        ? 'individual'
+        : 'organization') as WatchlistEntry['type'],
+      listSource: r.listSource as WatchlistEntry['listSource'],
+      country: r.country ?? undefined,
+      programs: r.programs ?? [],
+      remarks: r.remarks ?? undefined,
+    }));
+
+    this.cache = {
+      entries,
+      expires: Date.now() + ScreeningEngine.CACHE_TTL_MS,
+    };
+    return entries;
+  }
+
+  /** Drops the cache so a fresh ingest takes effect immediately. */
+  invalidateCache(): void {
+    this.cache = null;
+  }
+
+  async screen(
+    request: ScreeningRequest,
+    threshold = 0.85,
+  ): Promise<ScreeningResult> {
+    const startMs = Date.now();
+    const screeningId = `scr_${crypto.randomUUID()}`;
+    const hits: ScreeningHit[] = [];
+
+    const namesToCheck = this.buildNameList(request);
+    // Throws 503 when nothing is ingested. A caller-supplied customWatchlist
+    // is in *addition* to the sanctions lists, never a substitute: a request
+    // that names three counterparties of its own still expects OFAC to be
+    // consulted, and "clear against your three names" is not the same claim.
+    const ingested = await this.loadWatchlist();
+    const watchlist = [
+      ...ingested,
+      ...(request.customWatchlist ?? []),
+    ].filter(
+      (entry) =>
+        this.listMatchesTypes(entry, request.screeningTypes) &&
+        this.typeCouldMatch(request.entityType, entry.type),
+    );
+
+    for (const name of namesToCheck) {
+      for (const entry of watchlist) {
+        const bestMatch = this.matchAgainstEntry(name, entry, threshold);
+        if (bestMatch)
+          hits.push({
+            ...bestMatch,
+            type: this.entryToScreeningType(entry),
+            timestamp: new Date(),
+          });
+      }
+    }
+
+    const { riskScore, riskLevel, status } = this.computeRisk(hits, request);
+
+    return {
+      screeningId,
+      entityId: request.entityId,
+      status,
+      listsLoaded: true,
+      listEntries: ingested.length,
+      riskScore,
+      riskLevel,
+      hits: this.deduplicateHits(hits),
+      summary: this.buildSummary(hits, riskLevel),
+      recommendation: this.buildRecommendation(riskLevel, hits),
+      completedAt: new Date(),
+      durationMs: Date.now() - startMs,
+    };
+  }
+
+  // ── Name list builder ────────────────────────────────────────────────────
+
+  private buildNameList(request: ScreeningRequest): string[] {
+    const names = new Set<string>();
+    names.add(this.normalise(request.entityName));
+
+    if (request.identities) {
+      for (const id of request.identities) {
+        if (id.type === 'name' || id.type === 'alias') {
+          names.add(this.normalise(id.value));
+        }
+      }
+    }
+
+    return Array.from(names).filter(Boolean);
+  }
+
+  // ── Matching against a single watchlist entry ────────────────────────────
+
+  private matchAgainstEntry(
+    name: string,
+    entry: WatchlistEntry,
+    threshold: number,
+  ): Omit<ScreeningHit, 'type' | 'timestamp'> | null {
+    const candidates = [entry.name, ...(entry.aliases ?? [])].map((c) =>
+      this.normalise(c),
+    );
+
+    let best: {
+      score: number;
+      algorithm: ScreeningHit['algorithm'];
+      candidate: string;
+    } | null = null;
+
+    for (const candidate of candidates) {
+      // 1. Exact
+      if (name === candidate) {
+        return {
+          source: entry.listSource.toUpperCase(),
+          matchName: entry.name,
+          matchScore: 1.0,
+          algorithm: 'exact',
+          details: `Exact match against ${entry.listSource.toUpperCase()} entry "${entry.name}"`,
+          severity: 'alert',
+          listEntry: entry,
+        };
+      }
+
+      // 2. Token set — the same name written in a different order.
+      //
+      // Sanctions lists store surname first ("PUTIN, Vladimir Vladimirovich");
+      // people type given name first. The exact path above never fires on that,
+      // so a genuine designation arrived as a ~0.87 Jaro-Winkler `warning`,
+      // scoring no differently from a coincidental prefix collision. Measured
+      // against the real lists, *no* hit for a genuinely designated individual ever
+      // reached the 0.95 `alert` band — which made "alert vs warning" a
+      // distinction the engine could describe but never draw.
+      //
+      // Requires every queried token to be present and at least two of them, so
+      // a lone forename cannot promote itself. An extra patronymic on the list
+      // side scores just below a pure reordering: still a confirmed match, but
+      // the response records that the two strings were not identical.
+      const tokenScore = this.tokenSetScore(name, candidate);
+      if (tokenScore) {
+        return {
+          source: entry.listSource.toUpperCase(),
+          matchName: entry.name,
+          matchScore: tokenScore,
+          algorithm: tokenScore === 1 ? 'exact' : 'token_set',
+          details:
+            `${tokenScore === 1 ? 'Exact' : 'Token-set'} match ` +
+            `(${(tokenScore * 100).toFixed(1)}%) against ` +
+            `${entry.listSource.toUpperCase()} entry "${entry.name}"`,
+          severity: 'alert',
+          listEntry: entry,
+        };
+      }
+
+      // 3. Jaro-Winkler (best for names — prefix-sensitive)
+      const jw = this.jaroWinkler(name, candidate);
+      if (jw > (best?.score ?? 0))
+        best = { score: jw, algorithm: 'jaro_winkler', candidate };
+
+      // 4. Levenshtein ratio (good for OCR errors, typos)
+      const lev = this.levenshteinRatio(name, candidate);
+      if (lev > (best?.score ?? 0))
+        best = { score: lev, algorithm: 'levenshtein', candidate };
+
+      // 5. Phonetic — CORROBORATING ONLY, never sufficient on its own.
+      //
+      // Double Metaphone encodes an alternate pronunciation, so Mohammed /
+      // Muhammad / Mohamad all reduce to MHMT: the most common family of
+      // near-misses on sanctions lists, and worth catching.
+      //
+      // But a phonetic code for a whole multi-word name is extremely lossy —
+      // it compresses to a handful of consonant symbols, and unrelated names
+      // collide constantly. This previously awarded a flat 0.85, which is
+      // exactly the default threshold, so ANY phonetic collision became a hit.
+      // Measured against the real OFAC list that made "Jane Quillingford
+      // Ordinary" match "ZHANG, Lei" and "ANGLO-CARIBBEAN CO., LTD." — every
+      // invented name screened as `escalated` with double-digit hits.
+      //
+      // That is not a cosmetic bug. A screening engine that flags everyone is
+      // indistinguishable from one that flags no one: the alerts get switched
+      // off, and the real designation goes through with them.
+      //
+      // So phonetic agreement now only counts when the strings are already
+      // lexically close. It promotes a borderline lexical match rather than
+      // manufacturing one from nothing.
+      // Gated on Levenshtein alone — see PHONETIC_CORROBORATION_FLOOR for why
+      // Jaro-Winkler cannot be used here.
+      if (name.length > 2 && lev >= PHONETIC_CORROBORATION_FLOOR) {
+        if (this.phoneticallyEqual(name, candidate)) {
+          const score = Math.max(0.85, Math.max(jw, lev));
+          if (score > (best?.score ?? 0))
+            best = { score, algorithm: 'double_metaphone', candidate };
+        } else if (this.soundex(name) === this.soundex(candidate)) {
+          // Soundex is English-tuned and only four characters wide, so it
+          // agrees more loosely than Double Metaphone and is worth less when
+          // it does.
+          const score = Math.max(0.8, Math.max(jw, lev));
+          if (score > (best?.score ?? 0))
+            best = { score, algorithm: 'soundex', candidate };
+        }
+      }
+
+      // 6. Transliteration — Arabic/Latin normalisation
+      const translitName = this.transliterateArabic(name);
+      const translitCandidate = this.transliterateArabic(candidate);
+      if (translitName !== name || translitCandidate !== candidate) {
+        const tJw = this.jaroWinkler(translitName, translitCandidate);
+        if (tJw > (best?.score ?? 0))
+          best = { score: tJw, algorithm: 'transliteration', candidate };
+      }
+    }
+
+    if (!best || best.score < threshold) return null;
+
+    return {
+      source: entry.listSource.toUpperCase(),
+      matchName: entry.name,
+      matchScore: best.score,
+      algorithm: best.algorithm,
+      details: `${best.algorithm} match (${(best.score * 100).toFixed(1)}%) against ${entry.listSource.toUpperCase()} entry "${entry.name}"`,
+      severity: best.score >= 0.95 ? 'alert' : 'warning',
+      listEntry: entry,
+    };
+  }
+
+  // ── Fuzzy algorithms ──────────────────────────────────────────────────────
+  //
+  // These delegate to `talisman`, a maintained open-source implementation of
+  // the classical string metrics. They used to be hand-written here — roughly
+  // 120 lines of Jaro, Jaro-Winkler, Levenshtein and Soundex. Sanctions
+  // screening is exactly the wrong place to carry a bespoke edit-distance
+  // implementation: a subtle error in the match window or the prefix bonus
+  // does not crash, it silently fails to flag a sanctioned party, and nothing
+  // in the system would tell you. A widely used library is the safer default.
+  //
+  // `talisman` is CommonJS, which matters — see scripts/check-cjs-deps.js and
+  // the otplib note in iam.service.ts.
+
+  /** Jaro-Winkler similarity in [0, 1]. Strong on proper names. */
+  jaroWinkler(s1: string, s2: string): number {
+    if (!s1 || !s2) return 0;
+    return jaroWinklerSimilarity(s1, s2);
+  }
+
+  /** Normalised Levenshtein similarity in [0, 1]. Good for OCR noise/typos. */
+  levenshteinRatio(s1: string, s2: string): number {
+    const maxLen = Math.max(s1.length, s2.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinDistance(s1, s2) / maxLen;
+  }
+
+  levenshtein(s1: string, s2: string): number {
+    return levenshteinDistance(s1, s2);
+  }
+
+  /** Soundex phonetic code. Retained for the `soundex` algorithm label. */
+  soundex(name: string): string {
+    const cleaned = name.toUpperCase().replace(/[^A-Z]/g, '');
+    if (!cleaned) return '0000';
+    return soundexCode(cleaned);
+  }
+
+  /**
+   * Double Metaphone — two codes per name, a primary and an alternate.
+   *
+   * Materially better than Soundex for this domain. Soundex is tuned for
+   * English surnames and keeps only four characters, so it both misses
+   * transliteration variants and generates noise on Arabic names. Double
+   * Metaphone encodes a plausible alternate pronunciation, which is precisely
+   * the Mohammed/Muhammad/Mohamad problem sanctions lists are full of — all
+   * three share the code MHMT.
+   */
+  doubleMetaphone(name: string): [string, string] {
+    const cleaned = name.toUpperCase().replace(/[^A-Z]/g, '');
+    if (!cleaned) return ['', ''];
+    const [primary, alternate] = doubleMetaphoneCodes(cleaned);
+    return [primary, alternate];
+  }
+
+  /** True when two names share either metaphone code. */
+  private phoneticallyEqual(a: string, b: string): boolean {
+    const [aP, aS] = this.doubleMetaphone(a);
+    const [bP, bS] = this.doubleMetaphone(b);
+    if (!aP || !bP) return false;
+    return aP === bP || aP === bS || aS === bP || (!!aS && aS === bS);
+  }
+
+  // Arabic → Latin transliteration (common variants).
+  // Covers the most frequent mis-transliterations seen in sanctions lists.
+  private transliterateArabic(text: string): string {
+    return text
+      .replace(/[آأإا]/g, 'a')
+      .replace(/ب/g, 'b')
+      .replace(/[تث]/g, 't')
+      .replace(/[جچ]/g, 'j')
+      .replace(/[حخ]/g, 'h')
+      .replace(/د/g, 'd')
+      .replace(/ذ/g, 'z')
+      .replace(/ر/g, 'r')
+      .replace(/ز/g, 'z')
+      .replace(/س/g, 's')
+      .replace(/ش/g, 'sh')
+      .replace(/ص/g, 's')
+      .replace(/ض/g, 'd')
+      .replace(/ط/g, 't')
+      .replace(/ظ/g, 'z')
+      .replace(/ع/g, '')
+      .replace(/غ/g, 'gh')
+      .replace(/ف/g, 'f')
+      .replace(/ق/g, 'q')
+      .replace(/ك/g, 'k')
+      .replace(/ل/g, 'l')
+      .replace(/م/g, 'm')
+      .replace(/ن/g, 'n')
+      .replace(/ه/g, 'h')
+      .replace(/[وؤ]/g, 'w')
+      .replace(/[يئى]/g, 'y')
+      .replace(/ة/g, 'a');
+  }
+
+  // ── Normalisation ─────────────────────────────────────────────────────────
+
+  /**
+   * Score two names as *sets of words*, or 0 when they are not the same name.
+   *
+   * `1.0` when both contain exactly the same words in any order — "vladimir
+   * putin" against a list's "putin vladimir" is the same person, and the
+   * whole-string exact test cannot see that.
+   *
+   * `0.97` when every queried word appears on the list side and the list side
+   * carries extra ones, which is the usual shape of a patronymic or a middle
+   * name the enquirer omitted. Still a confirmed match; scored a shade lower so
+   * the response does not claim the two strings were identical.
+   *
+   * Deliberately asymmetric: extra words in the *query* do not match, because
+   * "john smith of 42 acacia avenue" against list entry "smith" is a coincidence
+   * of surname. And at least two queried words are required, so a bare forename
+   * can never promote itself into a confirmed hit against every entry that
+   * happens to contain it.
+   *
+   * Single-character tokens are dropped — initials carry too little information
+   * to be part of an identity claim.
+   */
+  private tokenSetScore(name: string, candidate: string): number {
+    const nameTokens = name.split(' ').filter((t) => t.length > 1);
+    const candidateTokens = candidate.split(' ').filter((t) => t.length > 1);
+
+    if (nameTokens.length < 2 || candidateTokens.length < 2) return 0;
+
+    const candidateSet = new Set(candidateTokens);
+    const everyTokenPresent = nameTokens.every((t) => candidateSet.has(t));
+    if (!everyTokenPresent) return 0;
+
+    return new Set(nameTokens).size === candidateSet.size ? 1 : 0.97;
+  }
+
+  normalise(name: string): string {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '') // strip diacritics
+      .replace(/[^a-z0-9\s؀-ۿ]/g, '') // keep Latin, digits, spaces, Arabic
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Whether a list entry is even the right *kind* of thing to compare against.
+   *
+   * Screening an individual used to compare their name against every vessel and
+   * company on the list, which is where the worst false positives came from:
+   * invented person "Zephyrine Bloxwich" matched OFAC's **vessel** "ZEPHYR I" at
+   * 0.86, because Jaro-Winkler's prefix bonus rewards a short candidate sharing
+   * a first syllable. "Vladimir Putin" likewise returned four ships called
+   * VLADIMIR-something. A person is not a boat and the comparison never had
+   * anything to say.
+   *
+   * Excluded only when both types are known and disagree. An entry whose type
+   * the source did not state is still compared — dropping it would silently
+   * narrow the list, and a missed designation is the one outcome worse than a
+   * false positive. `transaction` requests screen against everything, since a
+   * transaction's counterparty may be a person, a company or a vessel.
+   */
+  private typeCouldMatch(
+    requested: ScreeningRequest['entityType'] | undefined,
+    entryType: WatchlistEntry['type'] | undefined,
+  ): boolean {
+    if (!requested || !entryType) return true;
+    if (requested === 'transaction') return true;
+    return requested === entryType;
+  }
+
+  // ── Risk scoring ──────────────────────────────────────────────────────────
+
+  private computeRisk(
+    hits: ScreeningHit[],
+    _request: ScreeningRequest,
+  ): {
+    riskScore: number;
+    riskLevel: ScreeningResult['riskLevel'];
+    status: ScreeningResult['status'];
+  } {
+    if (hits.length === 0)
+      return { riskScore: 0, riskLevel: 'low', status: 'clear' };
+
+    // Score the deduplicated set. Twelve fuzzy variants of one list entry are
+    // one piece of evidence, not twelve: counting the raw hits let a single
+    // near-miss name reach 100 by repetition alone.
+    const distinct = this.deduplicateHits(hits);
+    const alertHits = distinct.filter((h) => h.severity === 'alert');
+    const warnHits = distinct.filter((h) => h.severity === 'warning');
+
+    let riskScore = 0;
+    riskScore += alertHits.length * 40;
+    riskScore += warnHits.length * 15;
+    riskScore = Math.min(100, riskScore);
+
+    // The sanctions floor applies to a *confirmed* match only.
+    //
+    // It used to apply to any hit from a sanctions source, and since every OFAC
+    // row is a sanctions source, one 0.86 fuzzy match floored the score at 75 —
+    // `critical`, `escalated`, "file a SAR if applicable". An invented name
+    // against a vessel produced the same output as a true designation, and a
+    // compliance officer acts on that. `severity` already draws the line at
+    // 0.95; this now respects it.
+    const confirmedSanctionHits = alertHits.filter((h) =>
+      ['OFAC', 'UN', 'EU', 'UK_HMT', 'UAE_LOCAL'].includes(h.source),
+    );
+    if (confirmedSanctionHits.length > 0) riskScore = Math.max(riskScore, 75);
+
+    let riskLevel: ScreeningResult['riskLevel'];
+    let status: ScreeningResult['status'];
+
+    if (riskScore >= 75) {
+      riskLevel = 'critical';
+      status = 'escalated';
+    } else if (riskScore >= 50) {
+      riskLevel = 'high';
+      status = 'hit';
+    } else if (riskScore >= 25) {
+      riskLevel = 'medium';
+      status = 'review_required';
+    } else {
+      riskLevel = 'low';
+      status = 'review_required';
+    }
+
+    // Nothing built out of warnings alone may present as a designation.
+    //
+    // Enough borderline matches still add up past the `critical` boundary
+    // arithmetically, and "we found five 0.87s" is a reason to have a human
+    // look, not grounds to refuse a customer and file a report. Capped at
+    // `high`/`hit` so the finding stays visible and stays honest.
+    if (alertHits.length === 0 && riskLevel === 'critical') {
+      riskLevel = 'high';
+      status = 'hit';
+    }
+
+    return { riskScore, riskLevel, status };
+  }
+
+  private deduplicateHits(hits: ScreeningHit[]): ScreeningHit[] {
+    const seen = new Set<string>();
+    return hits.filter((h) => {
+      const key = `${h.source}:${h.matchName}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private buildSummary(hits: ScreeningHit[], riskLevel: string): string {
+    if (hits.length === 0)
+      return 'No matches found across configured watchlists.';
+    const alerts = hits.filter((h) => h.severity === 'alert').length;
+    const warnings = hits.filter((h) => h.severity === 'warning').length;
+    return `${hits.length} match(es) found — ${alerts} alert(s), ${warnings} warning(s). Risk level: ${riskLevel.toUpperCase()}.`;
+  }
+
+  /**
+   * What a human should do about this result.
+   *
+   * Says whether the finding is a confirmed match or a set of near-misses,
+   * because the two call for different actions and the text is the only part of
+   * the response a compliance officer necessarily reads. It previously
+   * recommended filing a SAR on the strength of a single 0.86 fuzzy hit against
+   * a vessel — advice that is wrong, expensive to follow, and indistinguishable
+   * from the advice given for a true designation.
+   */
+  private buildRecommendation(riskLevel: string, hits: ScreeningHit[]): string {
+    const confirmed = hits.filter((h) => h.severity === 'alert').length;
+
+    switch (riskLevel) {
+      case 'critical':
+        return (
+          `${confirmed} confirmed list match(es). Immediate escalation required. ` +
+          'Do not proceed without MLRO sign-off. File SAR if applicable.'
+        );
+      case 'high':
+        return confirmed > 0
+          ? 'Refer to compliance officer for Enhanced Due Diligence (EDD). Do not onboard until cleared.'
+          : `${hits.length} close but unconfirmed match(es), none at confirmation ` +
+            'threshold. Refer to compliance officer to clear or discount each before onboarding.';
+      case 'medium':
+        return 'Flag for analyst review. Obtain additional identity documentation before proceeding.';
+      default:
+        return hits.length > 0
+          ? 'Low confidence matches noted. Proceed with standard verification.'
+          : 'No action required. Proceed normally.';
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  private listMatchesTypes(
+    entry: WatchlistEntry,
+    types: ScreeningType[],
+  ): boolean {
+    if (
+      types.includes('sanctions') &&
+      ['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource)
+    )
+      return true;
+    if (types.includes('watchlist') && entry.listSource === 'custom')
+      return true;
+    if (types.includes('pep') && entry.listSource === 'custom') return true;
+    return types.some((t) => t === (entry.listSource as string));
+  }
+
+  private entryToScreeningType(entry: WatchlistEntry): ScreeningType {
+    if (['ofac', 'eu', 'un', 'uk_hmt', 'uae_local'].includes(entry.listSource))
+      return 'sanctions';
+    if (entry.listSource === 'custom') return 'watchlist';
+    return 'watchlist';
+  }
+}

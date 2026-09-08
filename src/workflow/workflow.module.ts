@@ -1,15 +1,24 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { WorkflowController } from './workflow.controller';
 import { WorkflowEngineService } from './workflow.service';
+import { SlaWatchdogService } from './services/sla-watchdog.service';
+import { TatService } from './services/tat.service';
 import { Workflow } from './entities/workflow.entity';
 import { WorkflowState } from './entities/workflow-state.entity';
 import { WorkflowTransition } from './entities/workflow-transition.entity';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
+import { UniversalEntity } from '../crm/entities/universal-entity.entity';
 import { SearchModule } from '../search/search.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { AiModule } from '../ai/ai.module';
 import { AuditModule } from '../audit/audit.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { TasksModule } from '../tasks/tasks.module';
+import { BillingModule } from '../billing/billing.module';
+import { RuleEvaluatorModule } from '../rules/rule-evaluator.module';
+import { VerticalPackModule } from '../tenant/vertical-pack.module';
+import { PackWorkflowService } from './services/pack-workflow.service';
 
 @Module({
   imports: [
@@ -18,14 +27,35 @@ import { AuditModule } from '../audit/audit.module';
       WorkflowState,
       WorkflowTransition,
       WorkflowInstance,
+      // Read-only here — instance-ownership scoping (`assertInstanceOwnership`
+      // in workflow.service.ts), same pattern as `documents.module.ts`'s
+      // `DocumentAccessService`.
+      UniversalEntity,
     ]),
-    ScheduleModule.forRoot(),
     SearchModule,
-    DocumentsModule,
+    forwardRef(() => DocumentsModule),
+    forwardRef(() => AiModule),
     AuditModule,
+    NotificationsModule,
+    TasksModule,
+    // The payment gate reads the pack's payment plans and the case's arrears.
+    forwardRef(() => BillingModule),
+    // Pack transition conditions are JsonLogic; pack workflows come from L4.
+    RuleEvaluatorModule,
+    VerticalPackModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowEngineService],
-  exports: [WorkflowEngineService],
+  providers: [
+    WorkflowEngineService,
+    SlaWatchdogService,
+    TatService,
+    PackWorkflowService,
+  ],
+  exports: [
+    WorkflowEngineService,
+    SlaWatchdogService,
+    TatService,
+    PackWorkflowService,
+  ],
 })
 export class WorkflowModule {}

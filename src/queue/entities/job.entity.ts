@@ -7,7 +7,11 @@ import {
   Index,
 } from 'typeorm';
 import { JobStatus, JobPriority, JobType } from '../interfaces/job.interface';
-import type { JobData, JobResult, JobProgress } from '../interfaces/job.interface';
+import type {
+  JobData,
+  JobResult,
+  JobProgress,
+} from '../interfaces/job.interface';
 
 @Entity('queue_jobs')
 @Index(['tenantId', 'status'])
@@ -134,7 +138,11 @@ export class QueueWorker {
   @Column()
   name: string;
 
-  @Column({ type: 'enum', enum: ['active', 'paused', 'stopped'], default: 'active' })
+  @Column({
+    type: 'enum',
+    enum: ['active', 'paused', 'stopped'],
+    default: 'active',
+  })
   status: 'active' | 'paused' | 'stopped';
 
   @Column({ type: 'simple-array' })

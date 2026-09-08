@@ -1,30 +1,65 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
+import { PackDashboardService } from './pack-dashboard.service';
 import { PolicyGuard } from '../iam/guards/policy.guard';
+import { Roles } from '../iam/decorators/roles.decorator';
+import { PlatformRole } from '../iam/enums/platform-role.enum';
+import { CreateReportDto, CreateWidgetDto } from './dto/analytics.dto';
+import { TrendQueryDto } from './dto/trend-query.dto';
+import type { DashboardWidget } from './entities/dashboard-widget.entity';
+import type { AuthenticatedRequest } from '../common/types';
+import {
+  PackUiService,
+  type Portal,
+} from '../tenant/services/pack-ui.service';
+
+const PORTALS: Portal[] = ['admin', 'staff', 'client', 'platform'];
 
 @ApiTags('analytics')
 @Controller('analytics')
 @UseGuards(AuthGuard('jwt'), PolicyGuard)
 @ApiBearerAuth('JWT-auth')
 export class AnalyticsController {
-  constructor(private analyticsService: AnalyticsService) {}
+  constructor(
+    private analyticsService: AnalyticsService,
+    private readonly packDashboards: PackDashboardService,
+    private readonly packUi: PackUiService,
+  ) {}
 
   // ==================== REPORTS ====================
 
   @Post('reports')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a new report' })
-  async createReport(@Request() req, @Body() dto: any) {
+  async createReport(@Request() req, @Body() dto: CreateReportDto) {
     const report = await this.analyticsService.createReport(
       req.user.tenantId,
       req.user.id,
       dto,
     );
-    return { success: true, data: report };
+    return report;
   }
 
   @Get('reports')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get all reports' })
   @ApiQuery({ name: 'dataSource', required: false })
   async getReports(@Request() req, @Query('dataSource') dataSource?: string) {
@@ -32,17 +67,40 @@ export class AnalyticsController {
       req.user.tenantId,
       dataSource as any,
     );
-    return { success: true, data: reports };
+    return reports;
+  }
+
+  // Must precede `reports/:id`. Nest matches in declaration order, so this
+  // literal path was previously swallowed by the parameterised one and ran as
+  // `getReport('generated')` — a 500 from Postgres
+  // (`invalid input syntax for type uuid: "generated"`) rather than a result.
+  @Get('reports/generated')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
+  @ApiOperation({
+    summary: 'List past report runs, newest first',
+    description:
+      'Execution history for this tenant. Excludes each run’s stored result ' +
+      'payload — request the report itself for that.',
+  })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  @ApiResponse({ status: 200, description: 'Generated reports retrieved' })
+  async getGeneratedReports(@Request() req, @Query('limit') limit?: string) {
+    const parsed = Number.parseInt(limit ?? '', 10);
+    return this.analyticsService.getGeneratedReports(
+      req.user.tenantId,
+      Number.isNaN(parsed) ? undefined : parsed,
+    );
   }
 
   @Get('reports/:id')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get report by ID' })
   async getReport(@Request() req, @Param('id') id: string) {
-    const report = await this.analyticsService.getReport(id, req.user.tenantId);
-    return { success: true, data: report };
+    return this.analyticsService.getReport(id, req.user.tenantId);
   }
 
   @Post('reports/:id/execute')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Execute a report' })
   async executeReport(
     @Request() req,
@@ -61,32 +119,161 @@ export class AnalyticsController {
     return result;
   }
 
+  // ==================== PACK-DRIVEN DASHBOARDS ====================
+  //
+  // Distinct from the `widgets` CRUD below, which is a tenant's own saved
+  // widgets. These are the vertical's dashboards, declared in the config pack
+  // and resolved against the caller's data — nothing here is stored per tenant.
+  //
+  // Deliberately NOT staff-gated, unlike `reports`/`widgets` below: these
+  // routes already narrow by portal, role and entitlement via
+  // `packUi.audienceFor` (CLAUDE.md §7.6 — render from the pack), and the
+  // `client` portal is one of the audiences a pack legitimately declares a
+  // dashboard for. Gating the class would take away a client's own dashboard,
+  // which is the over-tightening this pass is told not to do.
+
+  @Get('dashboards')
+  @ApiOperation({
+    summary: "List the dashboards the caller's config pack defines",
+    description:
+      'Definitions only, filtered to the caller by portal, role and ' +
+      'entitlement. An empty array means the pack declares none — not that ' +
+      'dashboards are unavailable.',
+  })
+  @ApiQuery({ name: 'portal', required: false, enum: PORTALS })
+  async listPackDashboards(
+    @Request() req: AuthenticatedRequest,
+    @Query('portal') portal?: Portal,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      portal ?? null,
+    );
+    return this.packDashboards.list(req.tenantVertical ?? null, audience);
+  }
+
+  @Get('dashboards/:key')
+  @ApiOperation({
+    summary: 'Resolve one pack dashboard against the tenant data',
+    description:
+      'Every widget carries `value`, and a null `value` carries an ' +
+      '`unavailableReason`. A widget whose scan hit its cap reports ' +
+      '`truncated: true`, and its count is a lower bound.',
+  })
+  @ApiParam({ name: 'key', description: 'Dashboard key from the config pack' })
+  @ApiResponse({ status: 404, description: 'No such dashboard for this caller' })
+  async getPackDashboard(
+    @Request() req: AuthenticatedRequest,
+    @Param('key') key: string,
+  ) {
+    const audience = await this.packUi.audienceFor(
+      req.user.tenantId,
+      req.user.roles ?? [],
+      null,
+    );
+    return this.packDashboards.resolve(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      key,
+      audience,
+    );
+  }
+
+  @Get('trends/:kpiKey')
+  @ApiOperation({
+    summary: 'One pack KPI measured over time',
+    description:
+      'BI was point-in-time only, so no "is this getting better" question had ' +
+      'an endpoint. This runs the KPI\'s own `metric` once per bucket.\n\n' +
+      '**Read `value: null` carefully — it is not zero.** A `count` of zero in ' +
+      'a quiet week is a real measurement and is returned as `0`. A ' +
+      '`percentage` over a week with no records in its population is `null` ' +
+      'with `unavailableReason: "no_records_in_population"`, because plotting ' +
+      'that as 0% draws a cliff to the floor and invents a collapse that did ' +
+      'not happen. Break the line, or grey the point — do not zero-fill it.\n\n' +
+      '`population` per bucket is how many records the figure came from: a ' +
+      'reader needs it to tell a trend from one case in a quiet month. ' +
+      '`truncated: true` on the series means the scan hit its cap and **every** ' +
+      'bucket is a lower bound.',
+  })
+  @ApiParam({ name: 'kpiKey', description: 'KPI key from the config pack' })
+  @ApiQuery({
+    name: 'interval',
+    required: false,
+    enum: ['day', 'week', 'month'],
+    description: 'Bucket width. Defaults to month.',
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: 'ISO date. Defaults to 12 months / 12 weeks / 30 days back.',
+  })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO date. Defaults to now.' })
+  @ApiQuery({
+    name: 'dateField',
+    required: false,
+    description:
+      'Which date buckets a record. Defaults to `createdAt`. Use the field the ' +
+      'question is about — a grant rate by month buckets on the decision date, ' +
+      'not on when the case was opened.',
+  })
+  @ApiResponse({ status: 200, description: 'Series resolved' })
+  @ApiResponse({ status: 400, description: 'Malformed date or interval' })
+  async getTrend(
+    @Request() req: AuthenticatedRequest,
+    @Param('kpiKey') kpiKey: string,
+    @Query() query: TrendQueryDto,
+  ) {
+    return this.packDashboards.trend(req.user.tenantId, req.tenantVertical ?? null, {
+      kpiKey,
+      interval: query.interval,
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+      dateField: query.dateField,
+    });
+  }
+
   // ==================== WIDGETS ====================
 
   @Post('widgets')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Create a dashboard widget' })
-  async createWidget(@Request() req, @Body() dto: any) {
-    const widget = await this.analyticsService.createWidget(req.user.tenantId, dto);
-    return { success: true, data: widget };
+  async createWidget(@Request() req, @Body() dto: CreateWidgetDto) {
+    // The DTO guarantees name and widgetType. `configuration` is the widget's
+    // query/display definition — supplied by a dashboard or a config pack, not
+    // a fixed core schema — so it is validated as an object here and
+    // interpreted by the widget executor.
+    const widget = await this.analyticsService.createWidget(
+      req.user.tenantId,
+      dto as Partial<DashboardWidget>,
+    );
+    return widget;
   }
 
   @Get('widgets')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Get all dashboard widgets' })
   async getWidgets(@Request() req) {
     const widgets = await this.analyticsService.getWidgets(req.user.tenantId);
-    return { success: true, data: widgets };
+    return widgets;
   }
 
   @Get('widgets/:id/execute')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Execute widget query' })
   async executeWidget(@Request() req, @Param('id') id: string) {
-    const result = await this.analyticsService.executeWidget(req.user.tenantId, id);
+    const result = await this.analyticsService.executeWidget(
+      req.user.tenantId,
+      id,
+    );
     return result;
   }
 
   // ==================== EXPORT ====================
 
   @Post('reports/:id/export')
+  @Roles(PlatformRole.STAFF, PlatformRole.FIRM_ADMIN)
   @ApiOperation({ summary: 'Export report to file' })
   async exportReport(
     @Request() req,
@@ -98,6 +285,6 @@ export class AnalyticsController {
       id,
       body.format,
     );
-    return { success: true, data: result };
+    return result;
   }
 }

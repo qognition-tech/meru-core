@@ -1,0 +1,182 @@
+version: '3.8'
+
+services:
+  # Meru Core Services (3 environments)
+  meru-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meru-prod
+    environment:
+      - NODE_ENV=production
+      - VERTICAL=meru
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - meru-network
+
+  meru-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meru-staging
+    environment:
+      - NODE_ENV=staging
+      - VERTICAL=meru
+      - PORT=3000
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    networks:
+      - meru-network
+
+  meru-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meru-dev
+    environment:
+      - NODE_ENV=development
+      - VERTICAL=meru
+      - PORT=3000
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+    networks:
+      - meru-network
+
+  # Immigration Services (3 environments)
+  immigration-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: immigration-prod
+    environment:
+      - NODE_ENV=production
+      - VERTICAL=immigration
+      - PORT=3000
+    ports:
+      - "3003:3000"
+    restart: unless-stopped
+    networks:
+      - immigration-network
+
+  immigration-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: immigration-staging
+    environment:
+      - NODE_ENV=staging
+      - VERTICAL=immigration
+      - PORT=3000
+    ports:
+      - "3004:3000"
+    restart: unless-stopped
+    networks:
+      - immigration-network
+
+  immigration-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: immigration-dev
+    environment:
+      - NODE_ENV=development
+      - VERTICAL=immigration
+      - PORT=3000
+    ports:
+      - "3005:3000"
+    restart: unless-stopped
+    networks:
+      - immigration-network
+
+  # GRC Services (3 environments)
+  grc-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grc-prod
+    environment:
+      - NODE_ENV=production
+      - VERTICAL=grc
+      - PORT=3000
+    ports:
+      - "3006:3000"
+    restart: unless-stopped
+    networks:
+      - grc-network
+
+  grc-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grc-staging
+    environment:
+      - NODE_ENV=staging
+      - VERTICAL=grc
+      - PORT=3000
+    ports:
+      - "3007:3000"
+    restart: unless-stopped
+    networks:
+      - grc-network
+
+  grc-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grc-dev
+    environment:
+      - NODE_ENV=development
+      - VERTICAL=grc
+      - PORT=3000
+    ports:
+      - "3008:3000"
+    restart: unless-stopped
+    networks:
+      - grc-network
+
+  # Monitoring (Shared for all verticals)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - monitoring-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3009:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources/datasources.yaml:/etc/grafana/provisioning/datasources.yaml
+      - ./grafana/provisioning/dashboards/enterprise-dashboard.json:/etc/grafana/provisioning/dashboards/enterprise-dashboard.json
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+networks:
+  meru-network:
+    driver: bridge
+  immigration-network:
+    driver: bridge
+  grc-network:
+    driver: bridge
+  monitoring-network:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
