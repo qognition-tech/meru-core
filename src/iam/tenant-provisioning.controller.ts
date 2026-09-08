@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Put,
+  Delete,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -33,6 +34,7 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 // skipped entirely — the same silent no-op that made this an interface a bug.
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CheckSlugDto } from './dto/check-slug.dto';
+import { DeleteTenantDto } from './dto/delete-tenant.dto';
 import { TenantPlan, TenantStatus } from './entities/tenant.entity';
 import { ProvisionTenantDto } from './dto/provision-tenant.dto';
 import { UpdateEntitlementsDto } from './dto/update-entitlements.dto';
@@ -63,11 +65,22 @@ export class TenantProvisioningController {
     description:
       'Platform operators only. This is a deliberate cross-tenant read, so it ' +
       'runs through `TenancyService.runAsGod` and writes a CRITICAL audit ' +
-      'entry before the query executes (CLAUDE.md §6.4).',
+      'entry before the query executes (CLAUDE.md §6.4). Excludes deleted ' +
+      'tenants by default (ADR 0009 §2.1) — pass `includeDeleted=true` for ' +
+      'the audit/legal lookup case.',
+  })
+  @ApiQuery({
+    name: 'includeDeleted',
+    required: false,
+    type: Boolean,
+    description: 'Include soft-deleted tenants. Default false.',
   })
   @ApiResponse({ status: 200, description: 'Tenants retrieved' })
   @ApiResponse({ status: 403, description: 'Requires platform_admin' })
-  async listTenants(@Request() req: AuthenticatedRequest) {
+  async listTenants(
+    @Request() req: AuthenticatedRequest,
+    @Query('includeDeleted') includeDeleted?: string,
+  ) {
     // Left under the operator's own tenant, deliberately: this reads every
     // tenant on the platform, so there is no single target tenant for the
     // audit row. Same reasoning as `PlatformController.stats`.
@@ -75,7 +88,10 @@ export class TenantProvisioningController {
       req.user.id,
       req.user.tenantId,
       'List all platform tenants (God View)',
-      () => this.tenantProvisioningService.listAllTenants(),
+      () =>
+        this.tenantProvisioningService.listAllTenants(
+          includeDeleted === 'true',
+        ),
     );
   }
 
@@ -209,6 +225,48 @@ export class TenantProvisioningController {
       `Resume tenant ${id} (God View)`,
       () =>
         this.tenantProvisioningService.setTenantStatus(id, TenantStatus.ACTIVE),
+    );
+  }
+
+  @Delete(':id')
+  @UseGuards(AuthGuard('jwt'), PolicyGuard)
+  @Roles(PlatformRole.PLATFORM_ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Soft-delete a tenant (God View) — terminal, not reversible here',
+    description:
+      'platform_admin only, audited via runAsGod. Soft-delete only — there ' +
+      'is no hard purge (ADR 0009 §2.1): `audit_logs` is WORM-enforced by a ' +
+      'database trigger that refuses DELETE/UPDATE/TRUNCATE even for the ' +
+      'migration/owner connection, so a tenant\'s record cannot be purged ' +
+      'without deliberately defeating that control, which this route does ' +
+      'not do. `confirmSlug` must equal the tenant\'s CURRENT slug — the ' +
+      'same "type the name to confirm" pattern this product already uses ' +
+      'for irreversible-looking actions. On success the slug is rewritten ' +
+      'to release it for reuse; the tenant then only appears in ' +
+      'GET /tenants?includeDeleted=true.',
+  })
+  @ApiParam({ name: 'id', description: 'Tenant id' })
+  @ApiResponse({ status: 200, description: 'Tenant soft-deleted' })
+  @ApiResponse({ status: 403, description: 'Requires platform_admin' })
+  @ApiResponse({
+    status: 400,
+    description: 'Tenant not found, or confirmSlug does not match',
+  })
+  @ApiResponse({ status: 409, description: 'Tenant is already deleted' })
+  async remove(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: DeleteTenantDto,
+  ) {
+    // Audited under `id` (the tenant being deleted), not the operator's own
+    // tenant — same convention as suspend/resume above.
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      id,
+      `Soft-delete tenant ${id} (God View)`,
+      () =>
+        this.tenantProvisioningService.softDeleteTenant(id, dto.confirmSlug),
     );
   }
 

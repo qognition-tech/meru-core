@@ -3,7 +3,31 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Document } from './entities/document.entity';
 import { UniversalEntity } from '../crm/entities/universal-entity.entity';
+import { Tenant } from '../iam/entities/tenant.entity';
 import { Actor, AccessScope, scopeOf } from '../common/access';
+import { MeruErrorCode } from '../common/types';
+
+/**
+ * The metadata `GET /platform/tenants/:id/documents` (ADR 0009 §2.3) may
+ * return — explicitly excluding `s3Url`, `rbac` and `aiAnalysis` (the last
+ * may hold extracted PII text), so this shape structurally cannot become a
+ * bytes path by a later careless `select: '*'`.
+ */
+export type DocumentMetadata = Pick<
+  Document,
+  | 'id'
+  | 'name'
+  | 'fileType'
+  | 'originalFileName'
+  | 'fileSize'
+  | 'mimeType'
+  | 'status'
+  | 'linkedEntityType'
+  | 'linkedEntityId'
+  | 'versionNumber'
+  | 'uploadedById'
+  | 'createdAt'
+>;
 
 export type DocumentAction = 'read' | 'write' | 'delete' | 'share';
 
@@ -43,6 +67,10 @@ export class DocumentAccessService {
   constructor(
     @InjectRepository(UniversalEntity)
     private readonly entities: Repository<UniversalEntity>,
+    @InjectRepository(Document)
+    private readonly documents: Repository<Document>,
+    @InjectRepository(Tenant)
+    private readonly tenants: Repository<Tenant>,
   ) {}
 
   scopeOf(actor: Actor): AccessScope {
@@ -201,5 +229,55 @@ export class DocumentAccessService {
       `(${alias}.uploadedById = :actorId OR ${alias}.linkedEntityId IN (:...ownedEntityIds))`,
       { actorId: actor.id, ownedEntityIds: owned },
     );
+  }
+
+  /**
+   * Metadata-only document inventory for the operator console (ADR 0009
+   * §2.3, `GET /platform/tenants/:id/documents`).
+   *
+   * A **distinct** method, not a relaxed `applyScope` or `canAccess` call —
+   * deliberately, so this operator path can never be reached by accidentally
+   * passing a non-god actor into the client-facing methods above, and so a
+   * future change to what a `client`/`staff` actor may see cannot silently
+   * also change what an operator inventory returns. The caller
+   * (`PlatformDocumentsController`) is responsible for wrapping this in
+   * `TenancyService.runAsGod` — this method does not itself check who is
+   * asking, the same division of responsibility `getPlatformStats` and the
+   * rest of the God View reads already use.
+   *
+   * Returns metadata only (see `DocumentMetadata`): never `s3Url`, `rbac` or
+   * `aiAnalysis`. CLAUDE.md §5.1b's storage model is short-TTL signed URLs
+   * only, never a public link, and an operator inventory has no legitimate
+   * need to open a client's passport scan — a bytes-returning version of
+   * this method is not a narrower case of this one, it is a different,
+   * rejected capability.
+   */
+  async listMetadataForTenant(tenantId: string): Promise<DocumentMetadata[]> {
+    const tenant = await this.tenants.findOne({ where: { id: tenantId } });
+    if (!tenant) {
+      throw new NotFoundException({
+        code: MeruErrorCode.TENANT_NOT_FOUND,
+        message: 'Tenant not found',
+      });
+    }
+
+    return this.documents.find({
+      where: { tenantId },
+      select: [
+        'id',
+        'name',
+        'fileType',
+        'originalFileName',
+        'fileSize',
+        'mimeType',
+        'status',
+        'linkedEntityType',
+        'linkedEntityId',
+        'versionNumber',
+        'uploadedById',
+        'createdAt',
+      ],
+      order: { createdAt: 'DESC' },
+    });
   }
 }

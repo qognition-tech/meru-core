@@ -3,9 +3,11 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
+import { Repository, DataSource, QueryRunner, Not } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
   Tenant,
@@ -21,6 +23,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { ModuleCode } from './entitlements/module-code';
 import { PlatformRole } from './enums/platform-role.enum';
 import { MailService } from '../core/mail/mail.service';
+import { MeruErrorCode } from '../common/types';
 import {
   ConnectorMode,
   TenantConnector,
@@ -333,42 +336,87 @@ export class TenantProvisioningService {
     return this.tenantRepo.save(tenant);
   }
 
-  async deleteTenant(
+  /**
+   * Soft-delete only (ADR 0009 §2.1, adopting ADR 0007 D2). Retires the old
+   * `deleteTenant`'s unwired `permanent: true` hard-purge branch rather than
+   * repairing it — no controller ever called either branch (confirmed by
+   * grep before this change), and a real hard purge cannot exist as
+   * application code while `audit_logs` is WORM-enforced by a database
+   * trigger (`1755200000000-AddAuditWormEnforcement.ts`) that `RAISE
+   * EXCEPTION`s on any `DELETE`, including from the migration/owner
+   * connection. The record of what happened to a tenant's data is exactly
+   * what must outlive the tenant's own — or an operator's — decision to
+   * delete it.
+   *
+   * "Type the slug to confirm" — `confirmSlug` must equal the tenant's
+   * CURRENT slug, the same irreversible-action pattern this product already
+   * uses (`ImpersonateDto.reason`, `OperatorUpdateEntitlementsDto.reason`).
+   *
+   * Checked in this order, deliberately not the order the ADR's prose lists
+   * them in: **already-DELETED first, then confirmSlug.** Deletion rewrites
+   * `slug` to release it for reuse (below), so on a REPEAT call against an
+   * already-deleted tenant, `confirmSlug` — whatever the operator typed —
+   * can never equal the already-rewritten slug, and checking confirmSlug
+   * first would report every repeat call as "confirmation mismatch" rather
+   * than the true, more useful "already deleted". This is an
+   * operator-only, `runAsGod`-wrapped route, so there is no information a
+   * strict-order check would protect against disclosing (unlike, say, the
+   * document 404-not-403 pattern) — checking the more informative condition
+   * first is strictly better here, not a security trade-off.
+   *
+   * `BadRequestException('Tenant not found')` for a missing tenant matches
+   * this service's existing convention (`getEntitlements`,
+   * `updateOwnEntitlements` and both use the same shape) rather than
+   * introducing a differently-shaped 404 here.
+   */
+  async softDeleteTenant(
     tenantId: string,
-    permanent: boolean = false,
-  ): Promise<void> {
-    this.logger.log(`Deleting tenant ${tenantId} (permanent: ${permanent})`);
+    confirmSlug: string,
+  ): Promise<{
+    id: string;
+    slug: string;
+    status: TenantStatus;
+    deletedAt: Date;
+    releasedSlug: string;
+  }> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
 
-    if (permanent) {
-      // Hard delete - remove all data
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
-
-      try {
-        // Delete in correct order due to foreign keys
-        await queryRunner.manager.delete(User, { tenantId });
-        await queryRunner.manager.delete(Tenant, { id: tenantId });
-
-        await queryRunner.commitTransaction();
-      } catch (error) {
-        await queryRunner.rollbackTransaction();
-        throw error;
-      } finally {
-        await queryRunner.release();
-      }
-    } else {
-      // Soft delete
-      const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
-      if (!tenant) {
-        throw new NotFoundException('Tenant not found');
-      }
-
-      tenant.status = TenantStatus.DELETED;
-      tenant.deletedAt = new Date();
-
-      await this.tenantRepo.save(tenant);
+    if (tenant.status === TenantStatus.DELETED) {
+      throw new HttpException(
+        {
+          code: MeruErrorCode.TENANT_ALREADY_DELETED,
+          message: `Tenant '${tenant.slug}' is already deleted.`,
+        },
+        HttpStatus.CONFLICT,
+      );
     }
+
+    if (confirmSlug !== tenant.slug) {
+      throw new BadRequestException(
+        `confirmSlug must equal the tenant's current slug ('${tenant.slug}').`,
+      );
+    }
+
+    // Releases the name for reuse — Tenant.slug is @Column({ unique: true }),
+    // so without this a deleted tenant would block re-signup under the same
+    // slug forever.
+    const releasedSlug = `${tenant.slug}--deleted--${tenantId.slice(0, 8)}`;
+
+    tenant.status = TenantStatus.DELETED;
+    tenant.deletedAt = new Date();
+    tenant.slug = releasedSlug;
+    await this.tenantRepo.save(tenant);
+
+    this.logger.log(`Soft-deleted tenant ${tenantId}, slug released to ${releasedSlug}`);
+
+    return {
+      id: tenant.id,
+      slug: releasedSlug,
+      status: tenant.status,
+      deletedAt: tenant.deletedAt,
+      releasedSlug,
+    };
   }
 
   /**
@@ -481,13 +529,39 @@ export class TenantProvisioningService {
     };
   }
 
-  /** Suspend or reactivate a tenant. Caller wraps in runAsGod. */
+  /**
+   * Suspend or reactivate a tenant. Caller wraps in runAsGod.
+   *
+   * This — not `suspendTenant` below — is what `PATCH :id/suspend` and
+   * `PATCH :id/resume` actually call (confirmed by grep: `suspendTenant` has
+   * no caller anywhere in `src/`). `suspendTenant` already carries a guard
+   * refusing to act on a `DELETED` tenant, added against ADR 0009 §2.1's
+   * soft-delete work landing in this same file — but the guard landed on
+   * the method nothing calls. Without the identical guard *here*, deletion
+   * was not actually terminal: `PATCH :id/resume` writes `status`
+   * unconditionally, so it would silently resurrect a soft-deleted tenant
+   * — `deleted` -> `active` — putting one back into every default-filtered
+   * list (`listAllTenants`, `getPlatformStats`) with no trace of having
+   * been deleted at all. Same failure shape `suspendTenant`'s own comment
+   * already names for `deleted` -> `suspended`; it applies identically to
+   * `deleted` -> `active`, and `setTenantStatus` is the one of these two
+   * methods actually reachable from an HTTP route today.
+   */
   async setTenantStatus(
     tenantId: string,
     status: TenantStatus.ACTIVE | TenantStatus.SUSPENDED,
   ): Promise<Pick<Tenant, 'id' | 'slug' | 'status'>> {
     const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
     if (!tenant) throw new BadRequestException('Tenant not found');
+
+    if (tenant.status === TenantStatus.DELETED) {
+      throw new BadRequestException(
+        'A deleted tenant cannot be suspended or reactivated. Deletion is ' +
+          'terminal; reinstating a tenant is a provisioning decision, not a ' +
+          'status flip.',
+      );
+    }
+
     tenant.status = status;
     await this.tenantRepo.save(tenant);
     return { id: tenant.id, slug: tenant.slug, status: tenant.status };
@@ -583,8 +657,92 @@ export class TenantProvisioningService {
   }
 
   /**
+   * The plan's full module allowance for a tenant — the ceiling
+   * `updateOwnEntitlements` enforces, and the value `updateEntitlementsAsOperator`
+   * diffs `modules` against to compute `overage`.
+   *
+   * Exposed as its own method so a caller can compute that same overage
+   * *before* dispatching `TenancyService.runAsGod` — whose audit entry is
+   * written before the wrapped work runs (CLAUDE.md §6.4), and so cannot
+   * embed a value only known after `updateEntitlementsAsOperator` itself
+   * executes. Both call sites read the identical `PLAN_MODULES` map, so this
+   * is one source of truth computed twice, not a second stored list.
+   */
+  async getPlanAllowance(tenantId: string): Promise<string[]> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
+    return PLAN_MODULES[tenant.plan] ?? CORE_MODULES;
+  }
+
+  /**
+   * The operator twin of `updateOwnEntitlements` (ADR 0009 §2.2) — same
+   * complete-desired-state write, but with no plan ceiling.
+   *
+   * The self-service ceiling exists to stop a tenant awarding itself
+   * capability it has not paid for; that reasoning does not apply to the
+   * party that defines what a plan means in the first place. Entitlements
+   * are already, deliberately, frozen data independent of the live plan
+   * definition (CLAUDE.md §5.5b) — this is precisely the "one-off grant that
+   * should not move when the plan changes" case that data model was built
+   * for (comping a pilot module, a support workaround, a negotiated custom
+   * deal).
+   *
+   * `reason` is not optional at the DTO layer, and it is not decoration here
+   * either — the caller (`OperatorController`) folds it into the audit
+   * entry's `reason` string alongside the computed `overage`, because that
+   * audit row is the only record of why a customer has a module its plan
+   * does not include.
+   *
+   * No new storage for "this exceeds the plan": the overage is always
+   * computable at call time as `modules \ (PLAN_MODULES[tenant.plan] ??
+   * CORE_MODULES)` — a set difference against data that already exists — so
+   * nothing here persists a second, parallel list that could drift from the
+   * first. The caller reads `overage` off this method's return value to put
+   * in the audit context.
+   *
+   * Core modules are re-added unconditionally, exactly as
+   * `updateOwnEntitlements` does, so an operator cannot strand a tenant
+   * without `crm`/`documents` either. This still cannot change `plan` —
+   * `PATCH /tenants/:id/upgrade` stays the only route that does.
+   */
+  async updateEntitlementsAsOperator(
+    tenantId: string,
+    modules: string[],
+  ): Promise<{
+    overage: string[];
+    entitlements: Awaited<ReturnType<TenantProvisioningService['getEntitlements']>>;
+  }> {
+    const tenant = await this.tenantRepo.findOne({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant not found');
+
+    const allowance = PLAN_MODULES[tenant.plan] ?? CORE_MODULES;
+    const isCountry = (m: string) => m.startsWith('country:');
+    const overage = modules.filter(
+      (m) => !isCountry(m) && !allowance.includes(m),
+    );
+
+    // Set, so a caller repeating a module cannot inflate the stored list —
+    // same reasoning as updateOwnEntitlements.
+    const next = Array.from(new Set([...CORE_MODULES, ...modules]));
+
+    tenant.settings = { ...(tenant.settings ?? {}), modules: next } as never;
+    await this.tenantRepo.save(tenant);
+
+    return { overage, entitlements: await this.getEntitlements(tenantId) };
+  }
+
+  /**
    * Cross-tenant aggregates for the God UI (`GET /platform/stats`). Caller
    * must wrap in runAsGod — this reads every tenant row.
+   *
+   * Excludes `deleted` tenants unconditionally (ADR 0009 §2.1) — this
+   * describes the live platform, and a soft-deleted tenant re-appearing in
+   * "total tenants" or "by status" would misstate it. Unlike
+   * `listAllTenants`, there is no `includeDeleted` override here: an
+   * aggregate that silently starts including deleted tenants again on a
+   * flag nobody remembers passing is worse than the audit/legal lookup use
+   * case (which `GET /tenants?includeDeleted=true` already covers) losing
+   * access to the count via this route specifically.
    */
   async getPlatformStats(): Promise<{
     totalTenants: number;
@@ -595,7 +753,7 @@ export class TenantProvisioningService {
     byPlan: Record<string, number>;
   }> {
     const [tenants, totalUsers] = await Promise.all([
-      this.tenantRepo.find(),
+      this.tenantRepo.find({ where: { status: Not(TenantStatus.DELETED) } }),
       this.userRepo.count(),
     ]);
 
@@ -618,7 +776,14 @@ export class TenantProvisioningService {
     };
   }
 
-  async listAllTenants(): Promise<
+  /**
+   * The God View tenant list. Excludes `deleted` tenants by default (ADR
+   * 0009 §2.1) — a deleted tenant reappearing in the default operator list
+   * would contradict "deletion is terminal" the first time someone browses
+   * this screen. `includeDeleted` is the escape hatch for the audit/legal
+   * lookup case (`GET /tenants?includeDeleted=true`), not a default.
+   */
+  async listAllTenants(includeDeleted = false): Promise<
     Array<{
       id: string;
       slug: string;
@@ -632,6 +797,9 @@ export class TenantProvisioningService {
     }>
   > {
     const tenants = await this.tenantRepo.find({
+      where: includeDeleted
+        ? {}
+        : { status: Not(TenantStatus.DELETED) },
       order: { createdAt: 'DESC' },
     });
 

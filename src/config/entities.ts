@@ -39,6 +39,7 @@ import { AgentRun } from '../orchestration/entities/agent-run.entity';
 import { VesselPosition } from '../integrations/entities/vessel-position.entity';
 import { TenantConnector } from '../integrations/entities/tenant-connector.entity';
 import { Payment } from '../billing/entities/payment.entity';
+import { TenantFeeOverride } from '../billing/entities/tenant-fee-override.entity';
 import { JobRun } from '../jobs/entities/job-run.entity';
 import { ScreeningResult } from '../ai/entities/screening-result.entity';
 import { AlertFiring } from '../rules/entities/alert-firing.entity';
@@ -96,6 +97,7 @@ export const ALL_ENTITIES = [
   VesselPosition,
   TenantConnector,
   Payment,
+  TenantFeeOverride,
   JobRun,
   ScreeningResult,
   AlertFiring,

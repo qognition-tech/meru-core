@@ -2,8 +2,14 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
+import { TenantFeeOverride } from './entities/tenant-fee-override.entity';
 import { VerticalPackService } from '../tenant/services/vertical-pack.service';
 import { PaymentsService } from './payments.service';
+import { AuditService } from '../audit/audit.service';
+import {
+  AuditAction,
+  AuditSeverity,
+} from '../audit/entities/audit-log.entity';
 
 /** One `fees[]` entry, as the pack declares it. */
 export interface FeeDefinition {
@@ -55,6 +61,13 @@ export interface ExpandRequest {
  * The vertical declares what things cost and how they may be paid; core knows
  * only how to expand a schedule and how to keep the arithmetic exact. No visa
  * subclass or licence category reaches this file.
+ *
+ * ADR 0009 §2.4 is the one deliberate exception to "the pack is the only
+ * source of an amount": a `kind: 'firm'` fee is a firm's own commercial
+ * price, not vertical vocabulary, and `tenant_fee_overrides` lets one tenant
+ * replace it without touching the pack every other tenant of the vertical
+ * shares. `government` and `disbursement` amounts, and all of `paymentPlans[]`,
+ * stay pack-owned — see `setOverrides` for the guard that enforces that.
  */
 @Injectable()
 export class FeeScheduleService {
@@ -63,6 +76,8 @@ export class FeeScheduleService {
   constructor(
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
+    @InjectRepository(TenantFeeOverride)
+    private readonly overrideRepo: Repository<TenantFeeOverride>,
     private readonly packs: VerticalPackService,
     // `Payment.clientId` is `users.id` and is load-bearing for authorisation:
     // it is the only thing confining one applicant's ledger from another's.
@@ -74,16 +89,20 @@ export class FeeScheduleService {
     // "nothing recorded" in the client portal, which is the §5.2 failure mode
     // reached by omission.
     private readonly payments: PaymentsService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
-   * What the vertical says things cost and how they may be paid.
-   *
-   * The expander existed and was reachable from no route, so the instalment
-   * options a pack declares could not be offered to anyone — the frontend had to
-   * treat EMI signup payments as missing. This is the read half.
+   * What the vertical says things cost and how they may be paid — with any
+   * tenant fee override substituted in, so a firm's own portal quotes what it
+   * actually charges rather than the pack's shared default. Read side of the
+   * ADR 0009 §2.4 merge; `expand`/`feesFor` is the write side, and the two
+   * must agree or a firm sees its old rate quoted back after changing it.
    */
-  async catalogue(vertical: string | null): Promise<{
+  async catalogue(
+    vertical: string | null,
+    tenantId: string,
+  ): Promise<{
     fees: FeeDefinition[];
     plans: PaymentPlanDefinition[];
   }> {
@@ -93,7 +112,42 @@ export class FeeScheduleService {
     ]);
     // Empty arrays are legitimate — a vertical need not publish a fee schedule —
     // and are not an error to distinguish from "the pack is missing".
-    return { fees, plans };
+    return { fees: await this.withOverrides(tenantId, fees), plans };
+  }
+
+  /**
+   * Substitutes an active tenant override's `amountMinor`/`currency` into
+   * every `kind: 'firm'` fee it names, leaving everything structural — label,
+   * kind, basis, atStep, refundable — exactly as the pack declares it. Only
+   * `firm` fees are even looked up: `government`/`disbursement` amounts have
+   * no override row to find, by construction of `setOverrides`' guard, so
+   * this is belt-and-braces rather than the only thing stopping it.
+   */
+  private async withOverrides(
+    tenantId: string,
+    fees: FeeDefinition[],
+  ): Promise<FeeDefinition[]> {
+    const firmKeys = fees
+      .filter((f) => f.kind === 'firm')
+      .map((f) => f.key);
+    if (!firmKeys.length) return fees;
+
+    const overrides = await this.overrideRepo.find({
+      where: { tenantId, feeKey: In(firmKeys), active: true },
+    });
+    if (!overrides.length) return fees;
+
+    const byKey = new Map(overrides.map((o) => [o.feeKey, o]));
+    return fees.map((f) => {
+      const override = f.kind === 'firm' ? byKey.get(f.key) : undefined;
+      return override
+        ? {
+            ...f,
+            amountMinor: Number(override.amountMinor),
+            currency: override.currency,
+          }
+        : f;
+    });
   }
 
   /**
@@ -105,7 +159,11 @@ export class FeeScheduleService {
    * double-charging a client is not a recoverable class of bug.
    */
   async expand(request: ExpandRequest): Promise<Payment[]> {
-    const fees = await this.feesFor(request.vertical, request.feeKeys);
+    const fees = await this.feesFor(
+      request.tenantId,
+      request.vertical,
+      request.feeKeys,
+    );
     const plan = request.planKey
       ? await this.planFor(request.vertical, request.planKey)
       : null;
@@ -314,6 +372,7 @@ export class FeeScheduleService {
   }
 
   private async feesFor(
+    tenantId: string,
     vertical: string | null,
     keys: string[],
   ): Promise<FeeDefinition[]> {
@@ -330,7 +389,10 @@ export class FeeScheduleService {
       );
     }
 
-    return keys.map((k) => byKey.get(k)!);
+    return this.withOverrides(
+      tenantId,
+      keys.map((k) => byKey.get(k)!),
+    );
   }
 
   private async planFor(
@@ -351,5 +413,109 @@ export class FeeScheduleService {
     }
 
     return plan;
+  }
+
+  /**
+   * ADR 0009 §2.4 — replace this tenant's active firm-fee overrides with
+   * exactly the set given.
+   *
+   * **Complete desired state, not a delta** — same reasoning
+   * `OperatorUpdateEntitlementsDto.modules` already uses for entitlements: a
+   * caller reverting one fee to the pack default has to be able to simply omit
+   * it, and a PATCH-style merge cannot express "remove this."
+   *
+   * **Validated against the resolved pack, not the DTO**, because the DTO
+   * cannot see the pack: every `feeKey` must both exist there and be
+   * `kind: 'firm'`. This is the one guard standing between a firm and quietly
+   * overriding `gov_482_primary` — a government charge is not the firm's to
+   * set, and misstating it would be the "sandbox result presented as live"
+   * failure shape applied to money. Checked for the whole batch before any
+   * row is written, the same all-or-nothing posture `expand`'s mixed-currency
+   * check already uses.
+   */
+  async setOverrides(
+    tenantId: string,
+    vertical: string | null,
+    overrides: Array<{ feeKey: string; amountMinor: number; currency: string }>,
+    updatedBy: string,
+  ): Promise<TenantFeeOverride[]> {
+    const packFees =
+      (await this.packs.section<FeeDefinition[]>(vertical, 'fees')) ?? [];
+    const byKey = new Map(packFees.map((f) => [f.key, f]));
+
+    for (const o of overrides) {
+      const def = byKey.get(o.feeKey);
+      if (!def) {
+        throw new BadRequestException(
+          `Fee '${o.feeKey}' is not defined in the ${vertical ?? 'unknown'} pack`,
+        );
+      }
+      if (def.kind !== 'firm') {
+        throw new BadRequestException(
+          `Fee '${o.feeKey}' is a '${def.kind ?? 'undeclared-kind'}' fee — only ` +
+            `a firm's own 'firm' fees may be overridden. Government and ` +
+            `disbursement amounts are set by the pack.`,
+        );
+      }
+    }
+
+    const existing = await this.overrideRepo.find({ where: { tenantId } });
+    const existingByKey = new Map(existing.map((e) => [e.feeKey, e]));
+    const desiredKeys = new Set(overrides.map((o) => o.feeKey));
+
+    // Anything not named in this call's complete desired state reverts to
+    // the pack default.
+    for (const row of existing) {
+      if (desiredKeys.has(row.feeKey)) continue;
+      await this.overrideRepo.remove(row);
+      await this.audit.logEvent({
+        tenantId,
+        userId: updatedBy,
+        action: AuditAction.DELETE,
+        entityType: 'tenant_fee_override',
+        entityId: row.id,
+        severity: AuditSeverity.INFO,
+        description: `Fee override for '${row.feeKey}' removed — reverting to the pack default.`,
+        context: {
+          feeKey: row.feeKey,
+          amountMinor: null,
+          currency: null,
+          previousAmountMinor: Number(row.amountMinor),
+        },
+      });
+    }
+
+    const saved: TenantFeeOverride[] = [];
+    for (const o of overrides) {
+      const prior = existingByKey.get(o.feeKey);
+      const previousAmountMinor = prior ? Number(prior.amountMinor) : null;
+      const row =
+        prior ?? this.overrideRepo.create({ tenantId, feeKey: o.feeKey });
+      row.amountMinor = String(o.amountMinor);
+      row.currency = o.currency.toUpperCase();
+      row.active = true;
+      row.updatedBy = updatedBy;
+
+      const stored = await this.overrideRepo.save(row);
+      saved.push(stored);
+
+      await this.audit.logEvent({
+        tenantId,
+        userId: updatedBy,
+        action: prior ? AuditAction.UPDATE : AuditAction.CREATE,
+        entityType: 'tenant_fee_override',
+        entityId: stored.id,
+        severity: AuditSeverity.INFO,
+        description: `Fee override set for '${o.feeKey}': ${o.amountMinor} ${row.currency}.`,
+        context: {
+          feeKey: o.feeKey,
+          amountMinor: o.amountMinor,
+          currency: row.currency,
+          previousAmountMinor,
+        },
+      });
+    }
+
+    return saved;
   }
 }

@@ -10,7 +10,7 @@ import { PolicyGuard } from '../iam/guards/policy.guard';
 import { Roles } from '../iam/decorators/roles.decorator';
 import { PlatformRole } from '../iam/enums/platform-role.enum';
 import { JobRunService } from './job-run.service';
-import { JOB_CADENCE_MINUTES } from './jobs.controller';
+import { JOB_CADENCE_MINUTES } from './job-catalogue';
 
 /**
  * Scheduled-job health for the God UI.

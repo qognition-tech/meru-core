@@ -68,7 +68,19 @@ describe('DocumentAccessService', () => {
         return qb;
       }),
     };
-    return { service: new DocumentAccessService(entities as any), entities };
+    // Unused by every test in this file — they exercise canAccess/assert/
+    // applyScope, none of which touch the operator-only
+    // listMetadataForTenant path (see document-access-operator.spec.ts).
+    const documents = { find: jest.fn() };
+    const tenants = { findOne: jest.fn() };
+    return {
+      service: new DocumentAccessService(
+        entities as any,
+        documents as any,
+        tenants as any,
+      ),
+      entities,
+    };
   };
 
   describe('staff', () => {

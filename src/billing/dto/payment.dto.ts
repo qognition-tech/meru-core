@@ -15,6 +15,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { PaymentDirection, PaymentStatus } from '../entities/payment.entity';
 
@@ -275,4 +276,61 @@ export class ScheduleFeesDto {
   @IsString()
   @MaxLength(60)
   reference?: string;
+}
+
+/**
+ * One line of `PUT /billing/fee-overrides`'s body.
+ *
+ * Only `feeKey`/`amountMinor`/`currency` — no `kind`, `basis`, `atStep` or
+ * anything else structural. `FeeScheduleService.setOverrides` reads those
+ * from the pack's own definition of the fee; a caller cannot use this to
+ * relabel a fee or change what it is charged per (per-case, per-applicant).
+ */
+export class FeeOverrideDto {
+  @ApiProperty({
+    description:
+      "`fees[].key` of a `kind: 'firm'` fee in the tenant's resolved pack. " +
+      "Naming a government or disbursement fee, or a key the pack doesn't " +
+      'define, is rejected (400).',
+    example: 'firm_professional_482',
+  })
+  @IsString()
+  @MaxLength(100)
+  feeKey: string;
+
+  @ApiProperty({
+    description: 'What this firm actually charges, in MINOR units.',
+    example: 280000,
+    minimum: 1,
+  })
+  @Type(() => Number)
+  @IsInt({ message: 'amountMinor must be an integer number of minor units' })
+  @Min(1)
+  @Max(9_007_199_254_740_991)
+  amountMinor: number;
+
+  @ApiProperty({ example: 'AUD', description: 'ISO-4217, 3 letters' })
+  @IsString()
+  @Length(3, 3)
+  @Matches(/^[A-Za-z]{3}$/, {
+    message: 'currency must be a 3-letter ISO-4217 code',
+  })
+  currency: string;
+}
+
+/**
+ * Body for `PUT /billing/fee-overrides`.
+ *
+ * `overrides` is the **complete desired state**, not a delta — same
+ * reasoning as `OperatorUpdateEntitlementsDto.modules`: a caller reverting one
+ * fee to the pack default omits it from this array, and a PATCH-style merge
+ * could not express that. An empty array clears every override for the
+ * tenant.
+ */
+export class SetFeeOverridesDto {
+  @ApiProperty({ type: [FeeOverrideDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FeeOverrideDto)
+  overrides: FeeOverrideDto[];
 }

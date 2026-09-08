@@ -78,6 +78,15 @@ export enum MeruErrorCode {
    * state a retry cannot fix, unlike an adapter that ran and failed.
    */
   TENANT_CONNECTOR_NOT_ENABLED = 'MER-TENANT-0007',
+  /**
+   * HTTP 409 — `DELETE /tenants/:id` (ADR 0009 §2.1) called against a
+   * tenant whose status is already `deleted`. Deletion is soft and terminal
+   * (CLAUDE.md §7.2's WORM audit trail means there is no hard-purge path to
+   * fall back to), so a repeat call is a real conflict, not a no-op to
+   * swallow — swallowing it would let a caller believe a second delete
+   * request did something.
+   */
+  TENANT_ALREADY_DELETED = 'MER-TENANT-0008',
 
   // Validation (MER-VAL-xxxx)
   VALIDATION_ERROR = 'MER-VAL-0001',

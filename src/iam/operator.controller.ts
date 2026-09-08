@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -25,6 +26,7 @@ import { TenancyService } from '../core/tenancy/tenancy.service';
 import { BrandingService } from '../tenant/services/branding.service';
 import { ConnectorsService } from '../integrations/services/connectors.service';
 import { ImpersonateDto } from './dto/impersonate.dto';
+import { OperatorUpdateEntitlementsDto } from './dto/operator-update-entitlements.dto';
 import type { AuthenticatedRequest } from '../common/types';
 
 /**
@@ -108,6 +110,71 @@ export class OperatorController {
   entitlements(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.forTenant(req, id, 'entitlements', () =>
       this.tenantProvisioningService.getEntitlements(id),
+    );
+  }
+
+  @Put(':id/entitlements')
+  @Roles(PlatformRole.PLATFORM_ADMIN)
+  @ApiOperation({
+    summary: "Override another tenant's entitlements, no plan ceiling (God View)",
+    description:
+      "The operator twin of `PUT /tenants/me/entitlements`, and deliberately " +
+      'a strictly larger reach: the self-service route enforces the plan as ' +
+      'a ceiling, this one does not, because the party defining what a plan ' +
+      'means is not the party that ceiling exists to constrain (ADR 0009 ' +
+      '§2.2). `reason` is required and is written into the audit entry — it ' +
+      "is the only record of why a customer has a module its plan does not " +
+      'include. Cannot change `plan` itself — use PATCH /tenants/:id/upgrade.',
+  })
+  @ApiParam({ name: 'id', description: 'Tenant id' })
+  @ApiResponse({ status: 200, description: 'Entitlements updated' })
+  @ApiResponse({ status: 403, description: 'Requires platform_admin' })
+  @ApiResponse({ status: 400, description: 'Tenant not found, or reason too short' })
+  async updateEntitlements(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: OperatorUpdateEntitlementsDto,
+  ) {
+    // Not routed through `forTenant`: `forTenant` lets an operator act on
+    // their OWN tenant without platform_admin, which is meaningless for an
+    // entitlements write — the operator's own tenant is the control-plane
+    // tenant and carries no customer plan. Same reasoning `impersonate`
+    // above already uses to bypass `forTenant`. `@Roles` above is the only
+    // gate, and it is unconditional regardless of whose tenant `id` names.
+
+    // Computed here, before runAsGod, deliberately: TenancyService.runAsGod
+    // writes its audit entry BEFORE the wrapped work runs (CLAUDE.md §6.4),
+    // so `overage` — part of that entry's required context per ADR 0009
+    // §2.2 — must be known ahead of the write, not read off the write's own
+    // result. `getPlanAllowance` and `updateEntitlementsAsOperator` diff
+    // against the identical `PLAN_MODULES` map, so this is one computation
+    // done twice, not a second, driftable list.
+    const allowance = await this.tenantProvisioningService.getPlanAllowance(id);
+    const overage = dto.modules.filter(
+      (m) => !m.startsWith('country:') && !allowance.includes(m),
+    );
+
+    return this.tenancyService.runAsGod(
+      req.user.id,
+      id,
+      // TenancyService.runAsGod records `reason` verbatim as the audit
+      // entry's context (`{ reason, actorId, mode: 'god' }`) and takes no
+      // separate structured context object — widening it is out of this
+      // route's file scope and would change every other runAsGod call site
+      // in the app. The ADR's `context: { tenantId, modules, overage,
+      // reason }` is carried here by folding every field into this string,
+      // the same technique `impersonate` above already uses to get
+      // `dto.reason` into the audit trail.
+      `Override entitlements for tenant ${id} (God View) — ` +
+        `modules=[${dto.modules.join(', ')}], overage=[${overage.join(', ')}], ` +
+        `reason=${dto.reason}`,
+      async () => {
+        const result = await this.tenantProvisioningService.updateEntitlementsAsOperator(
+          id,
+          dto.modules,
+        );
+        return { ...result.entitlements, overage: result.overage };
+      },
     );
   }
 

@@ -4,8 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  InternalServerErrorException,
-  Logger,
   NotFoundException,
   Param,
   Post,
@@ -20,109 +18,22 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { SlaWatchdogService } from '../workflow/services/sla-watchdog.service';
-import { AlertRuleService } from '../rules/alert-rule.service';
-import { SequenceRunnerService } from '../notifications/sequence-runner.service';
-import { BillingService } from '../billing/billing.service';
-import { QueueService } from '../queue/queue.service';
-import { JobProcessor } from '../queue/queue.processor';
-import { TaskService } from '../tasks/task.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { AnalyticsService } from '../analytics/analytics.service';
-import { AuditService } from '../audit/audit.service';
-import { RetentionService } from '../audit/retention.service';
-import { RegulatoryRadarEngine } from '../ai/engines/regulatory-radar.engine';
 import { Public } from '../iam/decorators/public.decorator';
 import { CronSecretGuard } from './cron-secret.guard';
 import { JobRunService } from './job-run.service';
 import { MigrateService, MigrateTarget } from './migrate.service';
 import { ConfigPackLoaderService } from '../tenant/services/config-pack-loader.service';
-import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
-import { WatchlistIngestService } from '../ai/engines/watchlist-ingest.service';
-import { ScreeningEngine } from '../ai/engines/screening.engine';
-import { RescreeningService } from '../ai/engines/rescreening.service';
-
-export interface JobResult {
-  job: string;
-  status: 'ok';
-  durationMs: number;
-}
-
-export interface TickResult {
-  scope: TickScope;
-  ran: JobResult[];
-  /** Not due yet, per the cadence table. */
-  skipped: string[];
-  /** Due, but the time budget ran out — the next call picks these up. */
-  deferred: string[];
-  failed: { job: string; message: string }[];
-  durationMs: number;
-}
-
-/** Every scheduled job, and how many minutes it wants between runs. */
-export const JOB_CADENCE_MINUTES = {
-  'queue-drain': 1,
-  'scheduled-jobs': 1,
-  'recurring-tasks': 1,
-  'scheduled-notifications': 1,
-  // The COM delivery sweep. Without this the notifications module writes
-  // rows nobody ever sends — it had no transport at all before.
-  'notification-dispatch': 1,
-  'sla-watchdog': 5,
-  // Pack-driven alert rules. Every 15 minutes rather than daily: an alert
-  // rule can watch a same-day condition (an SLA about to breach, a payment
-  // overdue this morning), and a daily sweep would report it once the window
-  // it was meant to protect had already closed. Repeat notification is bounded
-  // by each rule's own cooldown, not by how often the sweep runs.
-  'alert-rules': 15,
-  // Pack-driven messaging sequences. Hourly is the right granularity: the
-  // shortest delay any authored sequence uses is measured in hours, and
-  // sweeping more often would only re-scan the same records for no earlier
-  // send — steps are due at a wall-clock offset from enrolment, not on a
-  // "next tick" basis.
-  'messaging-sequences': 60,
-  'scheduled-reports': 60,
-  'daily-billing': 1440,
-  'regulatory-radar': 1440,
-  'audit-archive': 1440,
-  // Sanctions lists change daily; screening against a stale list is the
-  // failure mode that matters, so this runs with the daily sweep.
-  'watchlist-ingest': 1440,
-  // Daily, and deliberately listed AFTER watchlist-ingest: TICK_SCOPES
-  // preserves this order, so the sweep runs against lists ingested moments
-  // earlier in the same tick rather than yesterday's.
-  'rescreening': 1440,
-  'digest-emails': 1440,
-} as const;
-
-export type JobName = keyof typeof JOB_CADENCE_MINUTES;
-
-const JOB_NAMES = Object.keys(JOB_CADENCE_MINUTES) as JobName[];
-
-/**
- * Which jobs a /tick call considers.
- *
- * The split is not cosmetic. `regulatory-radar` alone takes ~34s of the 60s
- * function limit, and the cadence map below is per-instance, so a cold lambda
- * believes nothing has run yet. Letting a one-minute pinger dispatch the daily
- * jobs would re-run the expensive ones on every cold start and could exceed
- * maxDuration. Frequent work is therefore driven by an external scheduler
- * hitting scope=fast; the daily work is driven by Vercel Cron once a day.
- */
-const TICK_SCOPES = {
-  fast: JOB_NAMES.filter((j) => JOB_CADENCE_MINUTES[j] <= 60),
-  daily: JOB_NAMES.filter((j) => JOB_CADENCE_MINUTES[j] > 60),
-  all: JOB_NAMES,
-} as const;
-
-export type TickScope = keyof typeof TICK_SCOPES;
-
-/**
- * Stop dispatching once this much of the invocation is gone, so a slow job
- * cannot push the response past the platform's function timeout. Whatever is
- * left is reported as deferred and picked up by the next call.
- */
-const TICK_BUDGET_MS = 45_000;
+import { JobDispatchService } from './job-dispatch.service';
+import {
+  JOB_CADENCE_MINUTES,
+  JOB_NAMES,
+  JobName,
+  JobResult,
+  TICK_BUDGET_MS,
+  TICK_SCOPES,
+  TickResult,
+  TickScope,
+} from './job-catalogue';
 
 /**
  * Cron entrypoints.
@@ -143,6 +54,13 @@ const TICK_BUDGET_MS = 45_000;
  * every minute). It runs whatever is currently due and is safe to call at any
  * frequency, so a free external scheduler can drive the fast jobs while the
  * Vercel crons act as a daily backstop.
+ *
+ * As of ADR 0009 §2.3, the actual per-job dispatch table (`handlerFor`, the
+ * `run()` timing wrapper, `runNamed`) lives in `JobDispatchService`
+ * (`job-dispatch.service.ts`), not here — this controller is now the HTTP
+ * front door (`CronSecretGuard`) onto that one implementation, and
+ * `PlatformJobsController` (`platform-jobs.controller.ts`) is the second,
+ * human-operator front door onto the same service.
  */
 @Controller('jobs')
 @ApiTags('jobs')
@@ -155,8 +73,6 @@ const TICK_BUDGET_MS = 45_000;
 })
 @ApiResponse({ status: 401, description: 'Missing or invalid cron secret' })
 export class JobsController {
-  private readonly logger = new Logger(JobsController.name);
-
   /**
    * Last successful run per job, so /tick can tell what is due.
    *
@@ -168,25 +84,10 @@ export class JobsController {
   private readonly lastRun = new Map<JobName, number>();
 
   constructor(
-    private readonly slaWatchdogService: SlaWatchdogService,
-    private readonly alertRuleService: AlertRuleService,
-    private readonly sequenceRunner: SequenceRunnerService,
-    private readonly billingService: BillingService,
-    private readonly queueService: QueueService,
-    private readonly jobProcessor: JobProcessor,
-    private readonly taskService: TaskService,
-    private readonly notificationsService: NotificationsService,
-    private readonly analyticsService: AnalyticsService,
-    private readonly auditService: AuditService,
-    private readonly retentionService: RetentionService,
-    private readonly regulatoryRadar: RegulatoryRadarEngine,
     private readonly migrateService: MigrateService,
     private readonly jobRunService: JobRunService,
-    private readonly rescreeningService: RescreeningService,
-    private readonly notificationDispatch: NotificationDispatchService,
-    private readonly watchlistIngest: WatchlistIngestService,
-    private readonly screeningEngine: ScreeningEngine,
     private readonly configPackLoader: ConfigPackLoaderService,
+    private readonly jobDispatchService: JobDispatchService,
   ) {}
 
   // ── Consolidated dispatcher ───────────────────────────────────────────────
@@ -263,6 +164,8 @@ export class JobsController {
   }
 
   // ── Individual job entrypoints ────────────────────────────────────────────
+  // One-line delegations to JobDispatchService (ADR 0009 §2.3) — this
+  // controller no longer owns the dispatch table itself.
 
   @Get(':job')
   @HttpCode(HttpStatus.OK)
@@ -277,7 +180,7 @@ export class JobsController {
   @ApiResponse({ status: 404, description: 'Unknown job name' })
   @ApiResponse({ status: 500, description: 'Job failed' })
   async runJobGet(@Param('job') job: string): Promise<JobResult> {
-    return this.runNamed(job);
+    return this.jobDispatchService.runNamed(job);
   }
 
   @Post(':job')
@@ -288,7 +191,7 @@ export class JobsController {
   @ApiResponse({ status: 404, description: 'Unknown job name' })
   @ApiResponse({ status: 500, description: 'Job failed' })
   async runJobPost(@Param('job') job: string): Promise<JobResult> {
-    return this.runNamed(job);
+    return this.jobDispatchService.runNamed(job);
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
@@ -321,25 +224,18 @@ export class JobsController {
       }
 
       try {
-        const result = await this.run(job, this.handlerFor(job));
+        // JobDispatchService.runNamed already records the outcome via
+        // JobRunService (success and failure) — this loop must NOT also
+        // call jobRunService.record() itself, or every dispatched job would
+        // be recorded twice per tick.
+        const result = await this.jobDispatchService.runNamed(job);
         ran.push(result);
         this.lastRun.set(job, Date.now());
-        await this.jobRunService.record(job, {
-          status: 'ok',
-          durationMs: result.durationMs,
-        });
       } catch (error) {
         // A failing job must not abort the rest of the tick.
         const message =
           error instanceof Error ? error.message : String(error ?? 'unknown');
         failed.push({ job, message });
-        // Recorded too. A job that fails every time would otherwise look
-        // identical to one that was never scheduled — both simply absent.
-        await this.jobRunService.record(job, {
-          status: 'failed',
-          durationMs: 0,
-          error: message,
-        });
       }
     }
 
@@ -359,120 +255,5 @@ export class JobsController {
     throw new NotFoundException(
       `Unknown scope "${scope}". Valid scopes: ${Object.keys(TICK_SCOPES).join(', ')}`,
     );
-  }
-
-  private async runNamed(job: string): Promise<JobResult> {
-    if (!JOB_NAMES.includes(job as JobName)) {
-      throw new NotFoundException(
-        `Unknown job "${job}". Valid jobs: ${JOB_NAMES.join(', ')}`,
-      );
-    }
-
-    try {
-      const result = await this.run(job, this.handlerFor(job as JobName));
-      this.lastRun.set(job as JobName, Date.now());
-      await this.jobRunService.record(job, {
-        status: 'ok',
-        durationMs: result.durationMs,
-      });
-      return result;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error ?? 'unknown');
-      await this.jobRunService.record(job, {
-        status: 'failed',
-        durationMs: 0,
-        error: message,
-      });
-      throw error;
-    }
-  }
-
-  private handlerFor(job: JobName): () => Promise<unknown> {
-    switch (job) {
-      case 'queue-drain':
-        // Serverless replacement for the JobProcessor polling loop, which is
-        // disabled under VERCEL. Bounded to 25 jobs / 30s per invocation.
-        return () => this.jobProcessor.drainQueue();
-      case 'scheduled-jobs':
-        return () => this.queueService.processScheduledJobs();
-      case 'recurring-tasks':
-        return () => this.taskService.processRecurringJobs();
-      case 'scheduled-notifications':
-        return () => this.notificationsService.processScheduledNotifications();
-      case 'notification-dispatch':
-        return async () => {
-          await this.notificationDispatch.retryFailed();
-          return this.notificationDispatch.dispatchPending();
-        };
-      case 'sla-watchdog':
-        return () => this.slaWatchdogService.checkSLAViolations();
-      case 'messaging-sequences':
-        // Enrols newly-matching records and sends whatever steps are now due.
-        // `invalidSequences` in the summary names pack sequences that could
-        // not be compiled — a bad stopWhen is the dangerous one, since the
-        // sequence would enrol correctly and then never stop.
-        return () => this.sequenceRunner.run();
-      case 'alert-rules':
-        // Evaluates every tenant's `alertRules[]` against its entities. The
-        // `invalidRules` array in the summary is the one output worth reading:
-        // it names pack rules that could not be compiled and were skipped.
-        return () => this.alertRuleService.sweep();
-      case 'scheduled-reports':
-        return () => this.analyticsService.processScheduledReports();
-      case 'daily-billing':
-        return () => this.billingService.processDailyBilling();
-      case 'regulatory-radar':
-        return () => this.regulatoryRadar.scheduledScan();
-      case 'audit-archive':
-        // Pack-driven per tenant, replacing a hardcoded 365 days that ignored
-        // `compliance.retentionYears` entirely — the platform was stating a
-        // retention period to regulators and keeping a different one.
-        return () => this.retentionService.sweep();
-      case 'watchlist-ingest':
-        return async () => {
-          const result = await this.watchlistIngest.ingestAll();
-          // The engine caches lists for 10 minutes; drop it so a fresh
-          // ingest takes effect immediately rather than after the TTL.
-          this.screeningEngine.invalidateCache();
-          return result;
-        };
-      case 'rescreening':
-        // Re-checks names screened before the current list. Returns a
-        // `changed` array — a previously-clear name that now hits is the one
-        // output of this job somebody must act on.
-        return () => this.rescreeningService.sweep();
-      case 'digest-emails':
-        return () => this.notificationsService.sendDigestEmails();
-    }
-  }
-
-  private async run(
-    job: string,
-    fn: () => Promise<unknown>,
-  ): Promise<JobResult> {
-    const startedAt = Date.now();
-    this.logger.log(`Cron job "${job}" started`);
-
-    try {
-      await fn();
-      const durationMs = Date.now() - startedAt;
-      this.logger.log(`Cron job "${job}" completed in ${durationMs}ms`);
-      return { job, status: 'ok', durationMs };
-    } catch (error) {
-      const durationMs = Date.now() - startedAt;
-      const message =
-        error instanceof Error ? error.message : String(error ?? 'unknown');
-      this.logger.error(
-        `Cron job "${job}" failed after ${durationMs}ms: ${message}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw new InternalServerErrorException({
-        job,
-        status: 'error',
-        durationMs,
-        message: `Cron job "${job}" failed: ${message}`,
-      });
-    }
   }
 }

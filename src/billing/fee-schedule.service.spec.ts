@@ -4,6 +4,7 @@ import {
   type PaymentPlanDefinition,
 } from './fee-schedule.service';
 import { Payment, PaymentStatus } from './entities/payment.entity';
+import type { TenantFeeOverride } from './entities/tenant-fee-override.entity';
 import { BadRequestException } from '@nestjs/common';
 
 /**
@@ -46,6 +47,14 @@ describe('FeeScheduleService', () => {
       currency: 'AUD',
       basis: 'per_dependent',
     },
+    {
+      key: 'disb_health_examination',
+      label: 'Health examination',
+      kind: 'disbursement',
+      amountMinor: 40000,
+      currency: 'AUD',
+      basis: 'per_applicant',
+    },
   ];
 
   const plans: PaymentPlanDefinition[] = [
@@ -79,7 +88,52 @@ describe('FeeScheduleService', () => {
     },
   ];
 
-  function build(existing: Payment[] = []) {
+  /**
+   * A minimal in-memory `tenant_fee_overrides` table, scoped by `tenantId`
+   * the same way the real RLS-carrying table is — `find` never returns a row
+   * belonging to a different tenant, so a test that seeds tenant A's override
+   * and reads as tenant B is a genuine isolation check, not a stub that
+   * happens to answer right.
+   */
+  function overrideRepoStub(seed: Partial<TenantFeeOverride>[] = []) {
+    const store: Partial<TenantFeeOverride>[] = seed.map((r) => ({ ...r }));
+    let nextId = store.length + 1;
+    return {
+      store,
+      find: jest.fn(({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          store.filter(
+            (r) =>
+              r.tenantId === where.tenantId &&
+              (where.active === undefined || r.active === where.active),
+          ),
+        ),
+      ),
+      create: jest.fn(
+        (x: Partial<TenantFeeOverride>) =>
+          ({ active: true, ...x }) as TenantFeeOverride,
+      ),
+      save: jest.fn((row: Partial<TenantFeeOverride>) => {
+        const idx = store.findIndex((r) => r.id && r.id === row.id);
+        const stored = { id: row.id ?? `override-${nextId++}`, ...row };
+        if (idx >= 0) store[idx] = stored;
+        else store.push(stored);
+        return Promise.resolve(stored as TenantFeeOverride);
+      }),
+      remove: jest.fn((row: Partial<TenantFeeOverride>) => {
+        const idx = store.findIndex((r) => r.id === row.id);
+        if (idx >= 0) store.splice(idx, 1);
+        return Promise.resolve(row as TenantFeeOverride);
+      }),
+    };
+  }
+
+  const auditStub = { logEvent: jest.fn(() => Promise.resolve({})) };
+
+  function build(
+    existing: Payment[] = [],
+    overrides: ReturnType<typeof overrideRepoStub> = overrideRepoStub(),
+  ) {
     const saved: Payment[] = [];
     const repo = {
       find: jest.fn(() => Promise.resolve(existing)),
@@ -93,9 +147,20 @@ describe('FeeScheduleService', () => {
       section: jest.fn((_vertical: string, key: string) =>
         Promise.resolve(key === 'fees' ? fees : plans),
       ),
+      // `catalogue` calls `.list`, which the real VerticalPackService derives
+      // from `.section` (empty array rather than null/undefined).
+      list: jest.fn((_vertical: string, key: string) =>
+        Promise.resolve(key === 'fees' ? fees : plans),
+      ),
     };
-    const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
-    return { service, repo, saved };
+    const service = new FeeScheduleService(
+      repo as never,
+      overrides as never,
+      packs as never,
+      paymentsStub as never,
+      auditStub as never,
+    );
+    return { service, repo, saved, overrides };
   }
 
   /**
@@ -282,7 +347,13 @@ describe('FeeScheduleService', () => {
       const packs = {
         section: jest.fn(() => Promise.resolve(plans)),
       };
-      const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
+      const service = new FeeScheduleService(
+        repo as never,
+        overrideRepoStub() as never,
+        packs as never,
+        paymentsStub as never,
+        auditStub as never,
+      );
 
       // `three_monthly` does not set blockProgressOnArrears. A firm that never
       // asked for frozen cases must not have its workflows stopped because
@@ -311,7 +382,13 @@ describe('FeeScheduleService', () => {
         save: jest.fn(),
       };
       const packs = { section: jest.fn(() => Promise.resolve(plans)) };
-      const service = new FeeScheduleService(repo as never, packs as never, paymentsStub as never);
+      const service = new FeeScheduleService(
+        repo as never,
+        overrideRepoStub() as never,
+        packs as never,
+        paymentsStub as never,
+        auditStub as never,
+      );
 
       const blocking = await service.arrearsBlocking(
         TENANT,
@@ -320,6 +397,204 @@ describe('FeeScheduleService', () => {
         'lodgement',
       );
       expect(blocking).toHaveLength(1);
+    });
+  });
+
+  /**
+   * ADR 0009 §2.4 — a firm's own `kind: 'firm'` fee amount becomes a
+   * tenant-scoped override. Everything else the pack declares — government
+   * charges, disbursements, payment-plan structure — stays pack-owned.
+   */
+  describe('tenant fee overrides (ADR 0009 §2.4)', () => {
+    const OTHER_TENANT = '44444444-4444-4444-4444-444444444444';
+    const OPERATOR = '55555555-5555-5555-5555-555555555555';
+
+    it("replaces the pack amount for a 'firm' fee, for that tenant only", async () => {
+      const overrides = overrideRepoStub([
+        {
+          id: 'ov1',
+          tenantId: TENANT,
+          feeKey: 'firm_professional',
+          amountMinor: '280000',
+          currency: 'AUD',
+          active: true,
+        } as TenantFeeOverride,
+      ]);
+      const { service } = build([], overrides);
+
+      const rows = await service.expand({
+        ...base,
+        feeKeys: ['firm_professional'],
+      });
+
+      // Pack default is 100000 (see the `fees` fixture) — the override wins.
+      expect(rows[0].amountMinor).toBe('280000');
+      expect(rows[0].currency).toBe('AUD');
+      // Nothing structural moved: the row is still tagged as a firm fee.
+      expect(rows[0].feeKind).toBe('firm');
+
+      const { fees: catalogueFees } = await service.catalogue(
+        'immigration',
+        TENANT,
+      );
+      const professional = catalogueFees.find(
+        (f) => f.key === 'firm_professional',
+      );
+      expect(professional?.amountMinor).toBe(280000);
+    });
+
+    it('leaves a tenant with no override on the pack amount', async () => {
+      // Empty override store — the base case every ImmiStack tenant on the
+      // unpinned pack is in today.
+      const { service } = build();
+
+      const rows = await service.expand({
+        ...base,
+        feeKeys: ['firm_professional'],
+      });
+
+      expect(rows[0].amountMinor).toBe('100000');
+
+      const { fees: catalogueFees } = await service.catalogue(
+        'immigration',
+        TENANT,
+      );
+      const professional = catalogueFees.find(
+        (f) => f.key === 'firm_professional',
+      );
+      expect(professional?.amountMinor).toBe(100000);
+    });
+
+    it('refuses to override a government fee', async () => {
+      const overrides = overrideRepoStub();
+      const { service } = build([], overrides);
+
+      await expect(
+        service.setOverrides(
+          TENANT,
+          'immigration',
+          [{ feeKey: 'gov_482', amountMinor: 1, currency: 'AUD' }],
+          OPERATOR,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      // Rejected before any row was written.
+      expect(overrides.store).toHaveLength(0);
+    });
+
+    it('refuses to override a disbursement fee', async () => {
+      const overrides = overrideRepoStub();
+      const { service } = build([], overrides);
+
+      await expect(
+        service.setOverrides(
+          TENANT,
+          'immigration',
+          [
+            {
+              feeKey: 'disb_health_examination',
+              amountMinor: 1,
+              currency: 'AUD',
+            },
+          ],
+          OPERATOR,
+        ),
+      ).rejects.toThrow(/disbursement/);
+      expect(overrides.store).toHaveLength(0);
+    });
+
+    it("refuses a feeKey the pack doesn't define", async () => {
+      const overrides = overrideRepoStub();
+      const { service } = build([], overrides);
+
+      await expect(
+        service.setOverrides(
+          TENANT,
+          'immigration',
+          [{ feeKey: 'no_such_fee', amountMinor: 1, currency: 'AUD' }],
+          OPERATOR,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("is tenant-isolated: tenant A's override never reaches tenant B", async () => {
+      const overrides = overrideRepoStub([
+        {
+          id: 'ov1',
+          tenantId: TENANT,
+          feeKey: 'firm_professional',
+          amountMinor: '280000',
+          currency: 'AUD',
+          active: true,
+        } as TenantFeeOverride,
+      ]);
+      const { service } = build([], overrides);
+
+      const rowsForOwner = await service.expand({
+        ...base,
+        feeKeys: ['firm_professional'],
+      });
+      expect(rowsForOwner[0].amountMinor).toBe('280000');
+
+      const rowsForOther = await service.expand({
+        ...base,
+        tenantId: OTHER_TENANT,
+        feeKeys: ['firm_professional'],
+      });
+      // Same shared override store, different tenant: the pack default, not
+      // tenant A's price.
+      expect(rowsForOther[0].amountMinor).toBe('100000');
+    });
+
+    it('setOverrides writes a complete desired state — omitting a key reverts it to the pack default', async () => {
+      const overrides = overrideRepoStub([
+        {
+          id: 'ov1',
+          tenantId: TENANT,
+          feeKey: 'firm_professional',
+          amountMinor: '280000',
+          currency: 'AUD',
+          active: true,
+        } as TenantFeeOverride,
+      ]);
+      const { service } = build([], overrides);
+
+      // A PUT naming no overrides at all clears the existing one — the same
+      // "complete desired state" contract as OperatorUpdateEntitlementsDto.
+      await service.setOverrides(TENANT, 'immigration', [], OPERATOR);
+
+      expect(overrides.store).toHaveLength(0);
+
+      const rows = await service.expand({
+        ...base,
+        feeKeys: ['firm_professional'],
+      });
+      expect(rows[0].amountMinor).toBe('100000');
+    });
+
+    it('audits every override write with the previous amount', async () => {
+      const overrides = overrideRepoStub();
+      const { service } = build([], overrides);
+      auditStub.logEvent.mockClear();
+
+      await service.setOverrides(
+        TENANT,
+        'immigration',
+        [{ feeKey: 'firm_professional', amountMinor: 280000, currency: 'AUD' }],
+        OPERATOR,
+      );
+
+      expect(auditStub.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT,
+          userId: OPERATOR,
+          context: expect.objectContaining({
+            feeKey: 'firm_professional',
+            amountMinor: 280000,
+            currency: 'AUD',
+            previousAmountMinor: null,
+          }),
+        }),
+      );
     });
   });
 });

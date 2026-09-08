@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   UseGuards,
@@ -27,6 +28,7 @@ import {
   CreatePaymentDto,
   ListPaymentsQueryDto,
   ScheduleFeesDto,
+  SetFeeOverridesDto,
   SettlePaymentDto,
 } from './dto/payment.dto';
 import { paginated } from '../common/paginated';
@@ -115,7 +117,46 @@ export class PaymentsController {
   })
   @ApiResponse({ status: 200, description: 'Fees and plans retrieved' })
   async listPlans(@Request() req: AuthenticatedRequest) {
-    return this.feeSchedule.catalogue(req.tenantVertical ?? null);
+    return this.feeSchedule.catalogue(
+      req.tenantVertical ?? null,
+      req.user.tenantId,
+    );
+  }
+
+  @Put('fee-overrides')
+  @Roles(PlatformRole.FIRM_ADMIN)
+  @ApiOperation({
+    summary: "Set this firm's own professional-fee amounts",
+    description:
+      "ADR 0009 §2.4. Overrides a `kind: 'firm'` fee's `amountMinor`/" +
+      '`currency` for this tenant only — `government` and `disbursement` ' +
+      'amounts, and all `paymentPlans[]` structure, stay pack-owned and are ' +
+      'not writable here.\n\n' +
+      '**Complete desired state.** `overrides` replaces every override this ' +
+      'tenant has; omitting a `feeKey` already overridden reverts it to the ' +
+      "pack default. `platform_admin` is deliberately excluded — a platform " +
+      "operator setting one firm's price is a separate, unreviewed " +
+      'capability this route does not extend to.',
+  })
+  @ApiResponse({ status: 200, description: 'Overrides applied' })
+  @ApiResponse({
+    status: 400,
+    description:
+      "A feeKey the pack doesn't define, or a non-'firm' fee (government or " +
+      'disbursement amounts cannot be overridden)',
+  })
+  @ApiResponse({ status: 403, description: 'Requires firm_admin' })
+  async setFeeOverrides(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: SetFeeOverridesDto,
+  ) {
+    const rows = await this.feeSchedule.setOverrides(
+      req.user.tenantId,
+      req.tenantVertical ?? null,
+      dto.overrides,
+      req.user.id,
+    );
+    return rows.map((r) => ({ ...r, amountMinor: Number(r.amountMinor) }));
   }
 
   @Post('schedule')
