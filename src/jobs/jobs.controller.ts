@@ -180,7 +180,7 @@ export class JobsController {
   @ApiResponse({ status: 404, description: 'Unknown job name' })
   @ApiResponse({ status: 500, description: 'Job failed' })
   async runJobGet(@Param('job') job: string): Promise<JobResult> {
-    return this.jobDispatchService.runNamed(job);
+    return this.runAndMark(job);
   }
 
   @Post(':job')
@@ -191,7 +191,24 @@ export class JobsController {
   @ApiResponse({ status: 404, description: 'Unknown job name' })
   @ApiResponse({ status: 500, description: 'Job failed' })
   async runJobPost(@Param('job') job: string): Promise<JobResult> {
-    return this.jobDispatchService.runNamed(job);
+    return this.runAndMark(job);
+  }
+
+  /**
+   * Dispatch, then mark the job as just-run in the in-memory cadence hint.
+   *
+   * The private `runNamed` this replaced did the `lastRun.set` itself, and the
+   * extraction to `JobDispatchService` dropped it — the service has no access
+   * to this controller's map. Without it a manual run does not suppress the
+   * next `/jobs/tick`, so a job invoked by hand could run again immediately.
+   * Low impact (the map is a de-duplication hint, not a schedule of record;
+   * handlers are idempotent; it resets on cold start) — but the extraction
+   * claimed to be behaviour-preserving, and this is the one place it was not.
+   */
+  private async runAndMark(job: string): Promise<JobResult> {
+    const result = await this.jobDispatchService.runNamed(job);
+    this.lastRun.set(job as JobName, Date.now());
+    return result;
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

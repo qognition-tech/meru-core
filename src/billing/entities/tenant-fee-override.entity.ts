@@ -57,9 +57,15 @@ export class TenantFeeOverride {
   currency: string;
 
   /**
-   * Soft toggle kept alongside the row rather than a delete, so "what was
-   * this firm charging before" survives a caller reverting to the pack
-   * default. `FeeScheduleService` only ever merges an `active: true` row.
+   * Read as a filter, never written as `false` today.
+   *
+   * The comment here used to promise a soft toggle preserving "what this firm
+   * charged before" — that is NOT what happens: `FeeScheduleService.setOverrides`
+   * hard-deletes any row omitted from the desired state, so the column has one
+   * reachable value. Kept rather than dropped because the merge path already
+   * filters on it, so a future revert-to-pack that preserves history costs one
+   * `update` instead of a migration — but until that exists, do not read this
+   * column as an audit trail. The audit entries are the record.
    */
   @Column({ default: true })
   active: boolean;

@@ -459,6 +459,25 @@ export class FeeScheduleService {
       }
     }
 
+    // KNOWN LIMITATION, deliberately not fixed here (Owen, ADR 0009 review).
+    //
+    // The removals and upserts below are NOT wrapped in one transaction, and
+    // each row is audited AFTER it is written rather than before. That inverts
+    // `runAsGod`'s posture (CLAUDE.md §7.7: "if the access cannot be recorded,
+    // it does not happen"), and a failure part-way through this batch leaves a
+    // partially-applied "complete desired state".
+    //
+    // Two things bound the exposure: the validation loop above is already
+    // all-or-nothing, so the common failure — a bad `feeKey`, or a caller
+    // trying to override a government fee — throws before anything is written;
+    // and the route is `firm_admin` only, on that firm's own professional-fee
+    // amounts.
+    //
+    // The fix is `this.overrideRepo.manager.transaction(...)`. It was not done
+    // at the time of writing because the nine specs covering this method build
+    // the service with in-memory repository stubs that expose no `.manager`,
+    // so it is a change to the tests as much as the code — not something to
+    // land unreviewed. Do it with the transaction and the stub rework together.
     const existing = await this.overrideRepo.find({ where: { tenantId } });
     const existingByKey = new Map(existing.map((e) => [e.feeKey, e]));
     const desiredKeys = new Set(overrides.map((o) => o.feeKey));

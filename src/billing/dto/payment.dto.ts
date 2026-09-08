@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
+  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsISO8601,
@@ -328,8 +329,12 @@ export class FeeOverrideDto {
  * tenant.
  */
 export class SetFeeOverridesDto {
-  @ApiProperty({ type: [FeeOverrideDto] })
+  @ApiProperty({ type: [FeeOverrideDto], maxItems: 100 })
   @IsArray()
+  // Capped for the same reason `OperatorUpdateEntitlementsDto.modules` is,
+  // which this doc comment claims to mirror but did not: an uncapped array on
+  // an authenticated write lets one request do unbounded work.
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => FeeOverrideDto)
   overrides: FeeOverrideDto[];
